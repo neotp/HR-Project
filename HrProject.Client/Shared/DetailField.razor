@@ -1,0 +1,11 @@
+<div class="detail-field">
+    <span>@Label</span>
+    <strong>@DisplayValue</strong>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Value { get; set; }
+
+    private string DisplayValue => string.IsNullOrWhiteSpace(Value) ? "-" : Value;
+}

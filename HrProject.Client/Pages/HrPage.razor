@@ -1,0 +1,28 @@
+<PageTitle>@Title | HR Project</PageTitle>
+
+<section class="manage-page hr-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>@Title</h1>
+                <p>@Description</p>
+            </div>
+        </div>
+    </header>
+
+    <section class="content-card">
+        <div class="content-card-header">@Title</div>
+        <div class="content-card-body hr-page-body">
+            <div class="hr-page-icon" aria-hidden="true">@Icon</div>
+            <h2>พร้อมเริ่มใช้งาน</h2>
+            <p>หน้านี้เป็นพื้นที่สำหรับ @Title คุณสามารถเพิ่มฟอร์ม ตาราง และขั้นตอนอนุมัติในโมดูลนี้ได้</p>
+            <button class="btn btn-primary" type="button">สร้างรายการใหม่</button>
+        </div>
+    </section>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = "•";
+}

@@ -1,0 +1,591 @@
+@page "/attendance"
+@inject HttpClient Http
+
+<PageTitle>การมาทำงาน | HR Project</PageTitle>
+
+<section class="manage-page attendance-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1><span class="header-icon" aria-hidden="true">◷</span> การมาทำงาน</h1>
+                <p>ตรวจสอบเวลาเข้า-ออกงานและสถานะการทำงานในรูปแบบปฏิทิน</p>
+            </div>
+        </div>
+    </header>
+
+    <section class="attendance-summary" aria-label="สรุปการมาทำงาน">
+        <article class="summary-card summary-workdays">
+            <span class="summary-label">วันทำงานในเดือน</span>
+            <strong>@WorkingDayCount</strong>
+            <span class="summary-unit">วัน</span>
+        </article>
+        <article class="summary-card summary-present">
+            <span class="summary-label">มาปกติ</span>
+            <strong>@CountStatus(AttendanceStatus.Present)</strong>
+            <span class="summary-unit">วัน</span>
+        </article>
+        <article class="summary-card summary-late">
+            <span class="summary-label">มาสาย</span>
+            <strong>@CountStatus(AttendanceStatus.Late)</strong>
+            <span class="summary-unit">วัน</span>
+        </article>
+        <article class="summary-card summary-away">
+            <span class="summary-label">ลา / ขาดงาน</span>
+            <strong>@AwayCount</strong>
+            <span class="summary-unit">วัน</span>
+        </article>
+    </section>
+
+    <section class="content-card calendar-card">
+        @if (IsLoadingCalendarData)
+        {
+            <div class="calendar-data-message loading-calendar-data">
+                กำลังโหลดเอกสารการลาและปฏิทินการทำงาน...
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(LoadErrorMessage))
+        {
+            <div class="calendar-data-message calendar-data-error">
+                @LoadErrorMessage
+            </div>
+        }
+
+        <div class="calendar-toolbar">
+            <div>
+                <h2>ปฏิทินการมาทำงาน</h2>
+                <p>เลือกวันที่เพื่อดูรายละเอียดเวลาเข้าและออกงาน</p>
+            </div>
+
+            <div class="month-navigation">
+                <button type="button"
+                        class="month-button month-arrow"
+                        aria-label="เดือนก่อนหน้า"
+                        @onclick="ShowPreviousMonth">‹</button>
+                <div class="month-title" aria-live="polite">@MonthTitle</div>
+                <button type="button"
+                        class="month-button month-arrow"
+                        aria-label="เดือนถัดไป"
+                        @onclick="ShowNextMonth">›</button>
+                <button type="button" class="month-button today-button" @onclick="ShowCurrentMonth">
+                    เดือนปัจจุบัน
+                </button>
+            </div>
+        </div>
+
+        <div class="calendar-scroll">
+            <div class="calendar-canvas">
+                <div class="calendar-weekdays" aria-hidden="true">
+                    @foreach (var weekday in WeekdayNames)
+                    {
+                        <div>@weekday</div>
+                    }
+                </div>
+
+                <div class="calendar-grid">
+                    @foreach (var day in CalendarDays)
+                    {
+                        <button type="button"
+                                class="@GetDayCssClass(day)"
+                                aria-label="@GetDayAriaLabel(day)"
+                                @onclick="() => SelectDay(day)">
+                            <span class="day-heading">
+                                <span class="day-number">@day.Date.Day</span>
+                                @if (day.Date == Today)
+                                {
+                                    <span class="today-label">วันนี้</span>
+                                }
+                            </span>
+
+                            @if (day.Record is not null)
+                            {
+                                <span class="@GetRecordStatusCssClass(day.Record)">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    @GetRecordStatusText(day.Record)
+                                </span>
+
+                                @if (!string.IsNullOrWhiteSpace(day.Record.ClockIn))
+                                {
+                                    <span class="attendance-time">
+                                        <span>เข้า @day.Record.ClockIn</span>
+                                        <span>ออก @day.Record.ClockOut</span>
+                                    </span>
+                                }
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="calendar-footer">
+            <div class="calendar-legend" aria-label="คำอธิบายสถานะ">
+                <span><i class="legend-dot present"></i>มาปกติ</span>
+                <span><i class="legend-dot late"></i>มาสาย</span>
+                <span><i class="legend-dot leave"></i>ลา</span>
+                <span><i class="legend-dot absent"></i>ขาดงาน</span>
+                <span><i class="legend-dot holiday"></i>วันหยุดนักขัตฤกษ์</span>
+                <span><i class="legend-dot working-saturday"></i>วันเสาร์ทำงาน</span>
+                <span><i class="legend-dot weekend"></i>วันหยุด</span>
+            </div>
+        </div>
+    </section>
+
+    @if (SelectedDay is not null)
+    {
+        <section class="content-card selected-day-card" aria-live="polite">
+            <div class="selected-day-header">
+                <div>
+                    <span class="selected-day-eyebrow">รายละเอียดการมาทำงาน</span>
+                    <h2>@FormatFullDate(SelectedDay.Date)</h2>
+                </div>
+                <button type="button" class="close-detail-button" aria-label="ปิดรายละเอียด" @onclick="ClearSelectedDay">×</button>
+            </div>
+
+            @if (SelectedDay.Record is null)
+            {
+                <div class="no-record">ยังไม่มีข้อมูลการมาทำงานสำหรับวันนี้</div>
+            }
+            else
+            {
+                <div class="selected-day-details">
+                    <div class="detail-item">
+                        <span>สถานะ</span>
+                        <strong class="@GetRecordStatusCssClass(SelectedDay.Record)">
+                            <span class="status-dot" aria-hidden="true"></span>
+                            @GetRecordStatusText(SelectedDay.Record)
+                        </strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>เวลาเข้างาน</span>
+                        <strong>@DisplayTime(SelectedDay.Record.ClockIn)</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>เวลาออกงาน</span>
+                        <strong>@DisplayTime(SelectedDay.Record.ClockOut)</strong>
+                    </div>
+                    <div class="detail-item detail-note">
+                        <span>หมายเหตุ</span>
+                        <strong>@SelectedDay.Record.Note</strong>
+                    </div>
+                    @if (SelectedDay.Record.LeaveDocument is not null)
+                    {
+                        <div class="detail-item">
+                            <span>เลขที่เอกสาร</span>
+                            <strong>@SelectedDay.Record.LeaveDocument.DocumentNo</strong>
+                        </div>
+                        <div class="detail-item">
+                            <span>ประเภทการลา</span>
+                            <strong>@SelectedDay.Record.LeaveDocument.LeaveTypeName</strong>
+                        </div>
+                        <div class="detail-item">
+                            <span>จำนวน</span>
+                            <strong>@SelectedDay.Record.LeaveDocument.LeaveHours.ToString("0.##") ชั่วโมง</strong>
+                        </div>
+                        <div class="detail-item detail-note">
+                            <span>เหตุผลการลา</span>
+                            <strong>@SelectedDay.Record.LeaveDocument.LeaveReason</strong>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    }
+</section>
+
+@code {
+    private static readonly string[] WeekdayNames = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+    private static readonly string[] ThaiMonthNames =
+    [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+
+    private readonly DateOnly Today = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly DisplayedMonth;
+    private List<CalendarDay> CalendarDays = [];
+    private List<LeaveDocumentDto> LeaveDocuments = [];
+    private List<WorkCalendarDayDto> WorkCalendarDays = [];
+    private CalendarDay? SelectedDay;
+    private bool IsLoadingCalendarData = true;
+    private string? LoadErrorMessage;
+
+    private string MonthTitle => $"{ThaiMonthNames[DisplayedMonth.Month - 1]} {DisplayedMonth.Year}";
+
+    private int WorkingDayCount
+    {
+        get
+        {
+            var daysInMonth = DateTime.DaysInMonth(DisplayedMonth.Year, DisplayedMonth.Month);
+            return Enumerable.Range(1, daysInMonth)
+                .Select(day => new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, day))
+                .Count(IsCompanyWorkDay);
+        }
+    }
+
+    private int AwayCount =>
+        CountStatus(AttendanceStatus.Leave) + CountStatus(AttendanceStatus.Absent);
+
+    protected override async Task OnInitializedAsync()
+    {
+        DisplayedMonth = new DateOnly(Today.Year, Today.Month, 1);
+        BuildCalendar();
+
+        try
+        {
+            WorkCalendarDays = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
+                "api/work-calendar") ?? [];
+        }
+        catch (Exception)
+        {
+            AppendLoadError("ไม่สามารถโหลดวันหยุดและวันเสาร์ทำงานได้");
+        }
+
+        try
+        {
+            var currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+            {
+                AppendLoadError("ไม่พบข้อมูลพนักงานที่เชื่อมกับบัญชี Microsoft");
+                return;
+            }
+
+            LeaveDocuments = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+                $"api/leave-documents?creatorEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            AppendLoadError("ไม่สามารถโหลดเอกสารการลาได้ กรุณาตรวจสอบการเชื่อมต่อ API");
+        }
+        catch
+        {
+            AppendLoadError("เกิดข้อผิดพลาดระหว่างโหลดเอกสารการลา");
+        }
+        finally
+        {
+            IsLoadingCalendarData = false;
+            BuildCalendar();
+        }
+    }
+
+    private void ShowPreviousMonth()
+    {
+        DisplayedMonth = DisplayedMonth.AddMonths(-1);
+        SelectedDay = null;
+        BuildCalendar();
+    }
+
+    private void ShowNextMonth()
+    {
+        DisplayedMonth = DisplayedMonth.AddMonths(1);
+        SelectedDay = null;
+        BuildCalendar();
+    }
+
+    private void ShowCurrentMonth()
+    {
+        DisplayedMonth = new DateOnly(Today.Year, Today.Month, 1);
+        SelectedDay = null;
+        BuildCalendar();
+    }
+
+    private void BuildCalendar()
+    {
+        var firstDay = new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, 1);
+        var calendarStart = firstDay.AddDays(-(int)firstDay.DayOfWeek);
+
+        CalendarDays = Enumerable.Range(0, 42)
+            .Select(offset =>
+            {
+                var date = calendarStart.AddDays(offset);
+                return new CalendarDay(
+                    date,
+                    date.Month == DisplayedMonth.Month && date.Year == DisplayedMonth.Year,
+                    CreateCalendarRecord(date));
+            })
+            .ToList();
+    }
+
+    private AttendanceRecord? CreateCalendarRecord(DateOnly date)
+    {
+        var leaveDocument = LeaveDocuments
+            .Where(document => document.LeaveDate == date)
+            .OrderBy(document => LeaveDocumentStatusPriority(document.Status))
+            .ThenByDescending(document => document.CreatedAt)
+            .FirstOrDefault();
+
+        if (leaveDocument is not null)
+        {
+            var endTime = leaveDocument.StartTime.Add(
+                TimeSpan.FromHours((double)leaveDocument.LeaveHours));
+            return new AttendanceRecord(
+                AttendanceStatus.Leave,
+                leaveDocument.StartTime.ToString("HH:mm"),
+                endTime.ToString("HH:mm"),
+                $"เอกสาร {leaveDocument.DocumentNo}",
+                leaveDocument,
+                null);
+        }
+
+        var companyCalendarDay = WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
+        if (companyCalendarDay?.DayType == "PUBLIC_HOLIDAY")
+        {
+            return new AttendanceRecord(
+                AttendanceStatus.PublicHoliday,
+                null,
+                null,
+                companyCalendarDay.Name,
+                null,
+                companyCalendarDay);
+        }
+
+        if (companyCalendarDay?.DayType == "WORKING_SATURDAY")
+        {
+            if (date > Today)
+            {
+                return new AttendanceRecord(
+                    AttendanceStatus.ScheduledWork,
+                    null,
+                    null,
+                    companyCalendarDay.Name,
+                    null,
+                    companyCalendarDay);
+            }
+
+            var saturdayMinute = 38 + (date.Day % 13);
+            return new AttendanceRecord(
+                AttendanceStatus.Present,
+                $"08:{saturdayMinute:00}",
+                "17:35",
+                companyCalendarDay.Name,
+                null,
+                companyCalendarDay);
+        }
+
+        if (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        {
+            return new AttendanceRecord(
+                AttendanceStatus.Weekend,
+                null,
+                null,
+                "วันหยุดประจำสัปดาห์",
+                null,
+                null);
+        }
+
+        if (date > Today)
+        {
+            return null;
+        }
+
+        if (date.Day % 13 == 0)
+        {
+            return new AttendanceRecord(
+                AttendanceStatus.Absent,
+                null,
+                null,
+                "ไม่มีการบันทึกเวลา",
+                null,
+                null);
+        }
+
+        if (date.Day % 7 == 0)
+        {
+            return new AttendanceRecord(
+                AttendanceStatus.Late,
+                "09:18",
+                "18:05",
+                "มาสาย 18 นาที",
+                null,
+                null);
+        }
+
+        var minute = 38 + (date.Day % 13);
+        return new AttendanceRecord(
+            AttendanceStatus.Present,
+            $"08:{minute:00}",
+            "17:35",
+            "บันทึกเวลาครบถ้วน",
+            null,
+            null);
+    }
+
+    private int CountStatus(AttendanceStatus status) =>
+        CalendarDays.Count(day =>
+            day.IsCurrentMonth &&
+            day.Record?.Status == status &&
+            (status != AttendanceStatus.Leave ||
+             IsActiveLeaveDocument(day.Record.LeaveDocument)));
+
+    private void SelectDay(CalendarDay day)
+    {
+        if (day.IsCurrentMonth)
+        {
+            SelectedDay = day;
+        }
+    }
+
+    private void ClearSelectedDay() => SelectedDay = null;
+
+    private string GetDayCssClass(CalendarDay day)
+    {
+        var classes = new List<string> { "calendar-day" };
+
+        if (!day.IsCurrentMonth)
+        {
+            classes.Add("outside-month");
+        }
+
+        if (day.Date == Today)
+        {
+            classes.Add("is-today");
+        }
+
+        if (SelectedDay?.Date == day.Date)
+        {
+            classes.Add("is-selected");
+        }
+
+        if (day.Record?.Status == AttendanceStatus.Weekend)
+        {
+            classes.Add("is-weekend");
+        }
+
+        if (day.Record?.Status == AttendanceStatus.PublicHoliday)
+        {
+            classes.Add("is-public-holiday");
+        }
+
+        if (day.Record?.WorkCalendarDay?.DayType == "WORKING_SATURDAY")
+        {
+            classes.Add("is-working-saturday");
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private static string GetRecordStatusCssClass(AttendanceRecord record)
+    {
+        if (record.LeaveDocument is not null)
+        {
+            return record.LeaveDocument.Status switch
+            {
+                "REJECTED" => "attendance-status status-absent",
+                "CANCELLED" => "attendance-status status-cancelled",
+                "PENDING_APPROVAL" or "EDIT_REQUESTED" => "attendance-status status-leave-pending",
+                _ => "attendance-status status-leave"
+            };
+        }
+
+        if (record.WorkCalendarDay?.DayType == "WORKING_SATURDAY")
+        {
+            return record.Status == AttendanceStatus.Present
+                ? "attendance-status status-present"
+                : "attendance-status status-scheduledwork";
+        }
+
+        return $"attendance-status status-{record.Status.ToString().ToLowerInvariant()}";
+    }
+
+    private static string GetRecordStatusText(AttendanceRecord record)
+    {
+        if (record.LeaveDocument is not null)
+        {
+            return $"ลา · {GetLeaveDocumentStatusText(record.LeaveDocument.Status)}";
+        }
+
+        if (record.WorkCalendarDay?.DayType == "WORKING_SATURDAY")
+        {
+            return record.Status == AttendanceStatus.Present
+                ? "มาปกติ · เสาร์ทำงาน"
+                : "วันเสาร์ทำงาน";
+        }
+
+        return GetStatusText(record.Status);
+    }
+
+    private static string GetStatusText(AttendanceStatus status) => status switch
+    {
+        AttendanceStatus.Present => "มาปกติ",
+        AttendanceStatus.Late => "มาสาย",
+        AttendanceStatus.Leave => "ลา",
+        AttendanceStatus.Absent => "ขาดงาน",
+        AttendanceStatus.Weekend => "วันหยุด",
+        AttendanceStatus.PublicHoliday => "วันหยุดนักขัตฤกษ์",
+        AttendanceStatus.ScheduledWork => "วันทำงาน",
+        _ => "-"
+    };
+
+    private string GetDayAriaLabel(CalendarDay day)
+    {
+        var status = day.Record is null ? "ยังไม่มีข้อมูล" : GetRecordStatusText(day.Record);
+        return $"{FormatFullDate(day.Date)} สถานะ {status}";
+    }
+
+    private static int LeaveDocumentStatusPriority(string status) => status switch
+    {
+        "APPROVED" => 0,
+        "EDIT_REQUESTED" => 1,
+        "PENDING_APPROVAL" => 2,
+        "REJECTED" => 3,
+        "CANCELLED" => 4,
+        _ => 5
+    };
+
+    private static bool IsActiveLeaveDocument(LeaveDocumentDto? document) =>
+        document is not null && document.Status is not ("REJECTED" or "CANCELLED");
+
+    private static string GetLeaveDocumentStatusText(string status) => status switch
+    {
+        "PENDING_APPROVAL" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "CANCELLED" => "ยกเลิก",
+        "EDIT_REQUESTED" => "ขอแก้ไข",
+        _ => status
+    };
+
+    private bool IsCompanyWorkDay(DateOnly date)
+    {
+        var configuredDay = WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
+        if (configuredDay?.DayType == "PUBLIC_HOLIDAY")
+            return false;
+        if (configuredDay?.DayType == "WORKING_SATURDAY")
+            return true;
+
+        return date.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday;
+    }
+
+    private void AppendLoadError(string message)
+    {
+        LoadErrorMessage = string.IsNullOrWhiteSpace(LoadErrorMessage)
+            ? message
+            : $"{LoadErrorMessage} · {message}";
+    }
+
+    private static string DisplayTime(string? time) =>
+        string.IsNullOrWhiteSpace(time) ? "-" : $"{time} น.";
+
+    private static string FormatFullDate(DateOnly date) =>
+        $"{date.Day} {ThaiMonthNames[date.Month - 1]} {date.Year}";
+
+    private sealed record CalendarDay(DateOnly Date, bool IsCurrentMonth, AttendanceRecord? Record);
+
+    private sealed record AttendanceRecord(
+        AttendanceStatus Status,
+        string? ClockIn,
+        string? ClockOut,
+        string Note,
+        LeaveDocumentDto? LeaveDocument,
+        WorkCalendarDayDto? WorkCalendarDay);
+
+    private enum AttendanceStatus
+    {
+        Present,
+        Late,
+        Leave,
+        Absent,
+        Weekend,
+        PublicHoliday,
+        ScheduledWork
+    }
+}

@@ -1,0 +1,107 @@
+@page "/login"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject HttpClient Http
+
+<PageTitle>เข้าสู่ระบบ | HR Project</PageTitle>
+
+<main class="login-page">
+    <section class="login-card">
+        <img src="images/image.png" alt="SiS logo" />
+        <h1>HR Project</h1>
+        <p>เข้าสู่ระบบด้วยบัญชี Microsoft ของบริษัท</p>
+
+        @if (isLoading)
+        {
+            <div class="login-loading">
+                <span></span>
+                <strong>@loadingMessage</strong>
+            </div>
+        }
+        else
+        {
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="login-error" role="alert">@errorMessage</div>
+            }
+            <button class="microsoft-login-button" type="button" @onclick="LoginWithMicrosoft">
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M0 0h9v9H0V0zm11 0h9v9h-9V0zM0 11h9v9H0v-9zm11 0h9v9h-9v-9z" />
+                </svg>
+                เข้าสู่ระบบด้วย Microsoft
+            </button>
+        }
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private bool isLoading = true;
+    private string loadingMessage = "กำลังตรวจสอบสถานะ...";
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            await LinkEmployeeAndContinue();
+            return;
+        }
+
+        isLoading = false;
+    }
+
+    private void LoginWithMicrosoft()
+    {
+        isLoading = true;
+        loadingMessage = "กำลังเข้าสู่ระบบ...";
+        Navigation.NavigateTo(
+            "authentication/login?returnUrl=" +
+            Uri.EscapeDataString("/login" +
+                (string.IsNullOrWhiteSpace(ReturnUrl)
+                    ? string.Empty
+                    : $"?returnUrl={Uri.EscapeDataString(ReturnUrl)}")),
+            forceLoad: true);
+    }
+
+    private async Task LinkEmployeeAndContinue()
+    {
+        isLoading = true;
+        loadingMessage = "กำลังเชื่อมบัญชีกับข้อมูลพนักงาน...";
+        try
+        {
+            var response = await Http.GetAsync("api/auth/me");
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                errorMessage = string.IsNullOrWhiteSpace(details)
+                    ? "ไม่สามารถเชื่อมบัญชี Microsoft กับข้อมูลพนักงานได้"
+                    : details.Trim('"');
+                isLoading = false;
+                return;
+            }
+
+            Navigation.NavigateTo(
+                IsSafeLocalUrl(ReturnUrl) ? ReturnUrl! : "/",
+                replace: true);
+        }
+        catch (AccessTokenNotAvailableException exception)
+        {
+            exception.Redirect();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"เข้าสู่ระบบไม่สำเร็จ: {exception.Message}";
+            isLoading = false;
+        }
+    }
+
+    private static bool IsSafeLocalUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url) &&
+        url.StartsWith('/') &&
+        !url.StartsWith("//", StringComparison.Ordinal);
+}

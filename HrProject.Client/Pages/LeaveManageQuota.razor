@@ -1,0 +1,244 @@
+@page "/leave/manage-quota"
+@inject HttpClient Http
+
+<PageTitle>จัดการโควต้าวันลา | HR Project</PageTitle>
+
+<section class="manage-page quota-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>จัดการโควต้าวันลา</h1>
+                <p>กำหนดและแก้ไขจำนวนชั่วโมงลาของพนักงาน</p>
+            </div>
+            <button class="btn btn-create" type="button" @onclick="StartCreate">+ กำหนดโควต้า</button>
+        </div>
+    </header>
+
+    <section class="content-card">
+        <div class="content-card-header">
+            โควต้าวันลาพนักงาน
+            <span class="result-count">@quotas.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="state-message">กำลังโหลดข้อมูลโควต้า...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="state-message error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table employee-table quota-table">
+                        <thead>
+                            <tr>
+                                <th>ชื่อพนักงาน</th>
+                                <th>ประเภทการลา</th>
+                                <th>จำนวนคงเหลือ (ชั่วโมง)</th>
+                                <th>จำนวนใช้ไปแล้ว (ชั่วโมง)</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (quotas.Count == 0)
+                            {
+                                <tr><td colspan="5" class="no-results">ยังไม่มีข้อมูลโควต้าวันลา</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var quota in quotas)
+                                {
+                                    <tr>
+                                        <td>@EmployeeName(quota.EmployeeId)</td>
+                                        <td>@quota.LeaveTypeName</td>
+                                        <td><strong class="remaining">@quota.RemainingHours.ToString("0.##")</strong></td>
+                                        <td>@quota.UsedHours.ToString("0.##")</td>
+                                        <td><button class="btn-edit" type="button" @onclick="() => StartEdit(quota)">แก้ไข</button></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+</section>
+
+@if (isEditing)
+{
+    <div class="quota-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="quota-modal-title">
+        <section class="quota-modal">
+            <header class="quota-modal-header">
+                <div>
+                    <h2 id="quota-modal-title">@(editingQuotaId.HasValue ? "แก้ไขโควต้าวันลา" : "กำหนดโควต้าวันลา")</h2>
+                    <p>หน่วยเป็นชั่วโมง</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseModal">×</button>
+            </header>
+            <div class="quota-modal-body">
+                <div class="form-grid">
+                    <label>ชื่อพนักงาน
+                        <select @bind="quotaEmployeeId" disabled="@editingQuotaId.HasValue">
+                            <option value="">-- เลือกพนักงาน --</option>
+                            @foreach (var employee in employees)
+                            {
+                                <option value="@employee.EmployeeCode">@employee.FullName</option>
+                            }
+                        </select>
+                    </label>
+                    <label>ประเภทการลา
+                        <select @bind="quotaLeaveTypeId" disabled="@editingQuotaId.HasValue">
+                            <option value="0">-- เลือกประเภทการลา --</option>
+                            @foreach (var type in leaveTypes)
+                            {
+                                <option value="@type.Id">@type.NameTh</option>
+                            }
+                        </select>
+                    </label>
+                    <label>โควต้ารวม (ชั่วโมง)
+                        <input type="number" min="0" step="0.5" @bind="quotaHours" />
+                    </label>
+                    <label>ใช้ไปแล้ว (ชั่วโมง)
+                        <input value="@usedHours.ToString("0.##")" disabled />
+                    </label>
+                    <label class="full-width">คงเหลือ (ชั่วโมง)
+                        <input class="remaining-input" value="@RemainingPreview.ToString("0.##")" disabled />
+                    </label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(saveError))
+                {
+                    <div class="save-error" role="alert">@saveError</div>
+                }
+            </div>
+            <footer class="quota-modal-footer">
+                <button class="btn btn-reset" type="button" @onclick="CloseModal">ปิด</button>
+                <button class="btn btn-create" type="button" disabled="@isSaving" @onclick="SaveQuota">
+                    @(isSaving ? "กำลังบันทึก..." : "บันทึก")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isEditing;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveError;
+    private List<Employee> employees = [];
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveQuotaDto> quotas = [];
+    private long? editingQuotaId;
+    private string quotaEmployeeId = string.Empty;
+    private long quotaLeaveTypeId;
+    private decimal quotaHours;
+    private decimal usedHours;
+    private decimal RemainingPreview => quotaHours - usedHours;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+            await ReloadQuotas();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReloadQuotas()
+    {
+        quotas = await Http.GetFromJsonAsync<List<LeaveQuotaDto>>(
+            $"api/leave-quotas?year={DateTime.Today.Year}") ?? [];
+    }
+
+    private void StartCreate()
+    {
+        editingQuotaId = null;
+        quotaEmployeeId = string.Empty;
+        quotaLeaveTypeId = 0;
+        quotaHours = usedHours = 0;
+        saveError = null;
+        isEditing = true;
+    }
+
+    private void StartEdit(LeaveQuotaDto quota)
+    {
+        editingQuotaId = quota.Id;
+        quotaEmployeeId = quota.EmployeeId;
+        quotaLeaveTypeId = quota.LeaveTypeId;
+        quotaHours = quota.QuotaHours;
+        usedHours = quota.UsedHours;
+        saveError = null;
+        isEditing = true;
+    }
+
+    private async Task SaveQuota()
+    {
+        saveError = null;
+        if (string.IsNullOrWhiteSpace(quotaEmployeeId) || quotaLeaveTypeId <= 0 || quotaHours < 0)
+        {
+            saveError = "กรุณาเลือกพนักงาน ประเภทการลา และระบุโควต้า";
+            return;
+        }
+        if (RemainingPreview < 0)
+        {
+            saveError = "โควต้าต้องไม่น้อยกว่าจำนวนชั่วโมงที่ใช้ไปแล้ว";
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            var request = new SaveLeaveQuotaRequest(
+                quotaEmployeeId,
+                quotaLeaveTypeId,
+                DateTime.Today.Year,
+                quotaHours,
+                null,
+                "EMP-001",
+                "Anan Sukjai");
+            var response = await Http.PostAsJsonAsync("api/leave-quotas", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                saveError = string.IsNullOrWhiteSpace(details)
+                    ? $"บันทึกไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"บันทึกไม่สำเร็จ: {details}";
+                return;
+            }
+
+            await ReloadQuotas();
+            isEditing = false;
+        }
+        catch (Exception exception)
+        {
+            saveError = $"บันทึกไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void CloseModal()
+    {
+        if (!isSaving)
+            isEditing = false;
+    }
+
+    private string EmployeeName(string employeeId) =>
+        employees.FirstOrDefault(employee => employee.EmployeeCode == employeeId)?.FullName
+        ?? employeeId;
+}

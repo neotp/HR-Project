@@ -1,0 +1,4 @@
+.empty-tab { min-height: 270px; display: grid; place-content: center; justify-items: center; color: #64748b; text-align: center; }
+.empty-tab-icon { width: 3rem; height: 3rem; display: grid; place-items: center; margin-bottom: .75rem; color: #ff6b35; background: #fff7ed; border-radius: 50%; font-size: 2rem; }
+.empty-tab h2 { margin: 0 0 .35rem; color: #334155; }
+.empty-tab p { margin: 0; }

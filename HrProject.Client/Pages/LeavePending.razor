@@ -1,0 +1,269 @@
+@page "/leave/pending"
+@inject HttpClient Http
+
+<PageTitle>เอกสารรออนุมัติ | HR Project</PageTitle>
+
+<section class="manage-page pending-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>เอกสารรออนุมัติ</h1>
+                <p>รายการเอกสารการลาที่มีสถานะรออนุมัติเท่านั้น</p>
+            </div>
+            <span class="pending-summary">@filteredDocuments.Count รายการ</span>
+        </div>
+    </header>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">Criteria ค้นหาเอกสาร</div>
+        <div class="content-card-body">
+            <div class="criteria-grid">
+                <label>
+                    คำค้นหา
+                    <input @bind="searchText" placeholder="เลขที่เอกสาร ชื่อพนักงาน หรือแผนก" />
+                </label>
+                <label>
+                    ประเภทการลา
+                    <select @bind="leaveType">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.NameTh">@type.NameTh</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    วันที่ลาเริ่มต้น
+                    <input type="date" @bind="startDate" />
+                </label>
+                <label>
+                    วันที่ลาสิ้นสุด
+                    <input type="date" @bind="endDate" />
+                </label>
+            </div>
+            <div class="criteria-actions">
+                <button class="btn btn-primary" type="button" @onclick="Search">ค้นหา</button>
+                <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card result-card">
+        <div class="content-card-header">
+            รายการรออนุมัติ
+            <span class="result-count">@filteredDocuments.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="state-message">กำลังโหลดเอกสาร...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="state-message error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table employee-table pending-table">
+                        <thead>
+                            <tr>
+                                <th>เลขที่เอกสาร</th>
+                                <th>ผู้ขอลา</th>
+                                <th>แผนก</th>
+                                <th>ประเภทการลา</th>
+                                <th>วันที่ลา</th>
+                                <th>เวลา</th>
+                                <th>จำนวนชั่วโมง</th>
+                                <th>วันที่สร้าง</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (filteredDocuments.Count == 0)
+                            {
+                                <tr><td colspan="9" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะรออนุมัติ</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var document in filteredDocuments)
+                                {
+                                    <tr>
+                                        <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                        <td>@document.CreatorName</td>
+                                        <td>@document.CreatorDepartment</td>
+                                        <td>@document.LeaveTypeName</td>
+                                        <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
+                                        <td>@document.StartTime.ToString("HH:mm")</td>
+                                        <td>@document.LeaveHours.ToString("0.##")</td>
+                                        <td>@document.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                                        <td><span class="status-pill pending">รออนุมัติ</span></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+</section>
+
+@if (selectedDocument is not null)
+{
+    <div class="document-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pending-detail-title">
+        <section class="document-modal">
+            <header class="document-modal-header">
+                <div>
+                    <h2 id="pending-detail-title">รายละเอียดเอกสารรออนุมัติ</h2>
+                    <p>@selectedDocument.DocumentNo</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
+            </header>
+            <div class="document-modal-body">
+                <div class="form-grid">
+                    <label>ผู้ขอลา<input value="@selectedDocument.CreatorName" disabled /></label>
+                    <label>แผนก<input value="@selectedDocument.CreatorDepartment" disabled /></label>
+                    <label>ผู้อนุมัติ<input value="@selectedDocument.ApproverName" disabled /></label>
+                    <label>วันที่สร้าง<input value="@selectedDocument.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")" disabled /></label>
+                    <label>ชนิดการลา<input value="@KindText(selectedDocument.LeaveKind)" disabled /></label>
+                    <label>ประเภทการลา<input value="@selectedDocument.LeaveTypeName" disabled /></label>
+                    <label>วันที่ลา<input value="@selectedDocument.LeaveDate.ToString("dd/MM/yyyy")" disabled /></label>
+                    <label>เวลาเริ่มต้น<input value="@selectedDocument.StartTime.ToString("HH:mm")" disabled /></label>
+                    <label>จำนวนชั่วโมง<input value="@selectedDocument.LeaveHours.ToString("0.##")" disabled /></label>
+                    <label class="full-width">เหตุผลการลา<textarea rows="3" disabled>@selectedDocument.LeaveReason</textarea></label>
+                </div>
+            </div>
+            <footer class="document-modal-footer">
+                @if (!string.IsNullOrWhiteSpace(actionError))
+                {
+                    <span class="action-error" role="alert">@actionError</span>
+                }
+                <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
+                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectDocument">
+                    @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                </button>
+                <button class="btn btn-approve" type="button" disabled="@isSaving" @onclick="ApproveDocument">
+                    @(isSaving ? "กำลังอนุมัติ..." : "อนุมัติ")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private string searchText = string.Empty;
+    private string leaveType = string.Empty;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isLoading = true;
+    private string? loadError;
+    private string? actionError;
+    private bool isSaving;
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveDocumentDto> documents = [];
+    private List<LeaveDocumentDto> filteredDocuments = [];
+    private LeaveDocumentDto? selectedDocument;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+            documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+                "api/leave-documents?status=PENDING_APPROVAL") ?? [];
+
+            // Keep a client-side guard as well, so this page can never show another status.
+            documents = documents
+                .Where(document => document.Status == "PENDING_APPROVAL")
+                .ToList();
+            Search();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดเอกสารรออนุมัติไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void Search()
+    {
+        filteredDocuments = documents.Where(document =>
+            document.Status == "PENDING_APPROVAL" &&
+            (string.IsNullOrWhiteSpace(searchText) ||
+             document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorDepartment.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
+            (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
+            (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
+            .ToList();
+    }
+
+    private void Reset()
+    {
+        searchText = leaveType = string.Empty;
+        startDate = endDate = null;
+        Search();
+    }
+
+    private async Task OpenDocument(LeaveDocumentDto document)
+    {
+        actionError = null;
+        selectedDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>(
+            $"api/leave-documents/{document.Id}") ?? document;
+    }
+
+    private void CloseDocument() => selectedDocument = null;
+
+    private async Task ApproveDocument()
+        => await ReviewDocument("approve", "อนุมัติ");
+
+    private async Task RejectDocument()
+        => await ReviewDocument("reject", "ไม่อนุมัติ");
+
+    private async Task ReviewDocument(string action, string actionText)
+    {
+        if (selectedDocument is null || isSaving)
+            return;
+
+        actionError = null;
+        isSaving = true;
+        try
+        {
+            var request = new ReviewLeaveDocumentRequest(
+                "EMP-002",
+                "Somchai Jaidee");
+            var response = await Http.PostAsJsonAsync(
+                $"api/leave-documents/{selectedDocument.Id}/{action}",
+                request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                actionError = string.IsNullOrWhiteSpace(details)
+                    ? $"{actionText}ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"{actionText}ไม่สำเร็จ: {details}";
+                return;
+            }
+
+            documents.RemoveAll(document => document.Id == selectedDocument.Id);
+            Search();
+            CloseDocument();
+        }
+        catch (Exception exception)
+        {
+            actionError = $"{actionText}ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string KindText(string kind) =>
+        kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+}

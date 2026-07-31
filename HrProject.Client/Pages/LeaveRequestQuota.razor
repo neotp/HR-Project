@@ -1,0 +1,423 @@
+@page "/leave/request-quota"
+@inject HttpClient Http
+
+<PageTitle>ขอวันลาเพิ่ม | HR Project</PageTitle>
+
+<section class="manage-page quota-request-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>ขอวันลาเพิ่ม</h1>
+                <p>ส่งคำขอเพิ่มโควต้าวันลาของคุณ</p>
+            </div>
+            <button class="btn btn-create" type="button" @onclick="OpenCreate">+ สร้างคำขอ</button>
+        </div>
+    </header>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">ค้นหาคำขอ</div>
+        <div class="content-card-body">
+            <div class="criteria-grid">
+                <label>คำค้นหา
+                    <input @bind="searchText" @bind:event="oninput" @bind:after="Filter"
+                           placeholder="เลขที่คำขอ ประเภท หรือเหตุผล" />
+                </label>
+                <label>ประเภทการลา
+                    <select @bind="leaveTypeFilter" @bind:after="Filter">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.NameTh">@type.NameTh</option>
+                        }
+                    </select>
+                </label>
+                <label>สถานะ
+                    <select @bind="statusFilter" @bind:after="Filter">
+                        <option value="">ทั้งหมด</option>
+                        <option value="PENDING">รออนุมัติ</option>
+                        <option value="APPROVED">อนุมัติแล้ว</option>
+                        <option value="REJECTED">ไม่อนุมัติ</option>
+                        <option value="CANCELLED">ยกเลิก</option>
+                    </select>
+                </label>
+            </div>
+            <div class="criteria-actions">
+                <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header">
+            คำขอเพิ่มโควต้าของฉัน
+            <span class="result-count">@filteredRequests.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="state-message">กำลังโหลดคำขอ...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="state-message error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table employee-table request-table">
+                        <thead>
+                            <tr>
+                                <th>เลขที่คำขอ</th>
+                                <th>ชื่อพนักงาน</th>
+                                <th>ประเภทการลา</th>
+                                <th>จำนวนที่ขอ</th>
+                                <th>จำนวนที่อนุมัติ</th>
+                                <th>เหตุผล</th>
+                                <th>วันที่ขอ</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (filteredRequests.Count == 0)
+                            {
+                                <tr><td colspan="8" class="no-results">ไม่พบคำขอเพิ่มโควต้าวันลา</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var request in filteredRequests)
+                                {
+                                    <tr>
+                                        <td><strong>@request.RequestNo</strong></td>
+                                        <td>@EmployeeName(request.EmployeeId)</td>
+                                        <td>@request.LeaveTypeName</td>
+                                        <td>@request.RequestedHours.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.RequestedHours) วัน)</small></td>
+                                        <td>
+                                            @if (request.ApprovedHours.HasValue)
+                                            {
+                                                <span>@request.ApprovedHours.Value.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.ApprovedHours.Value) วัน)</small></span>
+                                            }
+                                            else
+                                            {
+                                                <span>-</span>
+                                            }
+                                        </td>
+                                        <td><span class="reason-cell" title="@request.RequestReason">@request.RequestReason</span></td>
+                                        <td>@request.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                                        <td><span class="status-pill @StatusClass(request.Status)">@StatusText(request.Status)</span></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+</section>
+
+@if (isCreating)
+{
+    <div class="request-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-quota-request-title">
+        <section class="request-modal">
+            <header class="request-modal-header">
+                <div>
+                    <h2 id="create-quota-request-title">สร้างคำขอเพิ่มโควต้าวันลา</h2>
+                    <p>คำขอจะมีผลต่อโควต้าเมื่อได้รับการอนุมัติ</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseCreate">×</button>
+            </header>
+            <div class="request-modal-body">
+                <div class="form-grid readonly-grid">
+                    <label>ปีโควต้า<input value="@DateTime.Today.Year" disabled /></label>
+                    <div class="add-row-action full-width">
+                        <button class="btn btn-add-employee" type="button" @onclick="AddEmployee">
+                            + เพิ่มรายการ
+                        </button>
+                    </div>
+                    <div class="selected-employees full-width">
+                        <div class="selected-employees-header">
+                            รายการพนักงาน <strong>@employeeRequests.Count คน</strong>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="employee-request-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>พนักงาน</th>
+                                        <th>แผนก</th>
+                                        <th>ประเภทการลา</th>
+                                        <th>จำนวนที่ขอ (ชั่วโมง)</th>
+                                        <th>จำนวนวัน</th>
+                                        <th>เหตุผล</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (employeeRequests.Count == 0)
+                                    {
+                                        <tr>
+                                            <td colspan="8" class="empty-employee-list">
+                                                ยังไม่มีพนักงาน กรุณาเลือกพนักงานและกดเพิ่ม
+                                            </td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @for (var index = 0; index < employeeRequests.Count; index++)
+                                        {
+                                            var row = employeeRequests[index];
+                                            <tr @key="row.RowId">
+                                                <td>@(index + 1)</td>
+                                                <td>
+                                                    <select @bind="row.EmployeeId">
+                                                        <option value="">-- เลือกพนักงาน --</option>
+                                                        @foreach (var employee in AvailableEmployeesFor(row))
+                                                        {
+                                                            <option value="@employee.EmployeeCode">
+                                                                @employee.FullName (@employee.EmployeeCode)
+                                                            </option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>@EmployeeDepartment(row.EmployeeId)</td>
+                                                <td>
+                                                    <select @bind="row.LeaveTypeId">
+                                                        <option value="0">-- เลือกประเภท --</option>
+                                                        @foreach (var type in leaveTypes)
+                                                        {
+                                                            <option value="@type.Id">@type.NameTh</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="number" min="0.5" step="0.5"
+                                                           @bind="row.RequestedHours" />
+                                                </td>
+                                                <td>@HoursToDays(row.RequestedHours) วัน</td>
+                                                <td>
+                                                    <input class="row-reason" @bind="row.RequestReason"
+                                                           placeholder="เหตุผล" />
+                                                </td>
+                                                <td>
+                                                    <button class="remove-employee" type="button"
+                                                            title="ลบพนักงาน"
+                                                            @onclick="() => RemoveEmployee(row.EmployeeId)">×</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(saveError))
+                {
+                    <div class="save-error" role="alert">@saveError</div>
+                }
+            </div>
+            <footer class="request-modal-footer">
+                <button class="btn btn-reset" type="button" @onclick="CloseCreate">ปิด</button>
+                <button class="btn btn-create" type="button" disabled="@isSaving" @onclick="SaveRequest">
+                    @(isSaving ? "กำลังส่งคำขอ..." : "ส่งคำขอ")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isCreating;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveError;
+    private string searchText = string.Empty;
+    private string leaveTypeFilter = string.Empty;
+    private string statusFilter = string.Empty;
+    private readonly List<EmployeeQuotaRequestRow> employeeRequests = [];
+    private List<Employee> employees = [];
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveQuotaRequestDto> requests = [];
+    private List<LeaveQuotaRequestDto> filteredRequests = [];
+    private Employee? CurrentEmployee => employees.FirstOrDefault(employee => employee.EmployeeCode == "EMP-001");
+    private string CurrentEmployeeName => CurrentEmployee?.FullName ?? "Anan Sukjai";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+            await ReloadData();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReloadData()
+    {
+        requests = await Http.GetFromJsonAsync<List<LeaveQuotaRequestDto>>(
+            "api/leave-quota-requests") ?? [];
+        Filter();
+    }
+
+    private void Filter()
+    {
+        filteredRequests = requests.Where(request =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             request.RequestNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             EmployeeName(request.EmployeeId).Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             request.LeaveTypeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             request.RequestReason.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(leaveTypeFilter) || request.LeaveTypeName == leaveTypeFilter) &&
+            (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter))
+            .ToList();
+    }
+
+    private void Reset()
+    {
+        searchText = leaveTypeFilter = statusFilter = string.Empty;
+        Filter();
+    }
+
+    private void OpenCreate()
+    {
+        employeeRequests.Clear();
+        saveError = null;
+        isCreating = true;
+    }
+
+    private async Task SaveRequest()
+    {
+        saveError = null;
+        if (employeeRequests.Count == 0 ||
+            employeeRequests.Any(row =>
+                string.IsNullOrWhiteSpace(row.EmployeeId) ||
+                row.LeaveTypeId <= 0 ||
+                row.RequestedHours <= 0 ||
+                string.IsNullOrWhiteSpace(row.RequestReason)))
+        {
+            saveError = "กรุณาระบุประเภทการลา จำนวนชั่วโมง และเหตุผลของพนักงานแต่ละคนให้ครบถ้วน";
+            return;
+        }
+
+        if (employeeRequests
+            .GroupBy(row => row.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1))
+        {
+            saveError = "ไม่สามารถเลือกพนักงานซ้ำในคำขอชุดเดียวกันได้";
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            var request = new CreateMultiEmployeeLeaveQuotaRequest(
+                employeeRequests.Select(row =>
+                    new LeaveQuotaRequestEmployeeItem(
+                        row.EmployeeId,
+                        row.LeaveTypeId,
+                        row.RequestedHours,
+                        row.RequestReason)).ToList(),
+                DateTime.Today.Year,
+                "EMP-001",
+                CurrentEmployeeName);
+            var response = await Http.PostAsJsonAsync("api/leave-quota-requests/batch", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                saveError = string.IsNullOrWhiteSpace(details)
+                    ? $"ส่งคำขอไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"ส่งคำขอไม่สำเร็จ: {details}";
+                return;
+            }
+
+            await ReloadData();
+            isCreating = false;
+        }
+        catch (Exception exception)
+        {
+            saveError = $"ส่งคำขอไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void CloseCreate()
+    {
+        if (!isSaving)
+            isCreating = false;
+    }
+
+    private void AddEmployee()
+    {
+        saveError = null;
+        if (employeeRequests.Count >= employees.Count)
+        {
+            saveError = "เพิ่มรายการครบจำนวนพนักงานที่มีอยู่แล้ว";
+            return;
+        }
+
+        employeeRequests.Add(new EmployeeQuotaRequestRow
+        {
+            RequestedHours = 8
+        });
+    }
+
+    private void RemoveEmployee(string employeeId)
+    {
+        var row = employeeRequests.FirstOrDefault(item =>
+            string.Equals(item.EmployeeId, employeeId, StringComparison.OrdinalIgnoreCase));
+        if (row is not null)
+            employeeRequests.Remove(row);
+    }
+
+    private string EmployeeName(string employeeId) =>
+        employees.FirstOrDefault(employee => employee.EmployeeCode == employeeId)?.FullName
+        ?? employeeId;
+
+    private string EmployeeDepartment(string employeeId) =>
+        employees.FirstOrDefault(employee => employee.EmployeeCode == employeeId)?.Department
+        ?? "-";
+
+    private IEnumerable<Employee> AvailableEmployeesFor(EmployeeQuotaRequestRow currentRow) =>
+        employees.Where(employee =>
+            string.Equals(employee.EmployeeCode, currentRow.EmployeeId, StringComparison.OrdinalIgnoreCase) ||
+            employeeRequests.All(row =>
+                ReferenceEquals(row, currentRow) ||
+                !string.Equals(row.EmployeeId, employee.EmployeeCode, StringComparison.OrdinalIgnoreCase)));
+
+    private static string HoursToDays(decimal hours) => (hours / 8).ToString("0.##");
+    private static string StatusText(string status) => status switch
+    {
+        "PENDING" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "CANCELLED" => "ยกเลิก",
+        _ => status
+    };
+    private static string StatusClass(string status) => status switch
+    {
+        "APPROVED" => "approved",
+        "REJECTED" or "CANCELLED" => "rejected",
+        _ => "pending"
+    };
+
+    private sealed class EmployeeQuotaRequestRow
+    {
+        public Guid RowId { get; } = Guid.NewGuid();
+        public string EmployeeId { get; set; } = string.Empty;
+        public long LeaveTypeId { get; set; }
+        public decimal RequestedHours { get; set; }
+        public string RequestReason { get; set; } = string.Empty;
+    }
+}

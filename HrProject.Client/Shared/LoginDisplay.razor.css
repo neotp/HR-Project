@@ -1,0 +1,9 @@
+.signed-in-user { display: flex; align-items: center; gap: .65rem; padding: .8rem .45rem; border-top: 1px solid rgba(255,255,255,.12); }
+.user-avatar { width: 2rem; height: 2rem; display: grid; flex: 0 0 auto; place-items: center; color: #fff; background: #4f46e5; border-radius: 50%; font-size: .78rem; font-weight: 800; }
+.signed-in-user div { min-width: 0; display: grid; }
+.signed-in-user strong, .signed-in-user small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signed-in-user strong { color: #fff; font-size: .78rem; }
+.signed-in-user small { color: #94a3b8; font-size: .65rem; }
+.logout-button { width: 100%; display: flex; align-items: center; gap: .65rem; padding: .65rem .55rem; color: #cbd5e1; background: transparent; border: 0; border-radius: .45rem; font: inherit; font-size: .78rem; }
+.logout-button:hover { color: #fff; background: rgba(255,255,255,.08); }
+.logout-button svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: #ff6b35; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

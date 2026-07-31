@@ -1,0 +1,57 @@
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<AuthorizeView>
+    <Authorized>
+        <div class="signed-in-user">
+            <span class="user-avatar">@UserInitial</span>
+            <div>
+                <strong>@DisplayName</strong>
+                <small>@EmployeeLabel</small>
+            </div>
+        </div>
+        <button class="logout-button" type="button" @onclick="Logout">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-6" />
+            </svg>
+            ออกจากระบบ
+        </button>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private CurrentMicrosoftUserDto? currentUser;
+    private string claimName = "Microsoft User";
+
+    private string DisplayName => currentUser?.EmployeeName ?? claimName;
+    private string EmployeeLabel => currentUser is null
+        ? "กำลังเชื่อมข้อมูลพนักงาน..."
+        : $"{currentUser.EmployeeId} · {currentUser.Department}";
+    private string UserInitial => string.IsNullOrWhiteSpace(DisplayName)
+        ? "M"
+        : DisplayName[..1].ToUpperInvariant();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated != true)
+            return;
+
+        claimName = state.User.FindFirst("name")?.Value
+            ?? state.User.FindFirst("preferred_username")?.Value
+            ?? state.User.Identity.Name
+            ?? "Microsoft User";
+        try
+        {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+        }
+        catch
+        {
+            currentUser = null;
+        }
+    }
+
+    private void Logout() =>
+        Navigation.NavigateToLogout("authentication/logout");
+}

@@ -1,0 +1,4 @@
+.employee-row { cursor: pointer; transition: background-color .15s ease; }
+.employee-row:hover, .employee-row:focus { background: #fff7ed !important; outline: none; }
+.employee-row:focus { box-shadow: inset 3px 0 #ff6b35; }
+.view-details { color: #ea580c; font-size: .82rem; font-weight: 700; white-space: nowrap; }

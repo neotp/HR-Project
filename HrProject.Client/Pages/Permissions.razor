@@ -1,0 +1,247 @@
+@page "/permissions"
+@inject HttpClient Http
+
+<PageTitle>จัดการสิทธิ์การเข้าถึง | HR Project</PageTitle>
+
+<section class="manage-page permission-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>จัดการสิทธิ์การเข้าถึง</h1>
+                <p>กำหนดสิทธิ์ของพนักงานในการเข้าถึงแต่ละหน้าของระบบ HR</p>
+            </div>
+            <button class="btn save-permission-button" type="button"
+                    disabled="@(isSaving || string.IsNullOrWhiteSpace(selectedEmployeeId) || permissions.Count == 0)"
+                    @onclick="SavePermissions">
+                @(isSaving ? "กำลังบันทึก..." : "บันทึกสิทธิ์")
+            </button>
+        </div>
+    </header>
+
+    <section class="content-card permission-criteria">
+        <div class="content-card-header">เลือกพนักงาน</div>
+        <div class="content-card-body permission-criteria-body">
+            <label>พนักงาน
+                <select @bind="selectedEmployeeId" @bind:after="LoadPermissions">
+                    <option value="">-- เลือกพนักงาน --</option>
+                    @foreach (var employee in employees)
+                    {
+                        <option value="@employee.EmployeeCode">
+                            @employee.FullName (@employee.EmployeeCode)
+                        </option>
+                    }
+                </select>
+            </label>
+            <label>ค้นหาหน้าระบบ
+                <input @bind="searchText" @bind:event="oninput"
+                       placeholder="ชื่อหน้า หมวดหมู่ หรือ URL" />
+            </label>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header permission-table-header">
+            <span>สิทธิ์เข้าถึงแต่ละหน้า</span>
+            @if (permissions.Count > 0)
+            {
+                <span class="permission-summary">
+                    อนุญาต @permissions.Count(item => item.CanAccess) จาก @permissions.Count หน้า
+                </span>
+                <button type="button" @onclick="() => SetAll(true)">เลือกทั้งหมด</button>
+                <button type="button" @onclick="() => SetAll(false)">ยกเลิกทั้งหมด</button>
+            }
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="permission-state">กำลังโหลดสิทธิ์...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="permission-state error">@loadError</div>
+            }
+            else if (string.IsNullOrWhiteSpace(selectedEmployeeId))
+            {
+                <div class="permission-state">กรุณาเลือกพนักงานที่ต้องการกำหนดสิทธิ์</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="permission-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>หมวดหมู่</th>
+                                <th>หน้าระบบ</th>
+                                <th>URL</th>
+                                <th>สิทธิ์เข้าถึง</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var visible = FilteredPermissions.ToList();
+                            }
+                            @if (visible.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="5" class="permission-state">ไม่พบหน้าระบบที่ค้นหา</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @for (var index = 0; index < visible.Count; index++)
+                                {
+                                    var permission = visible[index];
+                                    <tr>
+                                        <td>@(index + 1)</td>
+                                        <td><span class="category-pill">@permission.CategoryName</span></td>
+                                        <td>
+                                            <strong>@permission.PageName</strong>
+                                            <small>@permission.PageKey</small>
+                                        </td>
+                                        <td><code>@permission.RoutePath</code></td>
+                                        <td>
+                                            <label class="access-switch">
+                                                <input type="checkbox" checked="@permission.CanAccess"
+                                                       @onchange="args => SetPermission(permission.PageId, args.Value is true)" />
+                                                <span class="switch-track"><span></span></span>
+                                                <strong>@(permission.CanAccess ? "อนุญาต" : "ไม่อนุญาต")</strong>
+                                            </label>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(saveMessage))
+            {
+                <div class="save-message @(saveSucceeded ? "success" : "error")"
+                     role="status">@saveMessage</div>
+            }
+        </div>
+    </section>
+</section>
+
+@code {
+    private bool isLoading;
+    private bool isSaving;
+    private bool saveSucceeded;
+    private string selectedEmployeeId = string.Empty;
+    private string searchText = string.Empty;
+    private string? loadError;
+    private string? saveMessage;
+    private List<Employee> employees = [];
+    private List<PagePermissionDto> permissions = [];
+
+    private IEnumerable<PagePermissionDto> FilteredPermissions =>
+        permissions.Where(page =>
+            string.IsNullOrWhiteSpace(searchText) ||
+            page.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            page.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            page.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            page.RoutePath.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            selectedEmployeeId = employees.FirstOrDefault()?.EmployeeCode ?? string.Empty;
+            await LoadPermissions();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+    }
+
+    private async Task LoadPermissions()
+    {
+        permissions = [];
+        loadError = null;
+        saveMessage = null;
+        if (string.IsNullOrWhiteSpace(selectedEmployeeId))
+            return;
+
+        isLoading = true;
+        try
+        {
+            permissions = await Http.GetFromJsonAsync<List<PagePermissionDto>>(
+                $"api/page-permissions?employeeId={Uri.EscapeDataString(selectedEmployeeId)}") ?? [];
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดสิทธิ์ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SetPermission(long pageId, bool canAccess)
+    {
+        var index = permissions.FindIndex(item => item.PageId == pageId);
+        if (index < 0)
+            return;
+
+        permissions[index] = permissions[index] with { CanAccess = canAccess };
+        saveMessage = null;
+    }
+
+    private void SetAll(bool canAccess)
+    {
+        permissions = permissions
+            .Select(item => item with { CanAccess = canAccess })
+            .ToList();
+        saveMessage = null;
+    }
+
+    private async Task SavePermissions()
+    {
+        if (string.IsNullOrWhiteSpace(selectedEmployeeId) || permissions.Count == 0)
+            return;
+
+        isSaving = true;
+        saveMessage = null;
+        try
+        {
+            var currentEmployee = employees.FirstOrDefault(item => item.EmployeeCode == "EMP-001");
+            var request = new SaveEmployeePagePermissionsRequest(
+                selectedEmployeeId,
+                permissions.Select(item =>
+                    new SavePagePermissionItem(item.PageId, item.CanAccess)).ToList(),
+                "EMP-001",
+                currentEmployee?.FullName ?? "Anan Sukjai");
+
+            var response = await Http.PutAsJsonAsync(
+                $"api/page-permissions/employees/{Uri.EscapeDataString(selectedEmployeeId)}",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                saveSucceeded = false;
+                saveMessage = string.IsNullOrWhiteSpace(details)
+                    ? $"บันทึกสิทธิ์ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"บันทึกสิทธิ์ไม่สำเร็จ: {details}";
+                return;
+            }
+
+            permissions = await response.Content.ReadFromJsonAsync<List<PagePermissionDto>>() ?? [];
+            saveSucceeded = true;
+            saveMessage = "บันทึกสิทธิ์การเข้าถึงเรียบร้อยแล้ว";
+        }
+        catch (Exception exception)
+        {
+            saveSucceeded = false;
+            saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

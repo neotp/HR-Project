@@ -1,0 +1,6 @@
+@HrProject.Api_HostAddress = http://localhost:5025
+
+GET {{HrProject.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

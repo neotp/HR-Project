@@ -1,0 +1,4 @@
+.hr-page-body { min-height: 290px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.hr-page-icon { width: 58px; height: 58px; display: grid; place-items: center; margin-bottom: 1rem; color: #ff6b35; background: #fff0e9; border-radius: 50%; font-size: 1.65rem; }
+.hr-page-body h2 { margin: 0 0 .5rem; color: #1a2848; font-size: 1.25rem; }
+.hr-page-body p { max-width: 480px; margin: 0 0 1.5rem; color: #6b7280; }

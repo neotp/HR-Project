@@ -1,0 +1,78 @@
+@page "/"
+@using HrProject.Shared.Models
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>ข้อมูลพนักงาน | HR Project</PageTitle>
+
+<section class="manage-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>ข้อมูลพนักงาน</h1>
+                <p>รายชื่อและข้อมูลการทำงานของพนักงาน</p>
+            </div>
+        </div>
+    </header>
+
+    <section class="content-card">
+        <div class="content-card-header">รายชื่อพนักงาน</div>
+        <div class="content-card-body">
+            @if (employees is null)
+            {
+                <p class="loading-state"><em>กำลังโหลดข้อมูลพนักงาน...</em></p>
+            }
+            else
+            {
+                <table class="table employee-table">
+                    <thead>
+                        <tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>อีเมล</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var employee in employees)
+                        {
+                            <tr class="employee-row" tabindex="0"
+                                title="เปิดข้อมูลพนักงาน"
+                                @onclick="() => OpenEmployee(employee.Id)"
+                                @onkeydown="args => HandleRowKey(args, employee.Id)">
+                                <td>@employee.EmployeeCode</td>
+                                <td><strong>@employee.FullName</strong></td>
+                                <td>@employee.Department</td>
+                                <td>@employee.Position</td>
+                                <td>@employee.Email</td>
+                                <td><span class="view-details">ดูข้อมูล ›</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+</section>
+
+@if (employees is null)
+{
+    <div class="loading-overlay" role="status" aria-live="polite">
+        <div class="loading-dialog">
+            <span class="loading-dialog-title">Loading...</span>
+            <p class="loading-dialog-message">กำลังโหลดข้อมูลพนักงาน...</p>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Employee>? employees;
+
+    protected override async Task OnInitializedAsync()
+    {
+        employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+    }
+
+    private void OpenEmployee(int id) => Navigation.NavigateTo($"/employees/{id}");
+
+    private void HandleRowKey(KeyboardEventArgs args, int id)
+    {
+        if (args.Key is "Enter" or " ")
+            OpenEmployee(id);
+    }
+}

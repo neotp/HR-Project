@@ -1,0 +1,364 @@
+@page "/employees/edit-requests"
+@inject HttpClient Http
+
+<PageTitle>ขอแก้ไขข้อมูลพนักงาน | HR Project</PageTitle>
+
+<section class="manage-page employee-request-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>ขอแก้ไขข้อมูลพนักงาน</h1>
+                <p>เอกสารคำขอแก้ไขข้อมูลพนักงานและสถานะการดำเนินการ</p>
+            </div>
+        </div>
+    </header>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">ค้นหาเอกสาร</div>
+        <div class="content-card-body">
+            <div class="request-criteria">
+                <label>คำค้นหา
+                    <input @bind="searchText" @bind:event="oninput"
+                           placeholder="เลขที่เอกสาร พนักงาน เหตุผล หรือข้อมูลที่แก้ไข" />
+                </label>
+                <label>สถานะ
+                    <select @bind="statusFilter">
+                        <option value="">ทั้งหมด</option>
+                        <option value="PENDING">รออนุมัติ</option>
+                        <option value="APPROVED">อนุมัติแล้ว</option>
+                        <option value="REJECTED">ไม่อนุมัติ</option>
+                        <option value="CANCELLED">ยกเลิก</option>
+                    </select>
+                </label>
+                <button class="reset-filter" type="button" @onclick="ResetFilter">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header">
+            เอกสารขอแก้ไขข้อมูลพนักงาน
+            <span class="result-count">@FilteredRequests.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="request-state">กำลังโหลดเอกสาร...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="request-state error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="employee-edit-request-table">
+                        <thead>
+                            <tr>
+                                <th>เลขที่เอกสาร</th>
+                                <th>พนักงาน</th>
+                                <th>ข้อมูลที่ขอแก้ไข</th>
+                                <th>เหตุผล</th>
+                                <th>ผู้ขอ</th>
+                                <th>วันที่ขอ</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (FilteredRequests.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" class="request-state">ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var request in FilteredRequests)
+                                {
+                                    <tr>
+                                        <td>
+                                            <button class="request-number" type="button"
+                                                    @onclick="() => OpenRequest(request)">
+                                                @request.RequestNo
+                                            </button>
+                                        </td>
+                                        <td>
+                                            <strong>@request.EmployeeName</strong>
+                                            <small>@request.EmployeeId</small>
+                                        </td>
+                                        <td>
+                                            <div class="change-tags">
+                                                @foreach (var change in request.Changes)
+                                                {
+                                                    <span>@change.FieldName</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td><span class="reason-text" title="@request.RequestReason">@request.RequestReason</span></td>
+                                        <td>@request.RequestedByName</td>
+                                        <td>@request.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                                        <td><span class="request-status @StatusClass(request.Status)">@StatusText(request.Status)</span></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+</section>
+
+@if (selectedRequest is not null)
+{
+    <div class="request-detail-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="request-detail-title">
+        <section class="request-detail-modal">
+            <header>
+                <div>
+                    <h2 id="request-detail-title">@selectedRequest.RequestNo</h2>
+                    <p>@selectedRequest.EmployeeId · @selectedRequest.EmployeeName</p>
+                </div>
+                <button type="button" aria-label="ปิด" disabled="@isReviewing"
+                        @onclick="CloseRequest">×</button>
+            </header>
+            <div class="request-detail-body">
+                <div class="request-document-info">
+                    <span><strong>พนักงาน:</strong> @selectedRequest.EmployeeName</span>
+                    <span><strong>รหัส:</strong> @selectedRequest.EmployeeId</span>
+                    <span><strong>ผู้ขอแก้ไข:</strong> @selectedRequest.RequestedByName</span>
+                    <span><strong>วันที่ขอ:</strong> @selectedRequest.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
+                    <span><strong>สถานะ:</strong> <span class="request-status @StatusClass(selectedRequest.Status)">@StatusText(selectedRequest.Status)</span></span>
+                </div>
+                <label class="request-reason-detail">
+                    เหตุผลในการขอแก้ไข
+                    <textarea rows="3" disabled>@selectedRequest.RequestReason</textarea>
+                </label>
+                <h3>ข้อมูลที่ขอแก้ไข</h3>
+                <div class="change-sections">
+                    @foreach (var changeSection in GroupedChanges(selectedRequest))
+                    {
+                        <section class="request-change-section">
+                            <h4>@changeSection.Title</h4>
+                            <div class="section-comparison-grid">
+                                <section class="employee-comparison-card current">
+                                    <h5>ข้อมูลปัจจุบัน</h5>
+                                    @foreach (var change in changeSection.Changes)
+                                    {
+                                        <label>
+                                            <span>@change.FieldName</span>
+                                            <input value="@change.OldValue" disabled />
+                                        </label>
+                                    }
+                                </section>
+                                <section class="employee-comparison-card requested">
+                                    <h5>ข้อมูลที่ขอแก้ไข</h5>
+                                    @foreach (var change in changeSection.Changes)
+                                    {
+                                        <label class="field-changed">
+                                            <span>
+                                                @change.FieldName
+                                                <small>มีการเปลี่ยนแปลง</small>
+                                            </span>
+                                            <input value="@change.NewValue" disabled />
+                                        </label>
+                                    }
+                                </section>
+                            </div>
+                        </section>
+                    }
+                </div>
+                @if (selectedRequest.Status == "PENDING")
+                {
+                    <label class="review-remark">หมายเหตุการพิจารณา
+                        <textarea rows="3" @bind="reviewRemark"
+                                  placeholder="ระบุหมายเหตุ (ถ้ามี)"></textarea>
+                    </label>
+                }
+                @if (!string.IsNullOrWhiteSpace(reviewMessage))
+                {
+                    <div class="review-message @(reviewSucceeded ? "success" : "error")"
+                         role="status">@reviewMessage</div>
+                }
+            </div>
+            <footer>
+                <button class="close-request" type="button" disabled="@isReviewing"
+                        @onclick="CloseRequest">ปิด</button>
+                @if (selectedRequest.Status == "PENDING")
+                {
+                    <button class="reject-request" type="button" disabled="@isReviewing"
+                            @onclick="() => ReviewRequest(false)">
+                        @(isReviewing ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                    </button>
+                    <button class="approve-request" type="button" disabled="@isReviewing"
+                            @onclick="() => ReviewRequest(true)">
+                        @(isReviewing ? "กำลังดำเนินการ..." : "อนุมัติ")
+                    </button>
+                }
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private string? loadError;
+    private string searchText = string.Empty;
+    private string statusFilter = string.Empty;
+    private List<EmployeeEditRequestDto> requests = [];
+    private EmployeeEditRequestDto? selectedRequest;
+    private bool isReviewing;
+    private bool reviewSucceeded;
+    private string reviewRemark = string.Empty;
+    private string? reviewMessage;
+
+    private List<EmployeeEditRequestDto> FilteredRequests => requests.Where(request =>
+        (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter) &&
+        (string.IsNullOrWhiteSpace(searchText) ||
+         request.RequestNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         request.EmployeeId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         request.EmployeeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         request.RequestReason.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         request.Changes.Any(change =>
+             change.FieldName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             change.OldValue.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             change.NewValue.Contains(searchText, StringComparison.OrdinalIgnoreCase))))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            requests = await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>(
+                "api/employee-edit-requests") ?? [];
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดเอกสารไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ResetFilter()
+    {
+        searchText = string.Empty;
+        statusFilter = string.Empty;
+    }
+
+    private void OpenRequest(EmployeeEditRequestDto request)
+    {
+        selectedRequest = request;
+        reviewRemark = string.Empty;
+        reviewMessage = null;
+    }
+
+    private void CloseRequest()
+    {
+        if (!isReviewing)
+            selectedRequest = null;
+    }
+
+    private async Task ReviewRequest(bool approve)
+    {
+        if (selectedRequest is null || selectedRequest.Status != "PENDING")
+            return;
+
+        isReviewing = true;
+        reviewMessage = null;
+        try
+        {
+            var action = approve ? "approve" : "reject";
+            var review = new ReviewEmployeeEditRequest(
+                "EMP-001",
+                "Anan Sukjai",
+                reviewRemark);
+            var response = await Http.PutAsJsonAsync(
+                $"api/employee-edit-requests/{selectedRequest.Id}/{action}",
+                review);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                reviewSucceeded = false;
+                reviewMessage = string.IsNullOrWhiteSpace(details)
+                    ? $"ดำเนินการไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"ดำเนินการไม่สำเร็จ: {details}";
+                return;
+            }
+
+            var updated = await response.Content.ReadFromJsonAsync<EmployeeEditRequestDto>();
+            if (updated is not null)
+            {
+                var index = requests.FindIndex(item => item.Id == updated.Id);
+                if (index >= 0)
+                    requests[index] = updated;
+                selectedRequest = updated;
+            }
+
+            reviewSucceeded = true;
+            reviewMessage = approve
+                ? "อนุมัติเอกสารเรียบร้อยแล้ว"
+                : "ไม่อนุมัติเอกสารเรียบร้อยแล้ว";
+        }
+        catch (Exception exception)
+        {
+            reviewSucceeded = false;
+            reviewMessage = $"ดำเนินการไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isReviewing = false;
+        }
+    }
+
+    private static IReadOnlyList<EmployeeChangeSection> GroupedChanges(
+        EmployeeEditRequestDto request)
+    {
+        var sectionDefinitions = new (string Key, string Title)[]
+        {
+            ("basic", "ข้อมูลพื้นฐาน"),
+            ("personal", "ข้อมูลส่วนบุคคล"),
+            ("work", "ประวัติการทำงาน"),
+            ("education", "ประวัติการศึกษา"),
+            ("training", "ประวัติการอบรม & สัมมนา"),
+            ("family", "ประวัติครอบครัว")
+        };
+
+        return sectionDefinitions
+            .Select(section => new EmployeeChangeSection(
+                section.Title,
+                request.Changes
+                    .Where(change => ChangeSectionKey(change.FieldKey) == section.Key)
+                    .ToList()))
+            .Where(section => section.Changes.Count > 0)
+            .ToList();
+    }
+
+    private static string ChangeSectionKey(string fieldKey)
+    {
+        var separator = fieldKey.IndexOf('.');
+        return separator > 0 ? fieldKey[..separator] : "basic";
+    }
+
+    private static string StatusText(string status) => status switch
+    {
+        "PENDING" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "CANCELLED" => "ยกเลิก",
+        _ => status
+    };
+
+    private static string StatusClass(string status) => status switch
+    {
+        "APPROVED" => "approved",
+        "REJECTED" or "CANCELLED" => "rejected",
+        _ => "pending"
+    };
+
+    private sealed record EmployeeChangeSection(
+        string Title,
+        IReadOnlyList<EmployeeFieldChangeDto> Changes);
+}

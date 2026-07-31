@@ -1,0 +1,34 @@
+/* Sidebar navigation adapted from SeatBooking */
+.top-row { min-height: 5.2rem; padding: 1rem; background: #1a2848; border-bottom: 1px solid rgba(59,130,246,.35); }
+.top-row .container-fluid { display: flex; align-items: center; gap: .75rem; padding: 0; }
+.brand-logo { width: 49px; height: 37px; padding: .15rem; object-fit: contain; background: #fff; flex-shrink: 0; }
+.navbar-brand { color: #fff; font-size: .92rem; font-weight: 700; line-height: 1.15; }
+.navbar-toggler {
+    position: fixed; top: 23px; left: calc(258px - 15px); z-index: 1100;
+    display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-left: 0;
+    padding: 0; color: #fff; background: #ff6b35; border: 0; border-radius: 50%; box-shadow: 0 2px 10px rgba(255,107,53,.35);
+}
+.navbar-toggler-icon { display: none; }
+.navbar-toggler::after { content: '‹'; font-size: 1.7rem; font-weight: 400; line-height: 1; transform: translateY(-1px); }
+.navbar-toggler:hover { background: #e85a2a; }
+
+.nav-scrollable { padding: 1.25rem .55rem; background: #1a2848; }
+.nav-menu { display: flex; flex: 1 0 auto; flex-direction: column; gap: .2rem; }
+.menu-section { margin: .35rem .1rem .45rem; color: #fff; font-size: .94rem; font-weight: 700; }
+.menu-section:not(:first-child) { margin-top: 1.35rem; }
+.nav-menu ::deep .menu-link {
+    display: flex; align-items: center; gap: .75rem; min-height: 2.75rem; padding: .65rem .75rem;
+    color: #fff !important; border-radius: .55rem; font-size: .9rem; font-weight: 600; text-decoration: none !important;
+    transition: background .2s ease, color .2s ease;
+}
+.nav-menu ::deep .menu-link:hover { background: rgba(59,130,246,.24); color: #fff !important; }
+.nav-menu ::deep .menu-link.active { background: rgba(255,107,53,.25); color: #ff6b35 !important; }
+.menu-icon { width: 1.3rem; height: 1.3rem; flex: 0 0 1.3rem; fill: none; stroke: #ff6b35; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (min-width: 641px) {
+    .nav-scrollable { display: flex; height: calc(100vh - 5rem); flex-direction: column; overflow-y: auto; }
+}
+
+@media (max-width: 640.98px) {
+    .navbar-toggler { position: static; margin-left: auto; }
+}

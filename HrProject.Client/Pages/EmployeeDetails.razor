@@ -1,0 +1,456 @@
+@page "/employees/{Id:int}"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>@(employee is null ? "ข้อมูลพนักงาน" : employee.FullName) | HR Project</PageTitle>
+
+<section class="manage-page employee-details-page">
+    @if (isLoading)
+    {
+        <div class="detail-state">กำลังโหลดข้อมูลพนักงาน...</div>
+    }
+    else if (employee is null)
+    {
+        <section class="content-card detail-state">
+            <h1>ไม่พบข้อมูลพนักงาน</h1>
+            <p>ไม่พบพนักงานตามรหัสที่ระบุ</p>
+            <button class="back-button" type="button" @onclick="BackToList">กลับหน้ารายชื่อ</button>
+        </section>
+    }
+    else
+    {
+        <header class="employee-profile-header">
+            <button class="back-link" type="button" @onclick="BackToList">‹ กลับหน้ารายชื่อพนักงาน</button>
+            <div class="profile-summary">
+                <div class="employee-avatar" aria-hidden="true">@Initials(employee)</div>
+                <div class="profile-name">
+                    <span class="employee-code">@employee.EmployeeCode</span>
+                    <h1>@employee.FullName</h1>
+                    <p>@employee.Position · @employee.Department</p>
+                </div>
+                <button class="request-edit-button" type="button" @onclick="OpenEditRequest">
+                    ขอแก้ไขข้อมูลพนักงาน
+                </button>
+            </div>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(actionMessage))
+        {
+            <div class="employee-action-message" role="status">@actionMessage</div>
+        }
+
+        <section class="content-card employee-detail-card">
+            <nav class="employee-tabs" aria-label="หมวดข้อมูลพนักงาน">
+                @foreach (var tab in Tabs)
+                {
+                    <button type="button"
+                            class="employee-tab @(activeTab == tab.Key ? "active" : null)"
+                            @onclick="() => activeTab = tab.Key">
+                        @tab.Label
+                    </button>
+                }
+            </nav>
+
+            <div class="tab-content">
+                @switch (activeTab)
+                {
+                    case "basic":
+                        <section aria-labelledby="basic-title">
+                            <h2 id="basic-title">ข้อมูลพื้นฐาน</h2>
+                            <div class="detail-grid">
+                                <DetailField Label="รหัสพนักงาน" Value="@employee.EmployeeCode" />
+                                <DetailField Label="ชื่อ-นามสกุล" Value="@employee.FullName" />
+                                <DetailField Label="แผนก" Value="@employee.Department" />
+                                <DetailField Label="ตำแหน่ง" Value="@employee.Position" />
+                                <DetailField Label="อีเมล" Value="@employee.Email" />
+                                <DetailField Label="วันที่เริ่มงาน" Value="@employee.StartDate.ToString("dd/MM/yyyy")" />
+                            </div>
+                        </section>
+                        break;
+                    case "personal":
+                        <EmptyTab Title="ข้อมูลส่วนบุคคล" Description="ยังไม่มีข้อมูลส่วนบุคคลของพนักงาน" />
+                        break;
+                    case "work":
+                        <EmptyTab Title="ประวัติการทำงาน" Description="ยังไม่มีรายการประวัติการทำงาน" />
+                        break;
+                    case "education":
+                        <EmptyTab Title="ประวัติการศึกษา" Description="ยังไม่มีรายการประวัติการศึกษา" />
+                        break;
+                    case "training":
+                        <EmptyTab Title="ประวัติการอบรม & สัมมนา" Description="ยังไม่มีรายการอบรมหรือสัมมนา" />
+                        break;
+                    case "family":
+                        <EmptyTab Title="ประวัติครอบครัว" Description="ยังไม่มีข้อมูลประวัติครอบครัว" />
+                        break;
+                }
+            </div>
+        </section>
+    }
+</section>
+
+@if (isEditRequestOpen && employee is not null)
+{
+    <div class="employee-edit-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="employee-edit-title">
+        <section class="employee-edit-modal">
+            <header class="employee-edit-modal-header">
+                <div>
+                    <h2 id="employee-edit-title">ขอแก้ไขข้อมูลพนักงาน</h2>
+                    <p>@employee.EmployeeCode · @employee.FullName</p>
+                </div>
+                <button type="button" aria-label="ปิด" @onclick="CloseEditRequest">×</button>
+            </header>
+            <div class="employee-edit-modal-body">
+                <p class="edit-hint">แก้ไขเฉพาะข้อมูลที่ต้องการ ระบบจะสร้างเอกสารคำขอและยังไม่เปลี่ยนข้อมูลพนักงานทันที</p>
+                <nav class="edit-request-tabs" aria-label="ชุดข้อมูลที่ขอแก้ไข">
+                    @foreach (var tab in Tabs)
+                    {
+                        <button type="button"
+                                class="@(editActiveTab == tab.Key ? "active" : null)"
+                                @onclick="() => editActiveTab = tab.Key">
+                            @tab.Label
+                        </button>
+                    }
+                </nav>
+                <section class="edit-tab-panel">
+                    @switch (editActiveTab)
+                    {
+                        case "basic":
+                            <div class="employee-edit-grid">
+                                <label>ชื่อ<input @bind="proposedFirstName" /></label>
+                                <label>นามสกุล<input @bind="proposedLastName" /></label>
+                                <label>แผนก<input @bind="proposedDepartment" /></label>
+                                <label>ตำแหน่ง<input @bind="proposedPosition" /></label>
+                                <label>อีเมล<input type="email" @bind="proposedEmail" /></label>
+                                <label>วันที่เริ่มงาน<input type="date" @bind="proposedStartDate" /></label>
+                            </div>
+                            break;
+                        case "personal":
+                            <div class="employee-edit-grid">
+                                <label>เลขบัตรประชาชน<input @bind="personalNationalId" placeholder="ระบุข้อมูลที่ต้องการแก้ไข" /></label>
+                                <label>วันเกิด<input type="date" @bind="personalBirthDate" /></label>
+                                <label>เพศ
+                                    <select @bind="personalGender">
+                                        <option value="">-- เลือก --</option>
+                                        <option value="ชาย">ชาย</option>
+                                        <option value="หญิง">หญิง</option>
+                                        <option value="ไม่ระบุ">ไม่ระบุ</option>
+                                    </select>
+                                </label>
+                                <label>เบอร์โทรศัพท์<input @bind="personalPhone" /></label>
+                                <label class="wide-field">ที่อยู่
+                                    <textarea rows="3" @bind="personalAddress"></textarea>
+                                </label>
+                            </div>
+                            break;
+                        case "work":
+                            <div class="employee-edit-grid">
+                                <label>บริษัท/หน่วยงาน<input @bind="workCompany" /></label>
+                                <label>ตำแหน่ง<input @bind="workPosition" /></label>
+                                <label>ช่วงเวลาทำงาน<input @bind="workPeriod" placeholder="เช่น 01/2020 - 12/2023" /></label>
+                                <label>รายละเอียดงาน<input @bind="workDetails" /></label>
+                            </div>
+                            break;
+                        case "education":
+                            <div class="employee-edit-grid">
+                                <label>ระดับการศึกษา<input @bind="educationLevel" /></label>
+                                <label>สถานศึกษา<input @bind="educationInstitution" /></label>
+                                <label>สาขาวิชา<input @bind="educationMajor" /></label>
+                                <label>ปีที่สำเร็จการศึกษา<input @bind="educationGraduationYear" /></label>
+                            </div>
+                            break;
+                        case "training":
+                            <div class="employee-edit-grid">
+                                <label>หลักสูตร<input @bind="trainingCourse" /></label>
+                                <label>ผู้จัด/สถาบัน<input @bind="trainingOrganizer" /></label>
+                                <label>วันที่อบรม<input type="date" @bind="trainingDate" /></label>
+                                <label>รายละเอียด/ใบรับรอง<input @bind="trainingDetails" /></label>
+                            </div>
+                            break;
+                        case "family":
+                            <div class="employee-edit-grid">
+                                <label>ชื่อ-นามสกุล<input @bind="familyMemberName" /></label>
+                                <label>ความสัมพันธ์<input @bind="familyRelationship" /></label>
+                                <label>เบอร์โทรศัพท์<input @bind="familyPhone" /></label>
+                                <label>อาชีพ<input @bind="familyOccupation" /></label>
+                            </div>
+                            break;
+                    }
+                </section>
+                <label class="edit-reason">เหตุผลที่ขอแก้ไข
+                    <textarea rows="3" @bind="editReason"
+                              placeholder="ระบุเหตุผลในการขอแก้ไขข้อมูล"></textarea>
+                </label>
+                @if (!string.IsNullOrWhiteSpace(editError))
+                {
+                    <div class="edit-error" role="alert">@editError</div>
+                }
+            </div>
+            <footer class="employee-edit-modal-footer">
+                <button class="cancel-edit-button" type="button"
+                        disabled="@isSubmittingEdit" @onclick="CloseEditRequest">ปิด</button>
+                <button class="submit-edit-button" type="button"
+                        disabled="@isSubmittingEdit" @onclick="SubmitEditRequest">
+                    @(isSubmittingEdit ? "กำลังส่งคำขอ..." : "ส่งคำขอแก้ไข")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (isLoading)
+{
+    <div class="loading-overlay" role="status" aria-live="polite">
+        <div class="loading-dialog">
+            <span class="loading-dialog-title">Loading...</span>
+            <p class="loading-dialog-message">กำลังโหลดข้อมูลพนักงาน...</p>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool isLoading = true;
+    private bool isEditRequestOpen;
+    private bool isSubmittingEdit;
+    private Employee? employee;
+    private string activeTab = "basic";
+    private string editActiveTab = "basic";
+    private string? actionMessage;
+    private string? editError;
+    private string proposedFirstName = string.Empty;
+    private string proposedLastName = string.Empty;
+    private string proposedDepartment = string.Empty;
+    private string proposedPosition = string.Empty;
+    private string proposedEmail = string.Empty;
+    private DateOnly proposedStartDate;
+    private string personalNationalId = string.Empty;
+    private DateOnly? personalBirthDate;
+    private string personalGender = string.Empty;
+    private string personalPhone = string.Empty;
+    private string personalAddress = string.Empty;
+    private string workCompany = string.Empty;
+    private string workPosition = string.Empty;
+    private string workPeriod = string.Empty;
+    private string workDetails = string.Empty;
+    private string educationLevel = string.Empty;
+    private string educationInstitution = string.Empty;
+    private string educationMajor = string.Empty;
+    private string educationGraduationYear = string.Empty;
+    private string trainingCourse = string.Empty;
+    private string trainingOrganizer = string.Empty;
+    private DateOnly? trainingDate;
+    private string trainingDetails = string.Empty;
+    private string familyMemberName = string.Empty;
+    private string familyRelationship = string.Empty;
+    private string familyPhone = string.Empty;
+    private string familyOccupation = string.Empty;
+    private string editReason = string.Empty;
+
+    private static readonly (string Key, string Label)[] Tabs =
+    [
+        ("basic", "ข้อมูลพื้นฐาน"),
+        ("personal", "ข้อมูลส่วนบุคคล"),
+        ("work", "ประวัติการทำงาน"),
+        ("education", "ประวัติการศึกษา"),
+        ("training", "ประวัติการอบรม & สัมมนา"),
+        ("family", "ประวัติครอบครัว")
+    ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        employee = null;
+        activeTab = "basic";
+        try
+        {
+            employee = await Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            employee = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BackToList() => Navigation.NavigateTo("/");
+
+    private void OpenEditRequest()
+    {
+        if (employee is null)
+            return;
+
+        proposedFirstName = employee.FirstName;
+        proposedLastName = employee.LastName;
+        proposedDepartment = employee.Department;
+        proposedPosition = employee.Position;
+        proposedEmail = employee.Email;
+        proposedStartDate = employee.StartDate;
+        editActiveTab = "basic";
+        personalNationalId = string.Empty;
+        personalBirthDate = null;
+        personalGender = string.Empty;
+        personalPhone = string.Empty;
+        personalAddress = string.Empty;
+        workCompany = string.Empty;
+        workPosition = string.Empty;
+        workPeriod = string.Empty;
+        workDetails = string.Empty;
+        educationLevel = string.Empty;
+        educationInstitution = string.Empty;
+        educationMajor = string.Empty;
+        educationGraduationYear = string.Empty;
+        trainingCourse = string.Empty;
+        trainingOrganizer = string.Empty;
+        trainingDate = null;
+        trainingDetails = string.Empty;
+        familyMemberName = string.Empty;
+        familyRelationship = string.Empty;
+        familyPhone = string.Empty;
+        familyOccupation = string.Empty;
+        editReason = string.Empty;
+        editError = null;
+        actionMessage = null;
+        isEditRequestOpen = true;
+    }
+
+    private void CloseEditRequest()
+    {
+        if (!isSubmittingEdit)
+            isEditRequestOpen = false;
+    }
+
+    private async Task SubmitEditRequest()
+    {
+        if (employee is null)
+            return;
+
+        editError = null;
+        var changes = new List<EmployeeFieldChangeDto>();
+        AddChange(changes, "firstName", "ชื่อ", employee.FirstName, proposedFirstName);
+        AddChange(changes, "lastName", "นามสกุล", employee.LastName, proposedLastName);
+        AddChange(changes, "department", "แผนก", employee.Department, proposedDepartment);
+        AddChange(changes, "position", "ตำแหน่ง", employee.Position, proposedPosition);
+        AddChange(changes, "email", "อีเมล", employee.Email, proposedEmail);
+        AddChange(
+            changes,
+            "startDate",
+            "วันที่เริ่มงาน",
+            employee.StartDate.ToString("yyyy-MM-dd"),
+            proposedStartDate.ToString("yyyy-MM-dd"));
+        AddOptionalChange(changes, "personal.nationalId", "เลขบัตรประชาชน", personalNationalId);
+        AddOptionalChange(
+            changes,
+            "personal.birthDate",
+            "วันเกิด",
+            personalBirthDate?.ToString("yyyy-MM-dd") ?? string.Empty);
+        AddOptionalChange(changes, "personal.gender", "เพศ", personalGender);
+        AddOptionalChange(changes, "personal.phone", "เบอร์โทรศัพท์", personalPhone);
+        AddOptionalChange(changes, "personal.address", "ที่อยู่", personalAddress);
+        AddOptionalChange(changes, "work.company", "บริษัท/หน่วยงานเดิม", workCompany);
+        AddOptionalChange(changes, "work.position", "ตำแหน่งงานเดิม", workPosition);
+        AddOptionalChange(changes, "work.period", "ช่วงเวลาทำงาน", workPeriod);
+        AddOptionalChange(changes, "work.details", "รายละเอียดประวัติการทำงาน", workDetails);
+        AddOptionalChange(changes, "education.level", "ระดับการศึกษา", educationLevel);
+        AddOptionalChange(changes, "education.institution", "สถานศึกษา", educationInstitution);
+        AddOptionalChange(changes, "education.major", "สาขาวิชา", educationMajor);
+        AddOptionalChange(changes, "education.graduationYear", "ปีที่สำเร็จการศึกษา", educationGraduationYear);
+        AddOptionalChange(changes, "training.course", "หลักสูตรอบรม", trainingCourse);
+        AddOptionalChange(changes, "training.organizer", "ผู้จัด/สถาบันอบรม", trainingOrganizer);
+        AddOptionalChange(
+            changes,
+            "training.date",
+            "วันที่อบรม",
+            trainingDate?.ToString("yyyy-MM-dd") ?? string.Empty);
+        AddOptionalChange(changes, "training.details", "รายละเอียด/ใบรับรอง", trainingDetails);
+        AddOptionalChange(changes, "family.name", "ชื่อสมาชิกครอบครัว", familyMemberName);
+        AddOptionalChange(changes, "family.relationship", "ความสัมพันธ์", familyRelationship);
+        AddOptionalChange(changes, "family.phone", "เบอร์โทรศัพท์ครอบครัว", familyPhone);
+        AddOptionalChange(changes, "family.occupation", "อาชีพสมาชิกครอบครัว", familyOccupation);
+
+        if (changes.Count == 0 || string.IsNullOrWhiteSpace(editReason))
+        {
+            editError = "กรุณาแก้ไขข้อมูลอย่างน้อย 1 รายการและระบุเหตุผล";
+            return;
+        }
+
+        if (changes.Any(change => string.IsNullOrWhiteSpace(change.NewValue)))
+        {
+            editError = "ข้อมูลที่ขอแก้ไขต้องไม่เป็นค่าว่าง";
+            return;
+        }
+
+        isSubmittingEdit = true;
+        try
+        {
+            var request = new CreateEmployeeEditRequest(
+                employee.EmployeeCode,
+                employee.FullName,
+                changes,
+                editReason,
+                "EMP-001",
+                "Anan Sukjai");
+            var response = await Http.PostAsJsonAsync("api/employee-edit-requests", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                editError = string.IsNullOrWhiteSpace(details)
+                    ? $"ส่งคำขอไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"ส่งคำขอไม่สำเร็จ: {details}";
+                return;
+            }
+
+            var created = await response.Content.ReadFromJsonAsync<EmployeeEditRequestDto>();
+            isEditRequestOpen = false;
+            actionMessage = $"สร้างเอกสารคำขอแก้ไข {created?.RequestNo} เรียบร้อยแล้ว";
+        }
+        catch (Exception exception)
+        {
+            editError = $"ส่งคำขอไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSubmittingEdit = false;
+        }
+    }
+
+    private static void AddChange(
+        ICollection<EmployeeFieldChangeDto> changes,
+        string fieldKey,
+        string fieldName,
+        string oldValue,
+        string newValue)
+    {
+        var normalizedNewValue = newValue?.Trim() ?? string.Empty;
+        if (!string.Equals(oldValue, normalizedNewValue, StringComparison.Ordinal))
+            changes.Add(new EmployeeFieldChangeDto(fieldKey, fieldName, oldValue, normalizedNewValue));
+    }
+
+    private static void AddOptionalChange(
+        ICollection<EmployeeFieldChangeDto> changes,
+        string fieldKey,
+        string fieldName,
+        string newValue)
+    {
+        var normalizedNewValue = newValue?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(normalizedNewValue))
+        {
+            changes.Add(new EmployeeFieldChangeDto(
+                fieldKey,
+                fieldName,
+                "ยังไม่มีข้อมูล",
+                normalizedNewValue));
+        }
+    }
+
+    private static string Initials(Employee value)
+    {
+        var first = string.IsNullOrWhiteSpace(value.FirstName) ? string.Empty : value.FirstName[..1];
+        var last = string.IsNullOrWhiteSpace(value.LastName) ? string.Empty : value.LastName[..1];
+        return $"{first}{last}".ToUpperInvariant();
+    }
+}

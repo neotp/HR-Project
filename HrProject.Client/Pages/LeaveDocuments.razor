@@ -1,0 +1,711 @@
+@page "/leave/documents"
+@inject HttpClient Http
+
+<PageTitle>เอกสารการลา | HR Project</PageTitle>
+
+<section class="manage-page leave-documents-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>เอกสารการลา</h1>
+                <p>ตรวจสอบและติดตามเอกสารการลาของคุณ</p>
+            </div>
+            <button class="btn btn-create" type="button" @onclick="StartCreate">
+                <span aria-hidden="true">＋</span> สร้างเอกสาร
+            </button>
+        </div>
+    </header>
+
+    <section class="content-card my-quota-card">
+        <div class="content-card-header">
+            โควต้าวันลาของฉัน
+            <span class="quota-year">ปี @DateTime.Today.Year</span>
+        </div>
+        <div class="content-card-body">
+            @if (myLeaveQuotas.Count == 0)
+            {
+                <div class="quota-empty">ยังไม่มีการกำหนดโควต้าวันลาสำหรับปีนี้</div>
+            }
+            else
+            {
+                <div class="my-quota-grid">
+                    @foreach (var quota in myLeaveQuotas)
+                    {
+                        <article class="my-quota-item">
+                            <h2>@quota.LeaveTypeName</h2>
+                            <div class="quota-values">
+                                <div>
+                                    <span>ใช้ไปแล้ว</span>
+                                    <strong class="used-value">@quota.UsedHours.ToString("0.##")</strong>
+                                    <small>ชั่วโมง</small>
+                                    <small class="day-equivalent">(@HoursToDays(quota.UsedHours) วัน)</small>
+                                </div>
+                                <div>
+                                    <span>คงเหลือ</span>
+                                    <strong class="remaining-value">@quota.RemainingHours.ToString("0.##")</strong>
+                                    <small>ชั่วโมง</small>
+                                    <small class="day-equivalent">(@HoursToDays(quota.RemainingHours) วัน)</small>
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">Criteria ค้นหาเอกสาร</div>
+        <div class="content-card-body">
+            <div class="criteria-grid">
+                <label>
+                    คำค้นหา
+                    <input @bind="searchText" @bind:event="oninput" @bind:after="Search"
+                           placeholder="เลขที่เอกสาร ประเภทการลา หรือเหตุผล" />
+                </label>
+                <label>
+                    ประเภทการลา
+                    <select @bind="leaveType" @bind:after="Search">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.NameTh">@type.NameTh</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    สถานะ
+                    <select @bind="status" @bind:after="Search">
+                        <option value="">ทั้งหมด</option>
+                        <option>รออนุมัติ</option>
+                        <option>อนุมัติแล้ว</option>
+                        <option>ไม่อนุมัติ</option>
+                    </select>
+                </label>
+                <label>
+                    วันที่เริ่มต้น
+                    <input type="date" @bind="startDate" @bind:after="Search" />
+                </label>
+                <label>
+                    วันที่สิ้นสุด
+                    <input type="date" @bind="endDate" @bind:after="Search" />
+                </label>
+            </div>
+            <div class="criteria-actions">
+                <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card result-card">
+        <div class="content-card-header">เอกสารการลาของฉัน <span class="result-count">@filteredDocuments.Count รายการ</span></div>
+        <div class="content-card-body">
+            <div class="table-responsive">
+                <table class="table employee-table leave-table">
+                    <thead><tr><th>เลขที่เอกสาร</th><th>ประเภทการลา</th><th>วันที่ลา</th><th>เวลาเริ่มต้น</th><th>จำนวนชั่วโมง</th><th>เหตุผล</th><th>สถานะ</th></tr></thead>
+                    <tbody>
+                        @if (filteredDocuments.Count == 0)
+                        {
+                            <tr><td colspan="7" class="no-results">ไม่พบเอกสารการลาตามเงื่อนไขที่ค้นหา</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var document in filteredDocuments)
+                            {
+                                <tr>
+                                    <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                    <td>@document.LeaveTypeName</td>
+                                    <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
+                                    <td>@document.StartTime.ToString("HH:mm")</td>
+                                    <td>@document.LeaveHours.ToString("0.##") ชั่วโมง</td>
+                                    <td><span class="reason-cell" title="@document.LeaveReason">@document.LeaveReason</span></td>
+                                    <td><span class="status-pill @StatusClass(document.Status)">@StatusText(document.Status)</span></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</section>
+
+@if (isCreating)
+{
+    <div class="document-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-document-title">
+        <section class="document-modal @(createMode == "multiple" ? "multi-day-modal" : null)">
+            <header class="document-modal-header">
+                <div><h2 id="create-document-title">สร้างเอกสารการลา</h2><p>กรอกรายละเอียดเพื่อส่งคำขอลา</p></div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseCreate">×</button>
+            </header>
+            <div class="document-modal-body">
+                <h3>ข้อมูลเอกสาร</h3>
+                <div class="form-grid readonly-grid">
+                    <label>ผู้อนุมัติ<input value="สมชาย ใจดี" disabled /></label>
+                    <label>วันที่สร้างเอกสาร<input value="@DateTime.Today.ToString("dd/MM/yyyy")" disabled /></label>
+                    <label>ผู้สร้างเอกสาร<input value="Anan Sukjai" disabled /></label>
+                    <label>แผนก (ผู้สร้าง)<input value="Human Resources" disabled /></label>
+                </div>
+
+                <div class="leave-mode-tabs" role="tablist" aria-label="รูปแบบการลา">
+                    <button class="leave-mode-tab @(createMode == "single" ? "active" : null)" type="button" role="tab"
+                            aria-selected="@(createMode == "single")" @onclick="ShowSingleMode">
+                        ลาวันเดียว
+                    </button>
+                    <button class="leave-mode-tab @(createMode == "multiple" ? "active" : null)" type="button" role="tab"
+                            aria-selected="@(createMode == "multiple")" @onclick="ShowMultipleMode">
+                        ลาหลายวัน
+                    </button>
+                </div>
+
+                <h3>รายละเอียดการลา</h3>
+                <div class="form-grid">
+                    <label>ชนิดการลา<span class="required">*</span>
+                        <select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select>
+                    </label>
+                    <label>ประเภทการลา<span class="required">*</span>
+                        <select @bind="newLeaveType"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select>
+                    </label>
+                    @if (createMode == "single")
+                    {
+                        <label>วันที่ลา<span class="required">*</span><input type="date" @bind="newSingleLeaveDate" /></label>
+                        <label>เวลาเริ่มต้น<span class="required">*</span><input type="time" @bind="newLeaveStartTime" /></label>
+                        <label>จำนวนชั่วโมง<span class="required">*</span><input type="number" min="0.5" max="8" step="0.5" @bind="newLeaveHours" /></label>
+                    }
+                    <label>เอกสารแนบ<input type="file" @onchange="SelectAttachment" /></label>
+                    <label class="full-width">เหตุผลการลา<span class="required">*</span><textarea rows="3" @bind="newLeaveReason" placeholder="ระบุเหตุผลการลา"></textarea></label>
+                </div>
+
+                @if (createMode == "multiple")
+                {
+                    <section class="multi-day-builder">
+                        <div class="multi-range-grid">
+                            <label>วันที่เริ่มต้น<input type="date" @bind="multiStartDate" /></label>
+                            <label>วันที่สิ้นสุด<input type="date" min="@multiStartDate.ToString("yyyy-MM-dd")" @bind="multiEndDate" /></label>
+                            <button class="btn btn-generate-days" type="button" @onclick="GenerateMultiDayRows">สร้างรายการ</button>
+                        </div>
+
+                        <div class="multi-day-table-wrap">
+                            <table class="multi-day-table">
+                                <thead>
+                                    <tr><th>#</th><th>วันที่ลา</th><th>เวลาเริ่มต้น</th><th>จำนวนชั่วโมง</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    @if (multiDayRows.Count == 0)
+                                    {
+                                        <tr><td colspan="5" class="empty-multi-days">เลือกช่วงวันที่แล้วกดสร้างรายการ</td></tr>
+                                    }
+                                    else
+                                    {
+                                        @for (var index = 0; index < multiDayRows.Count; index++)
+                                        {
+                                            var row = multiDayRows[index];
+                                            var rowNumber = index + 1;
+                                            <tr>
+                                                <td>@rowNumber</td>
+                                                <td><input type="date" @bind="row.LeaveDate" /></td>
+                                                <td><input type="time" @bind="row.StartTime" /></td>
+                                                <td><input type="number" min="0.5" max="8" step="0.5" @bind="row.LeaveHours" /></td>
+                                                <td><button class="remove-day" type="button" aria-label="ลบวันที่" @onclick="() => RemoveMultiDayRow(row)">×</button></td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        @if (multiDayRows.Count > 0)
+                        {
+                            <p class="batch-note">พร้อมสร้าง @multiDayRows.Count เอกสาร แยกวันละ 1 เอกสาร</p>
+                        }
+                    </section>
+                }
+                @if (!string.IsNullOrWhiteSpace(attachmentName)) { <p class="attachment-name">แนบไฟล์: @attachmentName</p> }
+                @if (!string.IsNullOrWhiteSpace(saveError)) { <p class="save-error" role="alert">@saveError</p> }
+            </div>
+            <footer class="document-modal-footer">
+                <button class="btn btn-reset" type="button" @onclick="CloseCreate">ยกเลิก</button>
+                <button class="btn btn-create" type="button" @onclick="SaveDocument">
+                    @(createMode == "multiple" && multiDayRows.Count > 0 ? $"บันทึก {multiDayRows.Count} เอกสาร" : "บันทึกเอกสาร")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (selectedDocument is not null)
+{
+    <div class="document-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="document-detail-title">
+        <section class="document-modal">
+            <header class="document-modal-header">
+                <div><h2 id="document-detail-title">รายละเอียดเอกสารการลา</h2><p>@selectedDocument.DocumentNo</p></div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
+            </header>
+            <div class="document-modal-body">
+                @if (IsDocumentReadOnly)
+                {
+                    <div class="approved-notice">เอกสารนี้มีสถานะ @StatusText(selectedDocument.Status) จึงไม่สามารถแก้ไขข้อมูลได้</div>
+                }
+                <div class="form-grid readonly-grid">
+                    <label>เลขที่เอกสาร<input value="@selectedDocument.DocumentNo" disabled /></label>
+                    <label>ผู้สร้างเอกสาร<input value="@selectedDocument.CreatorName" disabled /></label>
+                </div>
+                <h3>รายละเอียดการลา</h3>
+                <div class="form-grid">
+                    <label>ชนิดการลา<select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly"><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select></label>
+                    <label>ประเภทการลา<select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
+                    <label>วันที่ลา<input type="date" @bind="detailLeaveDate" disabled="@IsDocumentReadOnly" /></label>
+                    <label>เวลาเริ่มต้น<input type="time" @bind="detailLeaveStartTime" disabled="@IsDocumentReadOnly" /></label>
+                    <label>จำนวนชั่วโมง<input type="number" min="0.5" max="8" step="0.5" @bind="detailLeaveHours" disabled="@IsDocumentReadOnly" /></label>
+                    <label>เอกสารแนบ<input value="-" disabled /></label>
+                    <label class="full-width">เหตุผลการลา<textarea rows="3" @bind="detailLeaveReason" disabled="@IsDocumentReadOnly"></textarea></label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(detailActionError))
+                {
+                    <p class="save-error" role="alert">@detailActionError</p>
+                }
+            </div>
+            <footer class="document-modal-footer">
+                <button class="btn btn-history" type="button" @onclick="ToggleHistory">ประวัติเอกสาร</button>
+                <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
+                @if (CanCancelDocument)
+                {
+                    <button class="btn btn-cancel-document" type="button" disabled="@isDocumentActionSaving" @onclick="CancelDocument">
+                        @(isDocumentActionSaving ? "กำลังยกเลิก..." : "ยกเลิกเอกสาร")
+                    </button>
+                }
+                @if (selectedDocument.Status is "APPROVED" or "EDIT_REQUESTED")
+                {
+                    <button class="btn btn-request-edit" type="button" @onclick="StartEditRequest">ขอแก้ไขเอกสาร</button>
+                }
+                else if (!IsDocumentReadOnly)
+                {
+                    <button class="btn btn-create" type="button" @onclick="SaveDocumentEdits">บันทึกการแก้ไข</button>
+                }
+            </footer>
+        </section>
+    </div>
+}
+
+@if (isShowingHistory && selectedDocument is not null)
+{
+    <div class="document-history-panel" role="dialog" aria-modal="true" aria-labelledby="document-history-title">
+        <header class="history-panel-header">
+            <div><h2 id="document-history-title">ประวัติเอกสาร</h2><p>@selectedDocument.DocumentNo</p></div>
+            <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseHistory">×</button>
+        </header>
+        <div class="history-panel-body">
+            <table class="history-table">
+                <thead><tr><th>Action</th><th>รายละเอียด</th><th>Action By</th><th>Action Date-Time</th></tr></thead>
+                <tbody>
+                    @foreach (var item in documentHistory)
+                    {
+                        <tr><td>@ActionText(item.Action)</td><td>@item.DetailsText</td><td>@item.ActionByName</td><td>@item.ActionAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (isRequestingEdit)
+{
+    <div class="edit-request-panel" role="dialog" aria-modal="true" aria-labelledby="edit-request-title">
+        <header class="edit-request-header">
+            <div><h2 id="edit-request-title">ขอแก้ไขเอกสาร</h2><p>ระบุข้อมูลใหม่ที่ต้องการแก้ไข</p></div>
+            <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseEditRequest">×</button>
+        </header>
+        <div class="edit-request-body">
+            <div class="form-grid single-column">
+                <label>ชนิดการลา<select @bind="requestLeaveKind"><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select></label>
+                <label>ประเภทการลา<select @bind="requestLeaveType">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
+                <label>วันที่ลา<input type="date" @bind="requestLeaveDate" /></label>
+                <label>เวลาเริ่มต้น<input type="time" @bind="requestLeaveStartTime" /></label>
+                <label>จำนวนชั่วโมง<input type="number" min="0.5" max="8" step="0.5" @bind="requestLeaveHours" /></label>
+                <label>เหตุผลในการขอแก้ไข<textarea rows="3" @bind="requestEditReason" placeholder="ระบุเหตุผลที่ต้องการแก้ไขเอกสาร"></textarea></label>
+            </div>
+        </div>
+        <footer class="edit-request-footer">
+            @if (selectedDocument?.Status == "EDIT_REQUESTED")
+            {
+                <button class="btn btn-cancel-request" type="button" @onclick="CancelEditRequest">ยกเลิกขอแก้ไข</button>
+            }
+            <button class="btn btn-request-edit" type="button" @onclick="SaveEditRequest">บันทึกคำขอ</button>
+        </footer>
+    </div>
+}
+
+@code {
+    private string searchText = string.Empty;
+    private string leaveType = string.Empty;
+    private string status = string.Empty;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isCreating;
+    private string createMode = "single";
+    private string newLeaveKind = string.Empty;
+    private string newLeaveType = string.Empty;
+    private DateTime newSingleLeaveDate = DateTime.Today;
+    private TimeOnly newLeaveStartTime = new(9, 0);
+    private decimal newLeaveHours = 8;
+    private DateTime multiStartDate = DateTime.Today;
+    private DateTime multiEndDate = DateTime.Today;
+    private readonly List<MultiDayLeaveRow> multiDayRows = [];
+    private string newLeaveReason = string.Empty;
+    private string? attachmentName;
+    private string? saveError;
+    private LeaveDocumentDto? selectedDocument;
+    private string detailLeaveKind = "ลาล่วงหน้า";
+    private string detailLeaveType = string.Empty;
+    private DateTime detailLeaveDate = DateTime.Today;
+    private TimeOnly detailLeaveStartTime = new(9, 0);
+    private decimal detailLeaveHours = 8;
+    private string detailLeaveReason = string.Empty;
+    private bool IsDocumentReadOnly => selectedDocument is null || selectedDocument.Status != "PENDING_APPROVAL";
+    private bool CanCancelDocument =>
+        selectedDocument is not null &&
+        (selectedDocument.Status == "PENDING_APPROVAL" ||
+         (selectedDocument.Status == "APPROVED" &&
+          DateTime.Now < selectedDocument.LeaveDate.ToDateTime(selectedDocument.StartTime)));
+    private bool isDocumentActionSaving;
+    private string? detailActionError;
+    private bool isRequestingEdit;
+    private string requestLeaveKind = string.Empty;
+    private string requestLeaveType = string.Empty;
+    private DateTime requestLeaveDate = DateTime.Today;
+    private TimeOnly requestLeaveStartTime = new(9, 0);
+    private decimal requestLeaveHours = 8;
+    private string requestEditReason = string.Empty;
+    private bool isShowingHistory;
+    private List<LeaveDocumentHistoryDto> documentHistory = [];
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveQuotaDto> myLeaveQuotas = [];
+    private List<LeaveDocumentDto> documents = [];
+    private List<LeaveDocumentDto> filteredDocuments = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadData();
+
+    private async Task ReloadData()
+    {
+        leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+        myLeaveQuotas = await Http.GetFromJsonAsync<List<LeaveQuotaDto>>(
+            $"api/leave-quotas?year={DateTime.Today.Year}&employeeId=EMP-001") ?? [];
+        documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>("api/leave-documents?creatorEmployeeId=EMP-001") ?? [];
+        Search();
+    }
+
+    private void Search()
+    {
+        filteredDocuments = documents.Where(document =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.LeaveTypeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.LeaveReason.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
+            (string.IsNullOrWhiteSpace(status) || StatusText(document.Status) == status) &&
+            (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
+            (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value))).ToList();
+    }
+
+    private void Reset()
+    {
+        searchText = leaveType = status = string.Empty;
+        startDate = endDate = null;
+        Search();
+    }
+
+    private void StartCreate()
+    {
+        isCreating = true;
+        createMode = "single";
+        newLeaveKind = newLeaveType = newLeaveReason = string.Empty;
+        newSingleLeaveDate = multiStartDate = multiEndDate = DateTime.Today;
+        newLeaveStartTime = new TimeOnly(9, 0);
+        newLeaveHours = 8;
+        multiDayRows.Clear();
+        attachmentName = null;
+        saveError = null;
+    }
+
+    private void ChangeCreateMode(string mode)
+    {
+        createMode = mode;
+        saveError = null;
+    }
+
+    private void ShowSingleMode() => ChangeCreateMode("single");
+    private void ShowMultipleMode() => ChangeCreateMode("multiple");
+
+    private void GenerateMultiDayRows()
+    {
+        saveError = null;
+        if (multiEndDate.Date < multiStartDate.Date)
+        {
+            saveError = "วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น";
+            return;
+        }
+
+        var totalDays = (multiEndDate.Date - multiStartDate.Date).Days + 1;
+        if (totalDays > 366)
+        {
+            saveError = "ช่วงวันที่ต้องไม่เกิน 366 วัน";
+            return;
+        }
+
+        multiDayRows.Clear();
+        for (var offset = 0; offset < totalDays; offset++)
+        {
+            multiDayRows.Add(new MultiDayLeaveRow
+            {
+                LeaveDate = multiStartDate.Date.AddDays(offset),
+                StartTime = new TimeOnly(9, 0),
+                LeaveHours = 8
+            });
+        }
+    }
+
+    private void RemoveMultiDayRow(MultiDayLeaveRow row) =>
+        multiDayRows.Remove(row);
+
+    private async Task OpenDocument(LeaveDocumentDto document)
+    {
+        detailActionError = null;
+        selectedDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>($"api/leave-documents/{document.Id}") ?? document;
+        detailLeaveKind = KindText(selectedDocument.LeaveKind);
+        detailLeaveType = selectedDocument.LeaveTypeName;
+        detailLeaveDate = selectedDocument.LeaveDate.ToDateTime(TimeOnly.MinValue);
+        detailLeaveStartTime = selectedDocument.StartTime;
+        detailLeaveHours = selectedDocument.LeaveHours;
+        detailLeaveReason = selectedDocument.LeaveReason;
+    }
+
+    private void CloseDocument()
+    {
+        selectedDocument = null;
+        isRequestingEdit = false;
+        isShowingHistory = false;
+    }
+
+    private async Task ToggleHistory()
+    {
+        isShowingHistory = !isShowingHistory;
+        if (isShowingHistory && selectedDocument is not null)
+            documentHistory = await Http.GetFromJsonAsync<List<LeaveDocumentHistoryDto>>($"api/leave-documents/{selectedDocument.Id}/history") ?? [];
+    }
+    private void CloseHistory() => isShowingHistory = false;
+
+    private void StartEditRequest()
+    {
+        if (selectedDocument?.Status is not ("APPROVED" or "EDIT_REQUESTED")) return;
+        isRequestingEdit = true;
+        if (selectedDocument.PendingEditRequest is { } existingRequest)
+        {
+            requestLeaveKind = KindText(existingRequest.RequestedLeaveKind);
+            requestLeaveType = existingRequest.RequestedLeaveTypeName;
+            requestLeaveDate = existingRequest.RequestedLeaveDate.ToDateTime(TimeOnly.MinValue);
+            requestLeaveStartTime = existingRequest.RequestedStartTime;
+            requestLeaveHours = existingRequest.RequestedLeaveHours;
+            requestEditReason = existingRequest.RequestReason;
+        }
+        else
+        {
+            requestLeaveKind = detailLeaveKind;
+            requestLeaveType = detailLeaveType;
+            requestLeaveDate = detailLeaveDate;
+            requestLeaveStartTime = detailLeaveStartTime;
+            requestLeaveHours = detailLeaveHours;
+            requestEditReason = string.Empty;
+        }
+    }
+
+    private void CloseEditRequest() => isRequestingEdit = false;
+
+    private async Task SaveEditRequest()
+    {
+        if (selectedDocument is null) return;
+        var type = FindLeaveType(requestLeaveType);
+        if (type is null || string.IsNullOrWhiteSpace(requestEditReason)) return;
+        var request = new SaveLeaveEditRequest(type.Id, KindCode(requestLeaveKind), DateOnly.FromDateTime(requestLeaveDate), requestLeaveStartTime,
+            requestLeaveHours, requestEditReason, "EMP-001", "Anan Sukjai");
+        var response = await Http.PostAsJsonAsync($"api/leave-documents/{selectedDocument.Id}/edit-requests", request);
+        if (!response.IsSuccessStatusCode) return;
+        await ReloadData();
+        CloseEditRequest();
+        CloseDocument();
+    }
+
+    private async Task CancelEditRequest()
+    {
+        if (selectedDocument?.Status != "EDIT_REQUESTED") return;
+        var url = $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending?actionBy=EMP-001&actionByName={Uri.EscapeDataString("Anan Sukjai")}";
+        var response = await Http.DeleteAsync(url);
+        if (!response.IsSuccessStatusCode) return;
+        await ReloadData();
+        CloseDocument();
+    }
+
+    private async Task CancelDocument()
+    {
+        if (selectedDocument is null || !CanCancelDocument || isDocumentActionSaving)
+            return;
+
+        detailActionError = null;
+        isDocumentActionSaving = true;
+        try
+        {
+            var request = new ReviewLeaveDocumentRequest("EMP-001", "Anan Sukjai");
+            var response = await Http.PostAsJsonAsync(
+                $"api/leave-documents/{selectedDocument.Id}/cancel",
+                request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                detailActionError = string.IsNullOrWhiteSpace(details)
+                    ? $"ยกเลิกไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"ยกเลิกไม่สำเร็จ: {details}";
+                return;
+            }
+
+            await ReloadData();
+            CloseDocument();
+        }
+        catch (Exception exception)
+        {
+            detailActionError = $"ยกเลิกไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isDocumentActionSaving = false;
+        }
+    }
+
+    private async Task SaveDocumentEdits()
+    {
+        if (selectedDocument is null || IsDocumentReadOnly) return;
+        var type = FindLeaveType(detailLeaveType);
+        if (type is null || string.IsNullOrWhiteSpace(detailLeaveReason)) return;
+        var request = new UpdateLeaveDocumentRequest(type.Id, KindCode(detailLeaveKind), DateOnly.FromDateTime(detailLeaveDate), detailLeaveStartTime,
+            detailLeaveHours, detailLeaveReason, "EMP-001", "Anan Sukjai");
+        var response = await Http.PutAsJsonAsync($"api/leave-documents/{selectedDocument.Id}", request);
+        if (!response.IsSuccessStatusCode) return;
+        await ReloadData();
+        CloseDocument();
+    }
+
+    private void CloseCreate() => isCreating = false;
+
+    private void SelectAttachment(ChangeEventArgs eventArgs)
+        => attachmentName = eventArgs.Value?.ToString();
+
+    private async Task SaveDocument()
+    {
+        saveError = null;
+        var type = FindLeaveType(newLeaveType);
+        if (type is null || string.IsNullOrWhiteSpace(newLeaveKind) || string.IsNullOrWhiteSpace(newLeaveReason))
+        {
+            saveError = "กรุณาเลือกชนิดการลา ประเภทการลา และกรอกเหตุผลการลาให้ครบถ้วน";
+            return;
+        }
+        HttpResponseMessage response;
+        if (createMode == "single")
+        {
+            var request = new CreateLeaveDocumentRequest(
+                type.Id,
+                KindCode(newLeaveKind),
+                DateOnly.FromDateTime(newSingleLeaveDate),
+                newLeaveStartTime,
+                newLeaveHours,
+                newLeaveReason,
+                "EMP-001",
+                "Anan Sukjai",
+                "Human Resources",
+                "EMP-002",
+                "Somchai Jaidee");
+            response = await Http.PostAsJsonAsync("api/leave-documents", request);
+        }
+        else
+        {
+            if (multiDayRows.Count == 0)
+            {
+                saveError = "กรุณาเลือกช่วงวันที่และกดสร้างรายการก่อนบันทึก";
+                return;
+            }
+            if (multiDayRows.Any(row => row.LeaveHours <= 0 || row.LeaveHours > 8))
+            {
+                saveError = "จำนวนชั่วโมงของแต่ละวันต้องมากกว่า 0 และไม่เกิน 8 ชั่วโมง";
+                return;
+            }
+            if (multiDayRows.Select(row => row.LeaveDate.Date).Distinct().Count() != multiDayRows.Count)
+            {
+                saveError = "วันที่ลาในตารางต้องไม่ซ้ำกัน";
+                return;
+            }
+
+            var request = new CreateMultiDayLeaveDocumentsRequest(
+                type.Id,
+                KindCode(newLeaveKind),
+                multiDayRows.Select(row => new CreateMultiDayLeaveItemRequest(
+                    DateOnly.FromDateTime(row.LeaveDate),
+                    row.StartTime,
+                    row.LeaveHours)).ToList(),
+                newLeaveReason,
+                "EMP-001",
+                "Anan Sukjai",
+                "Human Resources",
+                "EMP-002",
+                "Somchai Jaidee");
+            response = await Http.PostAsJsonAsync("api/leave-documents/batch", request);
+        }
+        if (!response.IsSuccessStatusCode)
+        {
+            var details = await response.Content.ReadAsStringAsync();
+            saveError = string.IsNullOrWhiteSpace(details)
+                ? $"บันทึกไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                : $"บันทึกไม่สำเร็จ: {details}";
+            return;
+        }
+        await ReloadData();
+        CloseCreate();
+    }
+    private LeaveTypeDto? FindLeaveType(string name) => leaveTypes.FirstOrDefault(x => x.NameTh == name);
+
+    private static string KindText(string kind) => kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+    private static string KindCode(string kind) => kind == "ลาล่วงหน้า" ? "ADVANCE" : "RETROACTIVE";
+    private static string HoursToDays(decimal hours) => (hours / 8).ToString("0.##");
+
+    private sealed class MultiDayLeaveRow
+    {
+        public DateTime LeaveDate { get; set; }
+        public TimeOnly StartTime { get; set; }
+        public decimal LeaveHours { get; set; }
+    }
+
+    private static string StatusText(string value) => value switch
+    {
+        "PENDING_APPROVAL" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "CANCELLED" => "ยกเลิก",
+        "EDIT_REQUESTED" => "ขอแก้ไข",
+        _ => value
+    };
+
+    private static string StatusClass(string value) => value switch
+    {
+        "APPROVED" => "approved",
+        "REJECTED" or "CANCELLED" => "rejected",
+        _ => "pending"
+    };
+
+    private static string ActionText(string value) => value switch
+    {
+        "CREATE_DOCUMENT" => "สร้างเอกสาร",
+        "APPROVE" => "อนุมัติ",
+        "REJECT" => "ไม่อนุมัติ",
+        "EDIT" => "การแก้ไข",
+        "CANCEL" => "ยกเลิก",
+        "REQUEST_EDIT" => "ขอแก้ไข",
+        "CANCEL_EDIT_REQUEST" => "ยกเลิกขอแก้ไข",
+        "APPROVE_EDIT_REQUEST" => "อนุมัติขอแก้ไข",
+        _ => value
+    };
+}

@@ -1,0 +1,736 @@
+@page "/attendance/calendar-settings"
+@inject HttpClient Http
+
+<PageTitle>กำหนดปฏิทินการทำงาน | HR Project</PageTitle>
+
+<section class="manage-page work-calendar-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>กำหนดปฏิทินการทำงาน</h1>
+                <p>จัดการวันหยุดนักขัตฤกษ์และวันเสาร์ที่บริษัทกำหนดให้เป็นวันทำงาน</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-secondary-action" type="button"
+                        @onclick="() => StartCreate(WorkingSaturdayType)">
+                    + วันเสาร์ทำงาน
+                </button>
+                <button class="btn btn-create" type="button"
+                        @onclick="() => StartCreate(PublicHolidayType)">
+                    + วันหยุดนักขัตฤกษ์
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <section class="calendar-summary">
+        <article class="summary-tile holiday-tile">
+            <span class="tile-icon" aria-hidden="true">★</span>
+            <div>
+                <span>วันหยุดนักขัตฤกษ์</span>
+                <strong>@CountByType(PublicHolidayType) วัน</strong>
+            </div>
+        </article>
+        <article class="summary-tile saturday-tile">
+            <span class="tile-icon" aria-hidden="true">✓</span>
+            <div>
+                <span>วันเสาร์ทำงาน</span>
+                <strong>@CountByType(WorkingSaturdayType) วัน</strong>
+            </div>
+        </article>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header settings-toolbar">
+            <div>
+                ปฏิทินประจำปี
+                <span class="result-count">@CalendarDays.Count รายการ</span>
+            </div>
+            <label class="year-filter">
+                <span>ปี</span>
+                <button type="button" aria-label="ปีก่อนหน้า" @onclick="ShowPreviousYear">‹</button>
+                <input type="number" min="2000" max="2200"
+                       @bind="SelectedYear" @bind:event="onchange" />
+                <button type="button" aria-label="ปีถัดไป" @onclick="ShowNextYear">›</button>
+                <button type="button" class="current-year-button" @onclick="ShowCurrentYear">ปีปัจจุบัน</button>
+            </label>
+        </div>
+
+        @if (IsLoading)
+        {
+            <div class="state-message">กำลังโหลดปฏิทินการทำงาน...</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(LoadError))
+        {
+            <div class="state-message error">@LoadError</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table employee-table work-calendar-table">
+                    <thead>
+                        <tr>
+                            <th>วันที่</th>
+                            <th>วัน</th>
+                            <th>ประเภท</th>
+                            <th>ชื่อวัน / รายการ</th>
+                            <th>หมายเหตุ</th>
+                            <th>แก้ไขล่าสุด</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (CalendarDays.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="no-results">
+                                    ยังไม่มีรายการปฏิทินในปี @SelectedYear
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var item in CalendarDays)
+                            {
+                                <tr>
+                                    <td><strong>@item.CalendarDate.ToString("dd/MM/yyyy")</strong></td>
+                                    <td>@ThaiWeekday(item.CalendarDate.DayOfWeek)</td>
+                                    <td>
+                                        <span class="@DayTypeCssClass(item.DayType)">
+                                            @DayTypeText(item.DayType)
+                                        </span>
+                                    </td>
+                                    <td>@item.Name</td>
+                                    <td class="note-cell">@(item.Note ?? "-")</td>
+                                    <td>
+                                        <span class="updated-by">@item.UpdatedByName</span>
+                                        <small>@item.UpdatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</small>
+                                    </td>
+                                    <td>
+                                        <div class="row-actions">
+                                            <button type="button" class="btn-row-edit"
+                                                    @onclick="() => StartEdit(item)">แก้ไข</button>
+                                            <button type="button" class="btn-row-delete"
+                                                    @onclick="() => AskDelete(item)">ลบ</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</section>
+
+@if (IsEditorOpen)
+{
+    <div class="settings-modal-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="work-calendar-modal-title">
+        <section class="settings-modal">
+            <header class="settings-modal-header">
+                <div>
+                    <h2 id="work-calendar-modal-title">
+                        @(EditingId.HasValue ? "แก้ไขรายการปฏิทิน" : "เพิ่มรายการปฏิทิน")
+                    </h2>
+                    <p>รายการนี้จะนำไปใช้คำนวณวันทำงานในหน้า Calendar</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseEditor">×</button>
+            </header>
+
+            <div class="settings-modal-body">
+                @if (EditingId.HasValue)
+                {
+                    <div class="settings-form">
+                        <label>
+                            ประเภท <span class="required">*</span>
+                            <select @bind="EditingDayType">
+                                <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
+                                <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
+                            </select>
+                        </label>
+                        <label>
+                            วันที่ <span class="required">*</span>
+                            <input type="date" @bind="EditingDate" disabled />
+                        </label>
+                        <label class="full-width">
+                            ชื่อวัน / รายการ <span class="required">*</span>
+                            <input type="text" maxlength="200" @bind="EditingName"
+                                   placeholder="เช่น วันขึ้นปีใหม่ หรือ วันเสาร์ทำงานประจำเดือน" />
+                        </label>
+                        <label class="full-width">
+                            หมายเหตุ
+                            <textarea rows="3" maxlength="1000" @bind="EditingNote"
+                                      placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea>
+                        </label>
+                    </div>
+
+                    @if (EditingDayType == WorkingSaturdayType &&
+                         EditingDate.DayOfWeek != DayOfWeek.Saturday)
+                    {
+                        <div class="form-hint warning">วันเสาร์ทำงานต้องเลือกวันที่ตรงกับวันเสาร์</div>
+                    }
+                }
+                else
+                {
+                    <div class="batch-type-row">
+                        <label>
+                            ประเภท <span class="required">*</span>
+                            <select @bind="EditingDayType">
+                                <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
+                                <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
+                            </select>
+                        </label>
+                        <label class="popup-year-field">
+                            ปีที่ต้องการกำหนด <span class="required">*</span>
+                            <select value="@PopupYear" @onchange="ChangePopupYear">
+                                @foreach (var year in PopupYearOptions)
+                                {
+                                    <option value="@year">@year</option>
+                                }
+                            </select>
+                        </label>
+                        <div class="selection-counter">
+                            เลือกแล้ว <strong>@SelectedDates.Count</strong> วัน
+                        </div>
+                    </div>
+
+                    <section class="mini-calendar" aria-label="เลือกวันที่">
+                        <div class="mini-calendar-header">
+                            <button type="button" aria-label="เดือนก่อนหน้า"
+                                    disabled="@IsFirstCalendarMonth"
+                                    @onclick="ShowPreviousCalendarMonth">‹</button>
+                            <strong>@MiniCalendarMonthTitle</strong>
+                            <button type="button" aria-label="เดือนถัดไป"
+                                    disabled="@IsLastCalendarMonth"
+                                    @onclick="ShowNextCalendarMonth">›</button>
+                        </div>
+                        <div class="mini-calendar-weekdays" aria-hidden="true">
+                            @foreach (var weekday in MiniWeekdayNames)
+                            {
+                                <span>@weekday</span>
+                            }
+                        </div>
+                        <div class="mini-calendar-grid">
+                            @foreach (var date in MiniCalendarDates)
+                            {
+                                <button type="button"
+                                        class="@MiniDateCssClass(date)"
+                                        disabled="@IsMiniDateDisabled(date)"
+                                        title="@MiniDateTitle(date)"
+                                        @onclick="() => ToggleSelectedDate(date)">
+                                    <span>@date.Day</span>
+                                    @if (IsDateConfigured(date))
+                                    {
+                                        <i aria-hidden="true"></i>
+                                    }
+                                </button>
+                            }
+                        </div>
+                        <p class="mini-calendar-help">
+                            @(EditingDayType == WorkingSaturdayType
+                                ? "เลือกได้เฉพาะวันเสาร์ วันที่มีจุดคือมีรายการอยู่แล้ว"
+                                : "คลิกวันที่เพื่อเลือกหลายวัน วันที่มีจุดคือมีรายการอยู่แล้ว")
+                        </p>
+                    </section>
+
+                    <section class="selected-date-section">
+                        <div class="selected-date-heading">
+                            <strong>วันที่เลือก</strong>
+                            @if (SelectedDates.Count > 0)
+                            {
+                                <button type="button" @onclick="ClearSelectedDates">ล้างทั้งหมด</button>
+                            }
+                        </div>
+
+                        @if (SelectedDates.Count == 0)
+                        {
+                            <div class="empty-selection">ยังไม่ได้เลือกวันที่จากปฏิทิน</div>
+                        }
+                        else
+                        {
+                            <div class="selected-date-list">
+                                @foreach (var selected in SelectedDates.OrderBy(item => item.Date))
+                                {
+                                    <div class="selected-date-row">
+                                        <div class="selected-date-value">
+                                            <strong>@selected.Date.ToString("dd/MM/yyyy")</strong>
+                                            <span>@ThaiWeekday(selected.Date.DayOfWeek)</span>
+                                        </div>
+                                        <input type="text" maxlength="200" @bind="selected.Name"
+                                               aria-label="ชื่อรายการวันที่ @selected.Date.ToString("dd/MM/yyyy")"
+                                               placeholder="ระบุชื่อวัน / รายการ" />
+                                        <button type="button" aria-label="นำวันที่ออก"
+                                                @onclick="() => RemoveSelectedDate(selected.Date)">×</button>
+                                    </div>
+                                }
+                            </div>
+                            <label class="batch-note">
+                                หมายเหตุร่วมสำหรับทุกรายการ
+                                <textarea rows="2" maxlength="1000" @bind="EditingNote"
+                                          placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea>
+                            </label>
+                        }
+                    </section>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(SaveError))
+                {
+                    <div class="save-error" role="alert">@SaveError</div>
+                }
+            </div>
+
+            <footer class="settings-modal-footer">
+                <button class="btn btn-close" type="button" @onclick="CloseEditor">ปิด</button>
+                <button class="btn btn-create" type="button" disabled="@IsSaving" @onclick="SaveItem">
+                    @(IsSaving
+                        ? "กำลังบันทึก..."
+                        : EditingId.HasValue
+                            ? "บันทึก"
+                            : $"บันทึก {SelectedDates.Count} วัน")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (DeletingItem is not null)
+{
+    <div class="settings-modal-overlay confirm-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="delete-calendar-title">
+        <section class="delete-dialog">
+            <h2 id="delete-calendar-title">ยืนยันการลบรายการ</h2>
+            <p>
+                ต้องการลบ <strong>@DeletingItem.Name</strong><br />
+                วันที่ @DeletingItem.CalendarDate.ToString("dd/MM/yyyy") ใช่หรือไม่
+            </p>
+            @if (!string.IsNullOrWhiteSpace(DeleteError))
+            {
+                <div class="save-error" role="alert">@DeleteError</div>
+            }
+            <div class="delete-dialog-actions">
+                <button type="button" class="btn btn-close" @onclick="CancelDelete">ไม่ลบ</button>
+                <button type="button" class="btn btn-danger" disabled="@IsDeleting" @onclick="DeleteItem">
+                    @(IsDeleting ? "กำลังลบ..." : "ลบรายการ")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private const string PublicHolidayType = "PUBLIC_HOLIDAY";
+    private const string WorkingSaturdayType = "WORKING_SATURDAY";
+    private static readonly string[] MiniWeekdayNames = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+    private static readonly string[] ThaiMonthNames =
+    [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+
+    private int selectedYear = DateTime.Today.Year;
+    private int SelectedYear
+    {
+        get => selectedYear;
+        set
+        {
+            var normalized = Math.Clamp(value, 2000, 2200);
+            if (selectedYear == normalized)
+                return;
+
+            selectedYear = normalized;
+            _ = LoadCalendarDays();
+        }
+    }
+
+    private bool IsLoading = true;
+    private bool IsEditorOpen;
+    private bool IsSaving;
+    private bool IsDeleting;
+    private string? LoadError;
+    private string? SaveError;
+    private string? DeleteError;
+    private List<WorkCalendarDayDto> CalendarDays = [];
+    private CurrentMicrosoftUserDto? CurrentUser;
+    private long? EditingId;
+    private DateOnly EditingDate = DateOnly.FromDateTime(DateTime.Today);
+    private string editingDayType = PublicHolidayType;
+    private string EditingDayType
+    {
+        get => editingDayType;
+        set
+        {
+            if (editingDayType == value)
+                return;
+
+            editingDayType = value;
+            SelectedDates.Clear();
+            SaveError = null;
+        }
+    }
+    private string EditingName = string.Empty;
+    private string EditingNote = string.Empty;
+    private DateOnly MiniCalendarMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private List<SelectedCalendarDate> SelectedDates = [];
+    private List<WorkCalendarDayDto> PopupExistingDays = [];
+    private int PopupYear = DateTime.Today.Year;
+    private WorkCalendarDayDto? DeletingItem;
+
+    private IEnumerable<int> PopupYearOptions =>
+        Enumerable.Range(DateTime.Today.Year - 2, 8);
+    private string MiniCalendarMonthTitle =>
+        $"{ThaiMonthNames[MiniCalendarMonth.Month - 1]} {MiniCalendarMonth.Year}";
+    private bool IsFirstCalendarMonth =>
+        MiniCalendarMonth.Year <= PopupYear && MiniCalendarMonth.Month == 1;
+    private bool IsLastCalendarMonth =>
+        MiniCalendarMonth.Year >= PopupYear && MiniCalendarMonth.Month == 12;
+    private IReadOnlyList<DateOnly> MiniCalendarDates
+    {
+        get
+        {
+            var firstDay = new DateOnly(MiniCalendarMonth.Year, MiniCalendarMonth.Month, 1);
+            var calendarStart = firstDay.AddDays(-(int)firstDay.DayOfWeek);
+            return Enumerable.Range(0, 42)
+                .Select(offset => calendarStart.AddDays(offset))
+                .ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            CurrentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+        }
+        catch
+        {
+            CurrentUser = null;
+        }
+
+        await LoadCalendarDays();
+    }
+
+    private async Task LoadCalendarDays()
+    {
+        IsLoading = true;
+        LoadError = null;
+        try
+        {
+            CalendarDays = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
+                $"api/work-calendar?year={SelectedYear}") ?? [];
+        }
+        catch (Exception exception)
+        {
+            LoadError = $"โหลดปฏิทินไม่สำเร็จ: {exception.Message}";
+            CalendarDays = [];
+        }
+        finally
+        {
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ShowPreviousYear() => SelectedYear--;
+    private void ShowNextYear() => SelectedYear++;
+    private void ShowCurrentYear() => SelectedYear = DateTime.Today.Year;
+
+    private void StartCreate(string dayType)
+    {
+        EditingId = null;
+        SelectedDates.Clear();
+        EditingDayType = dayType;
+        PopupYear = SelectedYear;
+        PopupExistingDays = CalendarDays.ToList();
+        var initialDate = PopupYear == DateTime.Today.Year
+            ? DateOnly.FromDateTime(DateTime.Today)
+            : new DateOnly(PopupYear, 1, 1);
+        EditingDate = initialDate;
+        MiniCalendarMonth = new DateOnly(initialDate.Year, initialDate.Month, 1);
+        EditingName = string.Empty;
+        EditingNote = string.Empty;
+        SaveError = null;
+        IsEditorOpen = true;
+    }
+
+    private void StartEdit(WorkCalendarDayDto item)
+    {
+        EditingId = item.Id;
+        EditingDate = item.CalendarDate;
+        EditingDayType = item.DayType;
+        EditingName = item.Name;
+        EditingNote = item.Note ?? string.Empty;
+        SaveError = null;
+        IsEditorOpen = true;
+    }
+
+    private async Task SaveItem()
+    {
+        SaveError = null;
+        if (EditingId.HasValue && string.IsNullOrWhiteSpace(EditingName))
+        {
+            SaveError = "กรุณาระบุชื่อวันหรือชื่อรายการ";
+            return;
+        }
+
+        if (EditingId.HasValue &&
+            EditingDayType == WorkingSaturdayType &&
+            EditingDate.DayOfWeek != DayOfWeek.Saturday)
+        {
+            SaveError = "วันเสาร์ทำงานต้องเลือกวันที่ตรงกับวันเสาร์เท่านั้น";
+            return;
+        }
+
+        if (!EditingId.HasValue && SelectedDates.Count == 0)
+        {
+            SaveError = "กรุณาเลือกวันที่จากปฏิทินอย่างน้อย 1 วัน";
+            return;
+        }
+
+        if (!EditingId.HasValue &&
+            SelectedDates.Any(item => string.IsNullOrWhiteSpace(item.Name)))
+        {
+            SaveError = "กรุณาระบุชื่อวันหรือชื่อรายการให้ครบทุกวันที่เลือก";
+            return;
+        }
+
+        if (CurrentUser is null)
+        {
+            SaveError = "ไม่พบข้อมูลพนักงานของผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่";
+            return;
+        }
+
+        IsSaving = true;
+        try
+        {
+            HttpResponseMessage response;
+            if (EditingId.HasValue)
+            {
+                var request = new SaveWorkCalendarDayRequest(
+                    EditingDate,
+                    EditingDayType,
+                    EditingName.Trim(),
+                    string.IsNullOrWhiteSpace(EditingNote) ? null : EditingNote.Trim(),
+                    CurrentUser.EmployeeId,
+                    CurrentUser.EmployeeName);
+                response = await Http.PostAsJsonAsync("api/work-calendar", request);
+            }
+            else
+            {
+                var batchRequest = new SaveWorkCalendarDaysBatchRequest(
+                    EditingDayType,
+                    SelectedDates
+                        .OrderBy(item => item.Date)
+                        .Select(item => new SaveWorkCalendarDayBatchItem(
+                            item.Date,
+                            item.Name.Trim(),
+                            string.IsNullOrWhiteSpace(EditingNote) ? null : EditingNote.Trim()))
+                        .ToList(),
+                    CurrentUser.EmployeeId,
+                    CurrentUser.EmployeeName);
+                response = await Http.PostAsJsonAsync("api/work-calendar/batch", batchRequest);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                SaveError = string.IsNullOrWhiteSpace(details)
+                    ? $"บันทึกไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details.Trim('"');
+                return;
+            }
+
+            var savedYear = EditingId.HasValue
+                ? EditingDate.Year
+                : SelectedDates.Min(item => item.Date.Year);
+            SelectedYear = savedYear;
+            await LoadCalendarDays();
+            IsEditorOpen = false;
+        }
+        catch (Exception exception)
+        {
+            SaveError = $"บันทึกไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private void CloseEditor()
+    {
+        if (!IsSaving)
+            IsEditorOpen = false;
+    }
+
+    private void AskDelete(WorkCalendarDayDto item)
+    {
+        DeletingItem = item;
+        DeleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        if (!IsDeleting)
+            DeletingItem = null;
+    }
+
+    private async Task DeleteItem()
+    {
+        if (DeletingItem is null)
+            return;
+
+        IsDeleting = true;
+        DeleteError = null;
+        try
+        {
+            var response = await Http.DeleteAsync($"api/work-calendar/{DeletingItem.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                DeleteError = $"ลบรายการไม่สำเร็จ (HTTP {(int)response.StatusCode})";
+                return;
+            }
+
+            DeletingItem = null;
+            await LoadCalendarDays();
+        }
+        catch (Exception exception)
+        {
+            DeleteError = $"ลบรายการไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            IsDeleting = false;
+        }
+    }
+
+    private int CountByType(string dayType) =>
+        CalendarDays.Count(item => item.DayType == dayType);
+
+    private void ShowPreviousCalendarMonth()
+    {
+        if (!IsFirstCalendarMonth)
+            MiniCalendarMonth = MiniCalendarMonth.AddMonths(-1);
+    }
+
+    private void ShowNextCalendarMonth()
+    {
+        if (!IsLastCalendarMonth)
+            MiniCalendarMonth = MiniCalendarMonth.AddMonths(1);
+    }
+
+    private async Task ChangePopupYear(ChangeEventArgs eventArgs)
+    {
+        if (!int.TryParse(eventArgs.Value?.ToString(), out var year))
+            return;
+
+        PopupYear = year;
+        SelectedDates.Clear();
+        SaveError = null;
+        var preferredMonth = year == DateTime.Today.Year ? DateTime.Today.Month : 1;
+        MiniCalendarMonth = new DateOnly(year, preferredMonth, 1);
+
+        try
+        {
+            PopupExistingDays = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
+                $"api/work-calendar?year={year}") ?? [];
+        }
+        catch
+        {
+            PopupExistingDays = [];
+            SaveError = "ไม่สามารถตรวจสอบรายการเดิมของปีที่เลือกได้ กรุณาลองใหม่";
+        }
+    }
+
+    private bool IsMiniDateDisabled(DateOnly date) =>
+        date.Month != MiniCalendarMonth.Month ||
+        date.Year != MiniCalendarMonth.Year ||
+        IsDateConfigured(date) ||
+        (EditingDayType == WorkingSaturdayType && date.DayOfWeek != DayOfWeek.Saturday);
+
+    private bool IsDateConfigured(DateOnly date) =>
+        PopupExistingDays.Any(item => item.CalendarDate == date);
+
+    private bool IsDateSelected(DateOnly date) =>
+        SelectedDates.Any(item => item.Date == date);
+
+    private void ToggleSelectedDate(DateOnly date)
+    {
+        if (IsMiniDateDisabled(date))
+            return;
+
+        var selected = SelectedDates.FirstOrDefault(item => item.Date == date);
+        if (selected is not null)
+        {
+            SelectedDates.Remove(selected);
+            return;
+        }
+
+        var defaultName = EditingDayType == WorkingSaturdayType
+            ? "วันเสาร์ทำงาน"
+            : "วันหยุดนักขัตฤกษ์";
+        SelectedDates.Add(new SelectedCalendarDate(date, defaultName));
+    }
+
+    private void RemoveSelectedDate(DateOnly date) =>
+        SelectedDates.RemoveAll(item => item.Date == date);
+
+    private void ClearSelectedDates() => SelectedDates.Clear();
+
+    private string MiniDateCssClass(DateOnly date)
+    {
+        var classes = new List<string> { "mini-calendar-day" };
+        if (date.Month != MiniCalendarMonth.Month || date.Year != MiniCalendarMonth.Year)
+            classes.Add("outside");
+        if (date == DateOnly.FromDateTime(DateTime.Today))
+            classes.Add("today");
+        if (date.DayOfWeek == DayOfWeek.Saturday)
+            classes.Add("saturday");
+        if (date.DayOfWeek == DayOfWeek.Sunday)
+            classes.Add("sunday");
+        if (IsDateSelected(date))
+            classes.Add("selected");
+        if (IsDateConfigured(date))
+            classes.Add("configured");
+        return string.Join(" ", classes);
+    }
+
+    private string MiniDateTitle(DateOnly date)
+    {
+        var configured = PopupExistingDays.FirstOrDefault(item => item.CalendarDate == date);
+        if (configured is not null)
+            return $"มีรายการแล้ว: {configured.Name}";
+        if (EditingDayType == WorkingSaturdayType && date.DayOfWeek != DayOfWeek.Saturday)
+            return "เลือกได้เฉพาะวันเสาร์";
+        return $"เลือกวันที่ {date:dd/MM/yyyy}";
+    }
+
+    private static string DayTypeText(string dayType) => dayType switch
+    {
+        PublicHolidayType => "วันหยุดนักขัตฤกษ์",
+        WorkingSaturdayType => "วันเสาร์ทำงาน",
+        _ => dayType
+    };
+
+    private static string DayTypeCssClass(string dayType) =>
+        dayType == PublicHolidayType ? "day-type holiday" : "day-type working-saturday";
+
+    private static string ThaiWeekday(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Sunday => "วันอาทิตย์",
+        DayOfWeek.Monday => "วันจันทร์",
+        DayOfWeek.Tuesday => "วันอังคาร",
+        DayOfWeek.Wednesday => "วันพุธ",
+        DayOfWeek.Thursday => "วันพฤหัสบดี",
+        DayOfWeek.Friday => "วันศุกร์",
+        DayOfWeek.Saturday => "วันเสาร์",
+        _ => "-"
+    };
+
+    private sealed class SelectedCalendarDate(DateOnly date, string name)
+    {
+        public DateOnly Date { get; } = date;
+        public string Name { get; set; } = name;
+    }
+}

@@ -1,0 +1,96 @@
+/* Adapted from SeatBooking.Client/wwwroot/css/manage-page.css */
+.manage-page {
+    padding: 1.5rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.page-header-card {
+    padding: 1.5rem 2rem;
+    background: linear-gradient(135deg, #1a2848 0%, #0f172a 100%);
+    color: #fff;
+    border-radius: .75rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, .15);
+    margin-bottom: 1.5rem;
+}
+
+.page-header-content, .content-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.page-header-text h1 { margin: 0; color: #fff; font-size: 1.75rem; font-weight: 700; }
+.page-header-text p { margin: .25rem 0 0; color: rgba(255, 255, 255, .8); }
+
+.content-card {
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: .75rem;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .06);
+}
+
+.content-card-header {
+    padding: 1rem 1.5rem;
+    color: #1a2848;
+    font-size: 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.content-card-body { padding: 1.5rem; }
+.employee-table { margin: 0; }
+.employee-table thead th {
+    padding: .875rem 1rem;
+    color: #475569;
+    background: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+    font-size: .8rem;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+.employee-table tbody td { padding: .75rem 1rem; color: #1e293b; vertical-align: middle; }
+.employee-table tbody tr:hover { background: #f8fafc; }
+
+.loading-state { padding: 4rem 2rem; color: #ff6b35; text-align: center; }
+
+/* Full-page loading dialog adapted to the SeatBooking loading experience */
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, .48);
+}
+
+.loading-dialog {
+    display: flex;
+    width: min(288px, 100%);
+    min-height: 152px;
+    padding: 2rem 1.5rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    color: #1a2848;
+    background: #fff;
+    border-radius: .75rem;
+    box-shadow: 0 16px 35px rgba(0, 0, 0, .25);
+}
+
+.loading-dialog-title { font-size: 1rem; }
+.loading-dialog-message { margin: 0; color: #4b5563; font-size: 1.05rem; font-weight: 600; }
+
+@media (min-width: 641px) {
+    .loading-overlay { left: 258px; }
+}
+
+@media (max-width: 768px) {
+    .manage-page { padding: 1rem; }
+    .page-header-card, .content-card-body { padding: 1.25rem; }
+    .employee-table { min-width: 720px; }
+    .content-card-body { overflow-x: auto; }
+}

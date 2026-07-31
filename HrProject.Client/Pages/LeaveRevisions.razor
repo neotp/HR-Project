@@ -1,0 +1,321 @@
+@page "/leave/revisions"
+@inject HttpClient Http
+
+<PageTitle>ขอแก้ไขเอกสารการลา | HR Project</PageTitle>
+
+<section class="manage-page revisions-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>ขอแก้ไขเอกสารการลา</h1>
+                <p>รายการเอกสารที่อยู่ระหว่างรอพิจารณาคำขอแก้ไข</p>
+            </div>
+            <span class="revision-summary">@filteredDocuments.Count รายการ</span>
+        </div>
+    </header>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">Criteria ค้นหาเอกสาร</div>
+        <div class="content-card-body">
+            <div class="criteria-grid">
+                <label>คำค้นหา
+                    <input @bind="searchText" placeholder="เลขที่เอกสาร ชื่อพนักงาน หรือแผนก" />
+                </label>
+                <label>ประเภทการลา
+                    <select @bind="leaveType">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.NameTh">@type.NameTh</option>
+                        }
+                    </select>
+                </label>
+                <label>วันที่ลาเริ่มต้น<input type="date" @bind="startDate" /></label>
+                <label>วันที่ลาสิ้นสุด<input type="date" @bind="endDate" /></label>
+            </div>
+            <div class="criteria-actions">
+                <button class="btn btn-primary" type="button" @onclick="Search">ค้นหา</button>
+                <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card result-card">
+        <div class="content-card-header">
+            รายการขอแก้ไขเอกสาร
+            <span class="result-count">@filteredDocuments.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="state-message">กำลังโหลดเอกสาร...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="state-message error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table employee-table revision-table">
+                        <thead>
+                            <tr>
+                                <th>เลขที่เอกสาร</th>
+                                <th>ผู้ขอลา</th>
+                                <th>แผนก</th>
+                                <th>ประเภทการลาเดิม</th>
+                                <th>วันที่ลาเดิม</th>
+                                <th>จำนวนชั่วโมงเดิม</th>
+                                <th>วันที่ขอแก้ไข</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (filteredDocuments.Count == 0)
+                            {
+                                <tr><td colspan="8" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะขอแก้ไข</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var document in filteredDocuments)
+                                {
+                                    <tr>
+                                        <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                        <td>@document.CreatorName</td>
+                                        <td>@document.CreatorDepartment</td>
+                                        <td>@document.LeaveTypeName</td>
+                                        <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
+                                        <td>@document.LeaveHours.ToString("0.##")</td>
+                                        <td>@document.PendingEditRequest?.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                                        <td><span class="status-pill revision">ขอแก้ไข</span></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+</section>
+
+@if (selectedDocument is not null)
+{
+    <div class="document-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="revision-detail-title">
+        <section class="document-modal">
+            <header class="document-modal-header">
+                <div>
+                    <h2 id="revision-detail-title">รายละเอียดคำขอแก้ไข</h2>
+                    <p>@selectedDocument.DocumentNo</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
+            </header>
+            <div class="document-modal-body">
+                <div class="document-info">
+                    <span><strong>ผู้ขอลา:</strong> @selectedDocument.CreatorName</span>
+                    <span><strong>แผนก:</strong> @selectedDocument.CreatorDepartment</span>
+                    <span><strong>ผู้อนุมัติ:</strong> @selectedDocument.ApproverName</span>
+                </div>
+
+                @if (selectedDocument.PendingEditRequest is { } request)
+                {
+                    <div class="comparison-grid">
+                        <section class="comparison-card current">
+                            <h3>ข้อมูลเอกสารเดิม</h3>
+                            <label>ชนิดการลา<input value="@KindText(selectedDocument.LeaveKind)" disabled /></label>
+                            <label>ประเภทการลา<input value="@selectedDocument.LeaveTypeName" disabled /></label>
+                            <label>วันที่ลา<input value="@selectedDocument.LeaveDate.ToString("dd/MM/yyyy")" disabled /></label>
+                            <label>เวลาเริ่มต้น<input value="@selectedDocument.StartTime.ToString("HH:mm")" disabled /></label>
+                            <label>จำนวนชั่วโมง<input value="@selectedDocument.LeaveHours.ToString("0.##")" disabled /></label>
+                        </section>
+                        <section class="comparison-card requested">
+                            <h3>ข้อมูลที่ขอแก้ไข</h3>
+                            <label class="@ChangedClass(selectedDocument.LeaveKind != request.RequestedLeaveKind)">
+                                <span>ชนิดการลา @ChangeBadge(selectedDocument.LeaveKind != request.RequestedLeaveKind)</span>
+                                <input value="@KindText(request.RequestedLeaveKind)" disabled />
+                            </label>
+                            <label class="@ChangedClass(selectedDocument.LeaveTypeId != request.RequestedLeaveTypeId)">
+                                <span>ประเภทการลา @ChangeBadge(selectedDocument.LeaveTypeId != request.RequestedLeaveTypeId)</span>
+                                <input value="@request.RequestedLeaveTypeName" disabled />
+                            </label>
+                            <label class="@ChangedClass(selectedDocument.LeaveDate != request.RequestedLeaveDate)">
+                                <span>วันที่ลา @ChangeBadge(selectedDocument.LeaveDate != request.RequestedLeaveDate)</span>
+                                <input value="@request.RequestedLeaveDate.ToString("dd/MM/yyyy")" disabled />
+                            </label>
+                            <label class="@ChangedClass(selectedDocument.StartTime != request.RequestedStartTime)">
+                                <span>เวลาเริ่มต้น @ChangeBadge(selectedDocument.StartTime != request.RequestedStartTime)</span>
+                                <input value="@request.RequestedStartTime.ToString("HH:mm")" disabled />
+                            </label>
+                            <label class="@ChangedClass(selectedDocument.LeaveHours != request.RequestedLeaveHours)">
+                                <span>จำนวนชั่วโมง @ChangeBadge(selectedDocument.LeaveHours != request.RequestedLeaveHours)</span>
+                                <input value="@request.RequestedLeaveHours.ToString("0.##")" disabled />
+                            </label>
+                        </section>
+                    </div>
+                    <label class="request-reason">
+                        เหตุผลในการขอแก้ไข
+                        <textarea rows="3" disabled>@request.RequestReason</textarea>
+                    </label>
+                }
+                else
+                {
+                    <div class="state-message error">ไม่พบรายละเอียดคำขอแก้ไขที่รอดำเนินการ</div>
+                }
+            </div>
+            <footer class="document-modal-footer">
+                @if (!string.IsNullOrWhiteSpace(actionError))
+                {
+                    <span class="action-error" role="alert">@actionError</span>
+                }
+                <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
+                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectRequest">
+                    @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                </button>
+                <button class="btn btn-approve" type="button" disabled="@(isSaving || selectedDocument.PendingEditRequest is null)" @onclick="ApproveRequest">
+                    @(isSaving ? "กำลังดำเนินการ..." : "อนุมัติขอแก้ไข")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private string searchText = string.Empty;
+    private string leaveType = string.Empty;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? actionError;
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveDocumentDto> documents = [];
+    private List<LeaveDocumentDto> filteredDocuments = [];
+    private LeaveDocumentDto? selectedDocument;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+            await ReloadDocuments();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดรายการขอแก้ไขไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReloadDocuments()
+    {
+        var items = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+            "api/leave-documents?status=EDIT_REQUESTED") ?? [];
+
+        documents = [];
+        foreach (var item in items.Where(item => item.Status == "EDIT_REQUESTED"))
+        {
+            var detail = await Http.GetFromJsonAsync<LeaveDocumentDto>(
+                $"api/leave-documents/{item.Id}") ?? item;
+            documents.Add(detail);
+        }
+        Search();
+    }
+
+    private void Search()
+    {
+        filteredDocuments = documents.Where(document =>
+            document.Status == "EDIT_REQUESTED" &&
+            (string.IsNullOrWhiteSpace(searchText) ||
+             document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorDepartment.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
+            (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
+            (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
+            .ToList();
+    }
+
+    private void Reset()
+    {
+        searchText = leaveType = string.Empty;
+        startDate = endDate = null;
+        Search();
+    }
+
+    private async Task OpenDocument(LeaveDocumentDto document)
+    {
+        actionError = null;
+        selectedDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>(
+            $"api/leave-documents/{document.Id}") ?? document;
+    }
+
+    private void CloseDocument()
+    {
+        if (!isSaving)
+            selectedDocument = null;
+    }
+
+    private async Task ApproveRequest() =>
+        await ReviewRequest("approve", "อนุมัติคำขอแก้ไข");
+
+    private async Task RejectRequest() =>
+        await ReviewRequest("reject", "ไม่อนุมัติคำขอแก้ไข");
+
+    private async Task ReviewRequest(string action, string actionText)
+    {
+        if (selectedDocument?.PendingEditRequest is null || isSaving)
+            return;
+
+        actionError = null;
+        isSaving = true;
+        try
+        {
+            var review = new ReviewLeaveDocumentRequest("EMP-002", "Somchai Jaidee");
+            var response = await Http.PostAsJsonAsync(
+                $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending/{action}",
+                review);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                actionError = string.IsNullOrWhiteSpace(details)
+                    ? $"{actionText}ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"{actionText}ไม่สำเร็จ: {details}";
+                return;
+            }
+
+            documents.RemoveAll(item => item.Id == selectedDocument.Id);
+            Search();
+            selectedDocument = null;
+        }
+        catch (Exception exception)
+        {
+            actionError = $"{actionText}ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string KindText(string kind) =>
+        kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+
+    private static string ChangedClass(bool changed) =>
+        changed ? "field-changed" : string.Empty;
+
+    private static RenderFragment ChangeBadge(bool changed) => builder =>
+    {
+        if (!changed)
+            return;
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", "change-badge");
+        builder.AddContent(2, "เปลี่ยนแปลง");
+        builder.CloseElement();
+    };
+}
