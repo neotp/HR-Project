@@ -1,7 +1,7 @@
 ﻿@inherits LayoutComponentBase
-<div class="page">
+<div class="page @(isSidebarCollapsed ? "sidebar-collapsed" : null)">
     <div class="sidebar">
-        <NavMenu />
+        <NavMenu @bind-IsDesktopCollapsed="isSidebarCollapsed" />
     </div>
 
     <main>
@@ -14,3 +14,7 @@
         </article>
     </main>
 </div>
+
+@code {
+    private bool isSidebarCollapsed;
+}

@@ -27,7 +27,9 @@
     private string DisplayName => currentUser?.EmployeeName ?? claimName;
     private string EmployeeLabel => currentUser is null
         ? "กำลังเชื่อมข้อมูลพนักงาน..."
-        : $"{currentUser.EmployeeId} · {currentUser.Department}";
+        : currentUser.IsEmployeeLinked
+            ? $"{currentUser.EmployeeId} · {currentUser.Department}"
+            : "ยังไม่ผูกข้อมูลพนักงาน";
     private string UserInitial => string.IsNullOrWhiteSpace(DisplayName)
         ? "M"
         : DisplayName[..1].ToUpperInvariant();

@@ -1,6 +1,11 @@
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    max-width: 100%;
+    overflow-x: hidden;
 }
+
+img, svg { max-width: 100%; }
+button, input, select, textarea { max-width: 100%; }
 
 h1:focus {
     outline: none;
@@ -130,4 +135,9 @@ a, .btn-link {
 
 code {
     color: #c02d76;
+}
+
+@media (max-width: 640px) {
+    input, select, textarea { font-size: 16px !important; }
+    button, a, input, select { touch-action: manipulation; }
 }

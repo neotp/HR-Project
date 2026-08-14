@@ -12,7 +12,7 @@ public sealed class LeaveTypesController(NpgsqlDataSource dataSource) : Controll
     public async Task<ActionResult<IReadOnlyList<LeaveTypeDto>>> GetAll(CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT id, code, name_th
+            SELECT id, code, name_th, default_hours
             FROM public.leave_types
             WHERE is_active = TRUE
             ORDER BY id
@@ -26,7 +26,8 @@ public sealed class LeaveTypesController(NpgsqlDataSource dataSource) : Controll
             result.Add(new LeaveTypeDto(
                 reader.GetInt64(0),
                 reader.GetString(1),
-                reader.GetString(2)));
+                reader.GetString(2),
+                reader.GetDecimal(3)));
         }
 
         return Ok(result);

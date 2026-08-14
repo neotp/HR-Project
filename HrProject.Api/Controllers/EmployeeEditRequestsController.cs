@@ -12,14 +12,15 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
 {
     private static readonly HashSet<string> AllowedFields =
     [
-        "firstName", "lastName", "department", "position", "email", "startDate",
+        "title", "firstName", "lastName", "thaiFullName", "englishFullName", "email",
         "personal.nationalId", "personal.birthDate", "personal.gender",
-        "personal.phone", "personal.address",
-        "work.company", "work.position", "work.period", "work.details",
+        "personal.religion", "personal.bloodType", "personal.residenceProvince",
+        "personal.idCardAddress", "personal.houseRegistrationAddress",
+        "work.history",
+        "education.history",
         "education.level", "education.institution", "education.major",
         "education.graduationYear",
-        "training.course", "training.organizer", "training.date", "training.details",
-        "family.name", "family.relationship", "family.phone", "family.occupation"
+        "family.maritalStatus", "family.spouseName", "family.spouseNationalId"
     ];
 
     [HttpGet]
@@ -175,6 +176,10 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
             return BadRequest("ข้อมูลผู้ดำเนินการไม่ครบถ้วน");
         }
 
+        var pendingRequest = await FindById(id, cancellationToken);
+        if (pendingRequest is null)
+            return NotFound("ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน");
+
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         const string updateSql = """
@@ -233,6 +238,17 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        if (newStatus == "APPROVED" &&
+            !await EmployeesController.ApplyApprovedChanges(
+                dataSource,
+                pendingRequest.EmployeeId,
+                pendingRequest.Changes,
+                cancellationToken))
+        {
+            return Conflict("อนุมัติเอกสารแล้ว แต่ไม่พบข้อมูลพนักงานสำหรับปรับปรุง");
+        }
+
         return Ok(await FindById(id, cancellationToken));
     }
 

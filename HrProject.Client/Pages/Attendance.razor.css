@@ -168,7 +168,7 @@
 }
 
 .calendar-canvas {
-    min-width: 790px;
+    min-width: 1120px;
 }
 
 .calendar-weekdays,
@@ -197,7 +197,7 @@
 
 .calendar-day {
     min-width: 0;
-    min-height: 126px;
+    min-height: 138px;
     padding: .7rem;
     color: #1e293b;
     background: #fff;
@@ -206,7 +206,7 @@
     border-bottom: 1px solid #e2e8f0;
     font: inherit;
     text-align: left;
-    cursor: pointer;
+    cursor: default;
     transition: background .15s ease, box-shadow .15s ease;
 }
 
@@ -227,6 +227,21 @@
     cursor: default;
     opacity: .58;
 }
+
+.day-main-column {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.day-main-column:disabled { cursor: default; }
+.day-main-column:focus-visible { outline: 3px solid rgba(255, 107, 53, .25); outline-offset: 3px; border-radius: .35rem; }
 
 .calendar-day.is-weekend {
     background: #fbfcfe;
@@ -256,8 +271,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: .65rem;
+    margin-bottom: .55rem;
 }
+
+.day-layout { display: block; width: 100%; }
+.day-layout.has-leave-document { display: grid; grid-template-columns: minmax(64px, .72fr) minmax(0, 1.45fr); align-items: center; gap: .55rem; }
+.day-main-column { display: block; min-width: 0; }
+.has-leave-document .day-heading { margin-bottom: .45rem; }
+.has-leave-document .attendance-status { padding: .22rem .42rem; font-size: .66rem; white-space: nowrap; }
 
 .day-number {
     display: grid;
@@ -319,6 +340,61 @@
     line-height: 1.35;
 }
 
+.leave-document-slot {
+    --leave-accent: #2563eb;
+    --leave-surface: #eff6ff;
+    --leave-border: #bfdbfe;
+    position: relative;
+    display: grid;
+    gap: .3rem;
+    width: 100%;
+    min-height: 78px;
+    margin-top: 0;
+    padding: .55rem .6rem .5rem .75rem;
+    overflow: hidden;
+    color: #1e293b;
+    background: linear-gradient(135deg, #fff 0%, var(--leave-surface) 100%);
+    border: 1px solid var(--leave-border);
+    border-radius: .55rem;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, .07);
+    line-height: 1.2;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.leave-slot-list {
+    display: grid;
+    align-self: stretch;
+    gap: .45rem;
+    min-width: 0;
+}
+
+.leave-document-slot::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: "";
+    background: var(--leave-accent);
+}
+
+.leave-slot-heading { display: flex; align-items: center; gap: .35rem; min-width: 0; }
+.leave-slot-heading svg { width: .85rem; height: .85rem; flex: 0 0 auto; fill: none; stroke: var(--leave-accent); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.leave-slot-heading strong { overflow: hidden; color: #1e293b; font-size: .73rem; text-overflow: ellipsis; white-space: nowrap; }
+.leave-slot-time { color: #334155; font-size: .7rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leave-slot-time i { padding: 0 .08rem; color: var(--leave-accent); font-style: normal; }
+.leave-document-slot small { display: flex; align-items: center; gap: .3rem; color: #64748b; font-size: .62rem; font-weight: 600; }
+.leave-document-slot small i { width: .38rem; height: .38rem; flex: 0 0 auto; background: var(--leave-accent); border-radius: 50%; }
+.leave-document-slot:hover { border-color: var(--leave-accent); box-shadow: 0 6px 14px rgba(15, 23, 42, .12); transform: translateY(-1px); }
+.leave-document-slot:focus-visible { outline: 3px solid color-mix(in srgb, var(--leave-accent) 22%, transparent); outline-offset: 2px; }
+
+.leave-slot-approved { --leave-accent: #047857; --leave-surface: #d1fae5; --leave-border: #a7f3d0; }
+.leave-slot-pending { --leave-accent: #92400e; --leave-surface: #fef3c7; --leave-border: #fde68a; }
+.leave-slot-editing { --leave-accent: #6d28d9; --leave-surface: #ede9fe; --leave-border: #ddd6fe; }
+.leave-slot-rejected { --leave-accent: #b91c1c; --leave-surface: #fee2e2; --leave-border: #fecaca; }
+.leave-slot-cancelled { --leave-accent: #475569; --leave-surface: #e2e8f0; --leave-border: #cbd5e1; opacity: .78; }
+
 .calendar-footer {
     padding: 1rem 1.5rem;
 }
@@ -355,6 +431,42 @@
     margin-top: 1.5rem;
     overflow: hidden;
 }
+
+.selected-detail-section > h3 {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    padding: .85rem 1.5rem;
+    color: #1a2848;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: .92rem;
+}
+
+.selected-detail-section > h3 span { color: #64748b; font-size: .72rem; font-weight: 600; }
+.selected-leave-section { border-top: 1px solid #e2e8f0; }
+.selected-leave-list { display: grid; gap: .75rem; padding: 1rem 1.5rem 1.25rem; }
+.selected-leave-item {
+    --leave-accent: #2563eb;
+    position: relative;
+    display: grid;
+    grid-template-columns: 135px repeat(4, minmax(105px, 1fr));
+    gap: .8rem 1rem;
+    padding: .9rem 1rem .9rem 1.15rem;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: .65rem;
+    box-shadow: 0 2px 7px rgba(15, 23, 42, .05);
+}
+.selected-leave-item::before { position: absolute; inset: 0 auto 0 0; width: 4px; content: ""; background: var(--leave-accent); }
+.selected-leave-item > div { display: grid; gap: .22rem; min-width: 0; }
+.selected-leave-item span { color: #64748b; font-size: .68rem; }
+.selected-leave-item strong { overflow-wrap: anywhere; color: #1e293b; font-size: .8rem; }
+.selected-leave-number { align-self: center; color: var(--leave-accent); background: transparent; border: 0; font: inherit; font-size: .82rem; font-weight: 800; text-align: left; cursor: pointer; }
+.selected-leave-number:hover { text-decoration: underline; }
+.selected-leave-reason { grid-column: 2 / -1; }
 
 .selected-day-header {
     display: flex;
@@ -430,6 +542,9 @@
     .selected-day-details {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .selected-leave-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .selected-leave-number, .selected-leave-reason { grid-column: 1 / -1; }
 }
 
 @media (max-width: 700px) {
@@ -447,6 +562,12 @@
         grid-column: 1 / -1;
         margin-left: 0;
     }
+}
+
+@media (max-width: 1200px) {
+    .calendar-canvas { min-width: 1050px; }
+    .day-layout.has-leave-document { grid-template-columns: 58px minmax(0, 1fr); gap: .4rem; }
+    .calendar-day { padding: .55rem; }
 }
 
 @media (max-width: 520px) {

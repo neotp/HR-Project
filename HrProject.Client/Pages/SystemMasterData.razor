@@ -1,0 +1,380 @@
+@page "/system/master-data"
+@inject HttpClient Http
+
+<PageTitle>จัดการข้อมูลพื้นฐานระบบ | HR Project</PageTitle>
+
+<section class="manage-page master-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>จัดการข้อมูลพื้นฐานระบบ</h1>
+                <p>กำหนดข้อมูลที่ใช้ใน Dropdown และค่าเริ่มต้นของระบบ HR</p>
+            </div>
+            <button class="master-add-button" type="button" disabled="@(isLoading || selectedCategory is null)"
+                    @onclick="StartCreate">+ เพิ่มข้อมูล</button>
+        </div>
+    </header>
+
+    <section class="content-card master-category-card">
+        <div class="content-card-header">หมวดข้อมูล</div>
+        <div class="content-card-body">
+            <nav class="master-tabs" aria-label="หมวดข้อมูลพื้นฐาน">
+                @foreach (var category in categories)
+                {
+                    <button type="button" class="@(selectedCategory?.Code == category.Code ? "active" : null)"
+                            @onclick="() => SelectCategory(category)">@category.Name</button>
+                }
+            </nav>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header master-list-header">
+            <span>@(selectedCategory?.Name ?? "ข้อมูลพื้นฐาน")</span>
+            <span class="master-count">@FilteredCount รายการ</span>
+        </div>
+        <div class="content-card-body">
+            <div class="master-search">
+                <label>ค้นหา
+                    <input type="search" @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
+                           placeholder="ค้นหารหัสหรือชื่อ" />
+                </label>
+                <label class="active-filter">สถานะ
+                    <select @bind="statusFilter" @bind:after="ResetPaging">
+                        <option value="ALL">ทั้งหมด</option>
+                        <option value="ACTIVE">ใช้งาน</option>
+                        <option value="INACTIVE">ปิดใช้งาน</option>
+                    </select>
+                </label>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="master-state">กำลังโหลดข้อมูล...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="master-state error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    @if (IsLeaveType)
+                    {
+                        <table class="table master-table">
+                            <thead><tr><th>รหัส</th><th>ชื่อประเภทการลา</th><th>ค่าเริ่มต้น</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>
+                                @if (!PagedLeaveTypes.Any())
+                                {
+                                    <tr><td colspan="5" class="master-state">ไม่พบข้อมูล</td></tr>
+                                }
+                                @foreach (var item in PagedLeaveTypes)
+                                {
+                                    <tr>
+                                        <td><code>@item.Code</code></td>
+                                        <td><strong>@item.NameTh</strong></td>
+                                        <td>@item.DefaultHours.ToString("0.##") ชั่วโมง (@(item.DefaultHours / 8) วัน)</td>
+                                        <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
+                                        <td><button class="master-edit-button" type="button" @onclick="() => StartEditLeaveType(item)">แก้ไข</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        <table class="table master-table">
+                            <thead><tr><th>รหัส</th>@if (IsDepartment) { <th>Business Unit</th> }<th>ชื่อภาษาไทย</th><th>ชื่อภาษาอังกฤษ</th><th>ลำดับ</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>
+                                @if (!PagedItems.Any())
+                                {
+                                    <tr><td colspan="@(IsDepartment ? 7 : 6)" class="master-state">ไม่พบข้อมูล</td></tr>
+                                }
+                                @foreach (var item in PagedItems)
+                                {
+                                    <tr>
+                                        <td><code>@item.ItemCode</code></td>
+                                        @if (IsDepartment) { <td><strong>@item.ParentItemName</strong></td> }
+                                        <td><strong>@item.NameTh</strong></td>
+                                        <td>@(item.NameEn ?? "-")</td>
+                                        <td>@item.DisplayOrder</td>
+                                        <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
+                                        <td><button class="master-edit-button" type="button" @onclick="() => StartEditItem(item)">แก้ไข</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+                <Pagination TotalItems="@FilteredCount" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+            }
+        </div>
+    </section>
+</section>
+
+@if (isEditorOpen)
+{
+    <div class="master-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="master-editor-title">
+        <section class="master-modal">
+            <header class="master-modal-header">
+                <div>
+                    <h2 id="master-editor-title">@(editingId.HasValue ? "แก้ไข" : "เพิ่ม") @(selectedCategory?.Name)</h2>
+                    <p>ข้อมูลที่เปิดใช้งานจะแสดงใน Dropdown ของระบบ</p>
+                </div>
+                <button type="button" aria-label="ปิด" disabled="@isSaving" @onclick="CloseEditor">×</button>
+            </header>
+            <div class="master-modal-body">
+                <div class="master-form-grid">
+                    <label>รหัส *
+                        <input @bind="editCode" maxlength="100" placeholder="เช่น IS" />
+                    </label>
+                    <label>ชื่อภาษาไทย *
+                        <input @bind="editNameTh" maxlength="250" />
+                    </label>
+                    @if (IsLeaveType)
+                    {
+                        <label>จำนวนเริ่มต้น (ชั่วโมง) *
+                            <input type="number" min="0" step="0.5" @bind="editDefaultHours" />
+                        </label>
+                        <label>เทียบเป็นวัน
+                            <input value="@((editDefaultHours / 8).ToString("0.##")) วัน" disabled />
+                        </label>
+                    }
+                    else
+                    {
+                        @if (IsDepartment)
+                        {
+                            <label>Business Unit *
+                                <select @bind="editParentItemId">
+                                    <option value="">-- เลือก Business Unit --</option>
+                                    @foreach (var businessUnit in businessUnits)
+                                    {
+                                        <option value="@businessUnit.Id">@businessUnit.NameTh</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        <label>ชื่อภาษาอังกฤษ
+                            <input @bind="editNameEn" maxlength="250" />
+                        </label>
+                        <label>ลำดับแสดงผล
+                            <input type="number" min="0" @bind="editDisplayOrder" />
+                        </label>
+                    }
+                    <label class="master-active-check">
+                        <input type="checkbox" @bind="editIsActive" />
+                        เปิดใช้งาน
+                    </label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(saveError))
+                {
+                    <div class="master-save-error" role="alert">@saveError</div>
+                }
+            </div>
+            <footer class="master-modal-footer">
+                <button class="btn master-close-button" type="button" disabled="@isSaving" @onclick="CloseEditor">ปิด</button>
+                <button class="btn master-save-button" type="button" disabled="@isSaving" @onclick="Save">
+                    @(isSaving ? "กำลังบันทึก..." : "บันทึก")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private List<MasterDataCategoryDto> categories = [];
+    private List<MasterDataItemDto> items = [];
+    private List<MasterDataItemDto> businessUnits = [];
+    private List<LeaveTypeMasterDto> leaveTypes = [];
+    private MasterDataCategoryDto? selectedCategory;
+    private bool isLoading = true;
+    private bool isEditorOpen;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveError;
+    private string searchText = string.Empty;
+    private string statusFilter = "ALL";
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private long? editingId;
+    private string editCode = string.Empty;
+    private string editNameTh = string.Empty;
+    private string editNameEn = string.Empty;
+    private int editDisplayOrder;
+    private decimal editDefaultHours;
+    private bool editIsActive = true;
+    private string editParentItemId = string.Empty;
+
+    private bool IsLeaveType => selectedCategory?.IsLeaveType == true;
+    private bool IsDepartment => selectedCategory?.Code == "DEPARTMENT";
+    private IEnumerable<MasterDataItemDto> FilteredItems => items.Where(item =>
+        MatchesStatus(item.IsActive) &&
+        (string.IsNullOrWhiteSpace(searchText) ||
+         item.ItemCode.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         (item.ParentItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+         (item.NameEn?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)));
+    private IEnumerable<LeaveTypeMasterDto> FilteredLeaveTypes => leaveTypes.Where(item =>
+        MatchesStatus(item.IsActive) &&
+        (string.IsNullOrWhiteSpace(searchText) ||
+         item.Code.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase)));
+    private int FilteredCount => IsLeaveType ? FilteredLeaveTypes.Count() : FilteredItems.Count();
+    private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)pageSize)));
+    private IEnumerable<MasterDataItemDto> PagedItems => FilteredItems.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<LeaveTypeMasterDto> PagedLeaveTypes => FilteredLeaveTypes.Skip((SafePage - 1) * pageSize).Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            categories = await Http.GetFromJsonAsync<List<MasterDataCategoryDto>>("api/system-master-data/categories") ?? [];
+            businessUnits = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+                "api/system-master-data/items?category=BUSINESS_UNIT&includeInactive=false") ?? [];
+            selectedCategory = categories.FirstOrDefault();
+            await LoadData();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectCategory(MasterDataCategoryDto category)
+    {
+        selectedCategory = category;
+        searchText = string.Empty;
+        statusFilter = "ALL";
+        currentPage = 1;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        if (selectedCategory is null) return;
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            if (IsLeaveType)
+                leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeMasterDto>>("api/system-master-data/leave-types") ?? [];
+            else
+                items = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+                    $"api/system-master-data/items?category={Uri.EscapeDataString(selectedCategory.Code)}&includeInactive=true") ?? [];
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartCreate()
+    {
+        editingId = null;
+        editCode = editNameTh = editNameEn = string.Empty;
+        editDisplayOrder = 0;
+        editDefaultHours = 0;
+        editIsActive = true;
+        editParentItemId = string.Empty;
+        saveError = null;
+        isEditorOpen = true;
+    }
+
+    private void StartEditItem(MasterDataItemDto item)
+    {
+        editingId = item.Id;
+        editCode = item.ItemCode;
+        editNameTh = item.NameTh;
+        editNameEn = item.NameEn ?? string.Empty;
+        editDisplayOrder = item.DisplayOrder;
+        editIsActive = item.IsActive;
+        editParentItemId = item.ParentItemId?.ToString() ?? string.Empty;
+        saveError = null;
+        isEditorOpen = true;
+    }
+
+    private void StartEditLeaveType(LeaveTypeMasterDto item)
+    {
+        editingId = item.Id;
+        editCode = item.Code;
+        editNameTh = item.NameTh;
+        editDefaultHours = item.DefaultHours;
+        editIsActive = item.IsActive;
+        saveError = null;
+        isEditorOpen = true;
+    }
+
+    private async Task Save()
+    {
+        if (selectedCategory is null || string.IsNullOrWhiteSpace(editCode) || string.IsNullOrWhiteSpace(editNameTh))
+        {
+            saveError = "กรุณากรอกรหัสและชื่อให้ครบถ้วน";
+            return;
+        }
+        isSaving = true;
+        saveError = null;
+        try
+        {
+            HttpResponseMessage response;
+            if (IsLeaveType)
+            {
+                var request = new SaveLeaveTypeMasterRequest(editCode, editNameTh, editDefaultHours, editIsActive);
+                response = editingId.HasValue
+                    ? await Http.PutAsJsonAsync($"api/system-master-data/leave-types/{editingId.Value}", request)
+                    : await Http.PostAsJsonAsync("api/system-master-data/leave-types", request);
+            }
+            else
+            {
+                long? parentItemId = null;
+                if (IsDepartment)
+                {
+                    if (!long.TryParse(editParentItemId, out var parsedParentId))
+                    {
+                        saveError = "กรุณาเลือก Business Unit ของแผนก";
+                        return;
+                    }
+                    parentItemId = parsedParentId;
+                }
+                var request = new SaveMasterDataItemRequest(
+                    selectedCategory.Code, editCode, editNameTh, editNameEn,
+                    editDisplayOrder, editIsActive, parentItemId);
+                response = editingId.HasValue
+                    ? await Http.PutAsJsonAsync($"api/system-master-data/items/{editingId.Value}", request)
+                    : await Http.PostAsJsonAsync("api/system-master-data/items", request);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                saveError = string.IsNullOrWhiteSpace(details) ? "บันทึกข้อมูลไม่สำเร็จ" : details.Trim('"');
+                return;
+            }
+            isEditorOpen = false;
+            await LoadData();
+        }
+        catch (Exception exception)
+        {
+            saveError = $"บันทึกข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private bool MatchesStatus(bool isActive) => statusFilter switch
+    {
+        "ACTIVE" => isActive,
+        "INACTIVE" => !isActive,
+        _ => true
+    };
+    private void ResetPaging() => currentPage = 1;
+    private void CloseEditor() { if (!isSaving) isEditorOpen = false; }
+}

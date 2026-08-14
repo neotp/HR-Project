@@ -12,11 +12,58 @@
                 <h1>ข้อมูลพนักงาน</h1>
                 <p>รายชื่อและข้อมูลการทำงานของพนักงาน</p>
             </div>
+            <button class="add-employee-button" type="button" @onclick="OpenCreateEmployee">
+                + เพิ่มพนักงาน
+            </button>
         </div>
     </header>
 
+    <section class="content-card employee-search-card">
+        <div class="content-card-header">ค้นหาพนักงาน</div>
+        <div class="content-card-body employee-search-body">
+            <div class="employee-search-fields">
+                <label>
+                    <span>รหัส ชื่อ หรืออีเมล</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหารหัส ชื่อ หรืออีเมล" />
+                        @if (!string.IsNullOrWhiteSpace(searchText))
+                        {
+                            <button type="button" aria-label="ล้างรหัส ชื่อ หรืออีเมล" @onclick="ClearMainSearch">×</button>
+                        }
+                    </div>
+                </label>
+                <label>
+                    <span>ตำแหน่ง</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="positionSearch" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหาตำแหน่ง" />
+                        @if (!string.IsNullOrWhiteSpace(positionSearch))
+                        {
+                            <button type="button" aria-label="ล้างตำแหน่ง" @onclick="ClearPositionSearch">×</button>
+                        }
+                    </div>
+                </label>
+                <label>
+                    <span>แผนก</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="departmentSearch" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหาแผนก" />
+                        @if (!string.IsNullOrWhiteSpace(departmentSearch))
+                        {
+                            <button type="button" aria-label="ล้างแผนก" @onclick="ClearDepartmentSearch">×</button>
+                        }
+                    </div>
+                </label>
+            </div>
+        </div>
+    </section>
+
     <section class="content-card">
-        <div class="content-card-header">รายชื่อพนักงาน</div>
+        <div class="content-card-header">รายชื่อพนักงาน <span class="employee-result-count">@FilteredEmployees.Count รายการ</span></div>
         <div class="content-card-body">
             @if (employees is null)
             {
@@ -29,7 +76,11 @@
                         <tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>อีเมล</th><th></th></tr>
                     </thead>
                     <tbody>
-                        @foreach (var employee in employees)
+                        @if (FilteredEmployees.Count == 0)
+                        {
+                            <tr><td colspan="6" class="employee-empty-state">ไม่พบพนักงานตามคำค้นหา</td></tr>
+                        }
+                        @foreach (var employee in PagedEmployees)
                         {
                             <tr class="employee-row" tabindex="0"
                                 title="เปิดข้อมูลพนักงาน"
@@ -45,10 +96,267 @@
                         }
                     </tbody>
                 </table>
+                <Pagination TotalItems="@FilteredEmployees.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
 </section>
+
+@if (isCreateOpen)
+{
+    <div class="employee-create-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="create-employee-title">
+        <section class="employee-create-modal">
+            <header class="employee-create-header">
+                <div>
+                    <h2 id="create-employee-title">เพิ่มพนักงาน</h2>
+                    <p>กรอกข้อมูลพนักงานใหม่ โดยช่องที่มี * จำเป็นต้องระบุ</p>
+                </div>
+                <button type="button" aria-label="ปิด" disabled="@isCreating"
+                        @onclick="CloseCreateEmployee">×</button>
+            </header>
+
+            <div class="employee-create-body">
+                <nav class="create-tabs" aria-label="หมวดข้อมูลพนักงานใหม่">
+                    @foreach (var tab in CreateTabs)
+                    {
+                        <button type="button"
+                                class="@(createActiveTab == tab.Key ? "active" : null)"
+                                @onclick="() => createActiveTab = tab.Key">
+                            @tab.Label
+                        </button>
+                    }
+                </nav>
+
+                <section class="create-tab-panel">
+                    @switch (createActiveTab)
+                    {
+                        case "basic":
+                            <div class="create-form-grid">
+                                <div class="profile-image-editor wide-field">
+                                    <div class="profile-image-preview">
+                                        @if (string.IsNullOrWhiteSpace(newEmployee.ProfileImageDataUrl))
+                                        {
+                                            <span aria-hidden="true">@NewEmployeeInitials</span>
+                                        }
+                                        else
+                                        {
+                                            <img src="@newEmployee.ProfileImageDataUrl" alt="รูปพนักงานใหม่" />
+                                        }
+                                    </div>
+                                    <div class="profile-image-actions">
+                                        <strong>รูปโปรไฟล์</strong>
+                                        <small>รองรับ JPG, PNG และ WEBP ขนาดไม่เกิน 2 MB</small>
+                                        <label class="upload-image-button">
+                                            เลือกรูป
+                                            <InputFile OnChange="UploadProfileImage" accept="image/jpeg,image/png,image/webp" />
+                                        </label>
+                                        @if (!string.IsNullOrWhiteSpace(newEmployee.ProfileImageDataUrl))
+                                        {
+                                            <button type="button" class="remove-image-button" @onclick="RemoveProfileImage">
+                                                ลบรูป
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" /></label>
+                                <label>คำนำหน้าชื่อ<select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>ชื่อ <span>*</span><input @bind="newEmployee.FirstName" /></label>
+                                <label>นามสกุล <span>*</span><input @bind="newEmployee.LastName" /></label>
+                                <label>ชื่อ-นามสกุล (ไทย)<input @bind="newEmployee.ThaiFullName" /></label>
+                                <label>ชื่อ-นามสกุล (อังกฤษ)<input @bind="newEmployee.EnglishFullName" /></label>
+                                <label>ชื่อเล่น<input @bind="newEmployee.Nickname" /></label>
+                                <label>E-mail <span>*</span><input type="email" @bind="newEmployee.Email" /></label>
+                                <label>เบอร์มือถือส่วนตัว<input @bind="newEmployee.PersonalMobile" /></label>
+                                <label>โทรศัพท์บ้าน<input @bind="newEmployee.HomePhone" /></label>
+                            </div>
+                            break;
+                        case "personal":
+                            <div class="create-form-grid">
+                                <label>ศาสนา<select @bind="newEmployee.Religion"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("RELIGION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>หมู่เลือด<select @bind="newEmployee.BloodType"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BLOOD_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>จังหวัดที่พักอาศัย<input @bind="newEmployee.ResidenceProvince" /></label>
+                                <label class="wide-field">ที่อยู่ปัจจุบัน<textarea rows="2" @bind="newEmployee.CurrentAddress"></textarea></label>
+                                <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="2" @bind="newEmployee.IdCardAddress"></textarea></label>
+                                <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="2" @bind="newEmployee.HouseRegistrationAddress"></textarea></label>
+                                <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="newEmployee.EmergencyContactName" /></label>
+                                <label>เบอร์ติดต่อฉุกเฉิน<input @bind="newEmployee.EmergencyContactPhone" /></label>
+                                <label class="wide-field">ที่อยู่ผู้ติดต่อฉุกเฉิน<textarea rows="2" @bind="newEmployee.EmergencyContactAddress"></textarea></label>
+                            </div>
+                            break;
+                        case "internal":
+                            <div class="create-form-grid">
+                                <label>บริษัท<select @bind="newEmployee.Company"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("COMPANY")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>Business Unit<select @bind="newEmployee.BusinessUnit" @bind:after="BusinessUnitChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BUSINESS_UNIT")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>ฝ่าย<input @bind="newEmployee.Division" /></label>
+                                <label>แผนก <span>*</span><select @bind="newEmployee.Department" disabled="@string.IsNullOrWhiteSpace(newEmployee.BusinessUnit)"><option value="">-- เลือก --</option>@foreach (var item in DepartmentOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>ส่วนงาน<input @bind="newEmployee.Section" /></label>
+                                <label>ตำแหน่ง <span>*</span><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>รหัสตำแหน่ง<input @bind="newEmployee.JobCode" /></label>
+                                <label>หัวหน้างาน<input @bind="newEmployee.SupervisorName" /></label>
+                                <label>Reporting To (Leave Approve)<input @bind="newEmployee.LeaveApproverName" /></label>
+                                <label>Buddy<input @bind="newEmployee.BuddyName" /></label>
+                                <label>ประเภทการจ้าง
+                                    <select @bind="newEmployee.EmploymentType">
+                                        <option value="">-- เลือก --</option>
+                                        @foreach (var item in MasterOptions("EMPLOYMENT_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }
+                                    </select>
+                                </label>
+                                <label>เวลาทำงาน<select @bind="newEmployee.WorkSchedule"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_SCHEDULE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>สถานที่ทำงาน<select @bind="newEmployee.WorkLocation"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_LOCATION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>วันที่เริ่มงาน <span>*</span><input type="date" @bind="newEmployee.StartDate" /></label>
+                                <label>Ext. ภายใน<input @bind="newEmployee.InternalExtension" /></label>
+                                <label>เบอร์โทรสายตรง<input @bind="newEmployee.DirectPhone" /></label>
+                                <label>เบอร์มือถือบริษัท<input @bind="newEmployee.CompanyMobile" /></label>
+                                <label>รหัสสาขา<input @bind="newEmployee.BranchCode" /></label>
+                                <label>ชื่อสาขา<input @bind="newEmployee.BranchName" /></label>
+                                <label>สถานะพนักงาน
+                                    <select @bind="newEmployee.EmployeeStatus">
+                                        <option value="ปฏิบัติงาน">ปฏิบัติงาน</option>
+                                        <option value="ทดลองงาน">ทดลองงาน</option>
+                                        <option value="พักงาน">พักงาน</option>
+                                    </select>
+                                </label>
+                            </div>
+                            break;
+                        case "work":
+                            <div class="repeating-section-header">
+                                <div><strong>ประวัติการทำงาน & การเลื่อนตำแหน่ง</strong><small>เรียงตามลำดับก่อน-หลัง</small></div>
+                                <button type="button" @onclick="AddWorkHistory">+ เพิ่มรายการ</button>
+                            </div>
+                            <div class="editable-table-scroll">
+                                <table class="editable-history-table">
+                                    <thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง/หน้าที่</th><th>บริษัทที่ทำงาน</th><th></th></tr></thead>
+                                    <tbody>
+                                        @if (newEmployee.WorkHistory.Count == 0)
+                                        {
+                                            <tr><td colspan="4" class="empty-editable-row">ยังไม่มีประวัติ กรุณากดเพิ่มรายการ</td></tr>
+                                        }
+                                        @foreach (var item in newEmployee.WorkHistory)
+                                        {
+                                            <tr>
+                                                <td><input @bind="item.Period" placeholder="เช่น 01/05/2023 - 13/09/2024" /></td>
+                                                <td><input @bind="item.Position" /></td>
+                                                <td><input @bind="item.Company" /></td>
+                                                <td><button type="button" class="remove-row-button" @onclick="() => RemoveWorkHistory(item)">×</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="create-form-grid form-after-table">
+                                <label>สามารถเดินทางไปต่างจังหวัดได้
+                                    <select @bind="canTravelUpcountry">
+                                        <option value="">-- เลือก --</option>
+                                        <option value="true">ได้</option>
+                                        <option value="false">ไม่ได้</option>
+                                    </select>
+                                </label>
+                            </div>
+                            break;
+                        case "education":
+                            <div class="repeating-section-header">
+                                <div><strong>ประวัติการศึกษา</strong><small>เพิ่มได้มากกว่าหนึ่งระดับการศึกษา</small></div>
+                                <button type="button" @onclick="AddEducationHistory">+ เพิ่มรายการ</button>
+                            </div>
+                            <div class="editable-table-scroll">
+                                <table class="editable-history-table">
+                                    <thead><tr><th>ระดับการศึกษา</th><th>สถานศึกษา</th><th>สาขาวิชา</th><th>ปีที่จบ</th><th></th></tr></thead>
+                                    <tbody>
+                                        @if (newEmployee.EducationHistory.Count == 0)
+                                        {
+                                            <tr><td colspan="5" class="empty-editable-row">ยังไม่มีประวัติ กรุณากดเพิ่มรายการ</td></tr>
+                                        }
+                                        @foreach (var item in newEmployee.EducationHistory)
+                                        {
+                                            <tr>
+                                                <td><input @bind="item.Level" /></td>
+                                                <td><input @bind="item.Institution" /></td>
+                                                <td><input @bind="item.Major" /></td>
+                                                <td><input @bind="item.GraduationYear" /></td>
+                                                <td><button type="button" class="remove-row-button" @onclick="() => RemoveEducationHistory(item)">×</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            break;
+                        case "training":
+                            <div class="repeating-section-header">
+                                <div><strong>ประวัติการอบรม & สัมมนา</strong><small>เพิ่มได้มากกว่าหนึ่งหลักสูตร</small></div>
+                                <button type="button" @onclick="AddTrainingHistory">+ เพิ่มรายการ</button>
+                            </div>
+                            <div class="editable-table-scroll">
+                                <table class="editable-history-table training-edit-table">
+                                    <thead><tr><th>หลักสูตร</th><th>ช่วงที่อบรม</th><th>สถานที่</th><th>ค่าใช้จ่าย</th><th>Certificate</th><th>ค่าสอบ</th><th></th></tr></thead>
+                                    <tbody>
+                                        @if (newEmployee.TrainingHistory.Count == 0)
+                                        {
+                                            <tr><td colspan="7" class="empty-editable-row">ยังไม่มีประวัติ กรุณากดเพิ่มรายการ</td></tr>
+                                        }
+                                        @foreach (var item in newEmployee.TrainingHistory)
+                                        {
+                                            <tr>
+                                                <td><input @bind="item.CourseName" /></td>
+                                                <td><input @bind="item.TrainingPeriod" /></td>
+                                                <td><input @bind="item.Location" /></td>
+                                                <td><input type="number" min="0" step="0.01" @bind="item.Expense" /></td>
+                                                <td><input @bind="item.Certificate" /></td>
+                                                <td><input type="number" min="0" step="0.01" @bind="item.ExamFee" /></td>
+                                                <td><button type="button" class="remove-row-button" @onclick="() => RemoveTrainingHistory(item)">×</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            break;
+                        case "family":
+                            <div class="create-form-grid">
+                                <label>สถานะภาพการสมรส
+                                    <select @bind="newEmployee.MaritalStatus">
+                                        <option value="">-- เลือก --</option>@foreach (var item in MasterOptions("MARITAL_STATUS")) { <option value="@item.NameTh">@item.NameTh</option> }
+                                    </select>
+                                </label>
+                                <label>จดทะเบียนสมรส
+                                    <select @bind="marriageRegistered"><option value="">-- เลือก --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select>
+                                </label>
+                                <label>คำนำหน้าคู่สมรส<input @bind="newEmployee.SpouseTitle" /></label>
+                                <label>ชื่อ-นามสกุลคู่สมรส<input @bind="newEmployee.SpouseName" /></label>
+                                <label>วันที่สมรส<input type="date" @bind="newEmployee.MarriageDate" /></label>
+                                <label>คู่สมรสมีรายได้
+                                    <select @bind="spouseHasIncome"><option value="">-- เลือก --</option><option value="true">มีรายได้</option><option value="false">ไม่มีรายได้</option></select>
+                                </label>
+                                <label>เลขบัตรประชาชนคู่สมรส<input @bind="newEmployee.SpouseNationalId" /></label>
+                                <label>Passport ID คู่สมรส<input @bind="newEmployee.SpousePassportId" /></label>
+                                <label>ชื่อใน Passport<input @bind="newEmployee.SpousePassportName" /></label>
+                                <label>จำนวนบุตร (ไม่ศึกษา)<input type="number" min="0" @bind="newEmployee.UneducatedChildCount" /></label>
+                                <label>จำนวนบุตร (ศึกษา)<input type="number" min="0" @bind="newEmployee.StudyingChildCount" /></label>
+                                <label>เบี้ยประกันชีวิต<input type="number" min="0" step="0.01" @bind="newEmployee.LifeInsuranceAmount" /></label>
+                                <label>ลดหย่อนบิดามารดาผู้มีเงินได้<input type="number" min="0" step="0.01" @bind="newEmployee.ParentSupportDeductionAmount" /></label>
+                                <label>ลดหย่อนบิดามารดาคู่สมรส<input type="number" min="0" step="0.01" @bind="newEmployee.SpouseParentSupportDeductionAmount" /></label>
+                                <label class="wide-field">URL แผนที่อยู่ปัจจุบัน<input type="url" @bind="newEmployee.CurrentAddressMapUrl" /></label>
+                            </div>
+                            break;
+                    }
+                </section>
+
+                @if (!string.IsNullOrWhiteSpace(createError))
+                {
+                    <div class="create-error" role="alert">@createError</div>
+                }
+            </div>
+
+            <footer class="employee-create-footer">
+                <button class="close-create-button" type="button" disabled="@isCreating"
+                        @onclick="CloseCreateEmployee">ปิด</button>
+                <button class="save-employee-button" type="button" disabled="@isCreating"
+                        @onclick="SaveEmployee">
+                    @(isCreating ? "กำลังบันทึก..." : "บันทึกพนักงาน")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
 
 @if (employees is null)
 {
@@ -62,13 +370,222 @@
 
 @code {
     private List<Employee>? employees;
+    private List<MasterDataItemDto> masterItems = [];
+    private string searchText = string.Empty;
+    private string positionSearch = string.Empty;
+    private string departmentSearch = string.Empty;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private List<Employee> FilteredEmployees => (employees ?? [])
+        .Where(employee =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             employee.EmployeeCode.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.ThaiFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.EnglishFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.Nickname.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(positionSearch) ||
+             employee.Position.Contains(positionSearch, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(departmentSearch) ||
+             employee.Department.Contains(departmentSearch, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+    private IEnumerable<Employee> PagedEmployees
+    {
+        get
+        {
+            var filtered = FilteredEmployees;
+            var safePage = Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)pageSize)));
+            return filtered.Skip((safePage - 1) * pageSize).Take(pageSize);
+        }
+    }
+
+    private void ResetPaging() => currentPage = 1;
+    private void ClearMainSearch() { searchText = string.Empty; currentPage = 1; }
+    private void ClearPositionSearch() { positionSearch = string.Empty; currentPage = 1; }
+    private void ClearDepartmentSearch() { departmentSearch = string.Empty; currentPage = 1; }
+    private bool isCreateOpen;
+    private bool isCreating;
+    private string createActiveTab = "basic";
+    private string? createError;
+    private Employee newEmployee = CreateBlankEmployee();
+    private string canTravelUpcountry = string.Empty;
+    private string marriageRegistered = string.Empty;
+    private string spouseHasIncome = string.Empty;
+    private const long MaxProfileImageBytes = 2 * 1024 * 1024;
+    private string NewEmployeeInitials
+    {
+        get
+        {
+            var first = string.IsNullOrWhiteSpace(newEmployee.FirstName)
+                ? string.Empty
+                : newEmployee.FirstName[..1];
+            var last = string.IsNullOrWhiteSpace(newEmployee.LastName)
+                ? string.Empty
+                : newEmployee.LastName[..1];
+            return string.IsNullOrEmpty(first + last) ? "+" : (first + last).ToUpperInvariant();
+        }
+    }
+
+    private static readonly (string Key, string Label)[] CreateTabs =
+    [
+        ("basic", "ข้อมูลพื้นฐาน"),
+        ("personal", "ข้อมูลส่วนบุคคล"),
+        ("internal", "ข้อมูลภายในบริษัท"),
+        ("work", "ประวัติการทำงาน"),
+        ("education", "ประวัติการศึกษา"),
+        ("training", "ประวัติการอบรม & สัมมนา"),
+        ("family", "ประวัติครอบครัว")
+    ];
 
     protected override async Task OnInitializedAsync()
     {
         employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+        masterItems = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+            "api/system-master-data/items/all") ?? [];
+    }
+
+    private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) =>
+        masterItems.Where(item => item.IsActive &&
+            string.Equals(item.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<MasterDataItemDto> DepartmentOptions
+    {
+        get
+        {
+            var businessUnit = MasterOptions("BUSINESS_UNIT")
+                .FirstOrDefault(item => string.Equals(
+                    item.NameTh, newEmployee.BusinessUnit, StringComparison.OrdinalIgnoreCase));
+            return businessUnit is null
+                ? []
+                : MasterOptions("DEPARTMENT").Where(item => item.ParentItemId == businessUnit.Id);
+        }
+    }
+
+    private void BusinessUnitChanged()
+    {
+        if (!DepartmentOptions.Any(item => string.Equals(
+                item.NameTh, newEmployee.Department, StringComparison.OrdinalIgnoreCase)))
+            newEmployee.Department = string.Empty;
     }
 
     private void OpenEmployee(int id) => Navigation.NavigateTo($"/employees/{id}");
+
+    private void OpenCreateEmployee()
+    {
+        newEmployee = CreateBlankEmployee();
+        canTravelUpcountry = string.Empty;
+        marriageRegistered = string.Empty;
+        spouseHasIncome = string.Empty;
+        createActiveTab = "basic";
+        createError = null;
+        isCreateOpen = true;
+    }
+
+    private void CloseCreateEmployee()
+    {
+        if (!isCreating)
+            isCreateOpen = false;
+    }
+
+    private async Task SaveEmployee()
+    {
+        createError = null;
+        if (string.IsNullOrWhiteSpace(newEmployee.EmployeeCode) ||
+            string.IsNullOrWhiteSpace(newEmployee.FirstName) ||
+            string.IsNullOrWhiteSpace(newEmployee.LastName) ||
+            string.IsNullOrWhiteSpace(newEmployee.Email) ||
+            string.IsNullOrWhiteSpace(newEmployee.Department) ||
+            string.IsNullOrWhiteSpace(newEmployee.Position))
+        {
+            createError = "กรุณากรอกช่องที่มีเครื่องหมาย * ให้ครบถ้วน";
+            return;
+        }
+
+        isCreating = true;
+        try
+        {
+            newEmployee.CanTravelUpcountry = ParseNullableBool(canTravelUpcountry);
+            newEmployee.IsMarriageRegistered = ParseNullableBool(marriageRegistered);
+            newEmployee.SpouseHasIncome = ParseNullableBool(spouseHasIncome);
+            var response = await Http.PostAsJsonAsync("api/employees", newEmployee);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                createError = string.IsNullOrWhiteSpace(details)
+                    ? $"เพิ่มพนักงานไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details.Trim('"');
+                return;
+            }
+
+            var created = await response.Content.ReadFromJsonAsync<Employee>();
+            if (created is not null)
+                employees?.Add(created);
+            isCreateOpen = false;
+        }
+        catch (Exception exception)
+        {
+            createError = $"เพิ่มพนักงานไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task UploadProfileImage(InputFileChangeEventArgs eventArgs)
+    {
+        createError = null;
+        var file = eventArgs.File;
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            createError = "กรุณาเลือกไฟล์รูป JPG, PNG หรือ WEBP เท่านั้น";
+            return;
+        }
+
+        if (file.Size > MaxProfileImageBytes)
+        {
+            createError = "รูปโปรไฟล์ต้องมีขนาดไม่เกิน 2 MB";
+            return;
+        }
+
+        try
+        {
+            await using var input = file.OpenReadStream(MaxProfileImageBytes);
+            using var memory = new MemoryStream();
+            await input.CopyToAsync(memory);
+            newEmployee.ProfileImageDataUrl =
+                $"data:{file.ContentType};base64,{Convert.ToBase64String(memory.ToArray())}";
+        }
+        catch (Exception exception)
+        {
+            createError = $"อ่านไฟล์รูปไม่สำเร็จ: {exception.Message}";
+        }
+    }
+
+    private void RemoveProfileImage() => newEmployee.ProfileImageDataUrl = string.Empty;
+
+    private void AddWorkHistory() => newEmployee.WorkHistory.Add(new EmployeeWorkHistoryItem());
+    private void RemoveWorkHistory(EmployeeWorkHistoryItem item) => newEmployee.WorkHistory.Remove(item);
+    private void AddTrainingHistory() => newEmployee.TrainingHistory.Add(new EmployeeTrainingItem());
+    private void RemoveTrainingHistory(EmployeeTrainingItem item) => newEmployee.TrainingHistory.Remove(item);
+    private void AddEducationHistory() => newEmployee.EducationHistory.Add(new EmployeeEducationItem());
+    private void RemoveEducationHistory(EmployeeEducationItem item) => newEmployee.EducationHistory.Remove(item);
+
+    private static bool? ParseNullableBool(string value) => value switch
+    {
+        "true" => true,
+        "false" => false,
+        _ => null
+    };
+
+    private static Employee CreateBlankEmployee() => new()
+    {
+        Company = "SiS Distribution (Thailand) PCL.",
+        StartDate = DateOnly.FromDateTime(DateTime.Today),
+        EmployeeStatus = "ปฏิบัติงาน"
+    };
 
     private void HandleRowKey(KeyboardEventArgs args, int id)
     {

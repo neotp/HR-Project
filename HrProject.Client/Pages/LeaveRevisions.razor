@@ -56,10 +56,25 @@
             }
             else
             {
+                <div class="bulk-toolbar">
+                    @if (!string.IsNullOrWhiteSpace(bulkMessage))
+                    {
+                        <span class="bulk-message @(bulkSucceeded ? "success" : "error")">@bulkMessage</span>
+                    }
+                    <button class="btn btn-approve" type="button"
+                            disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="BulkApprove">
+                        @(isBulkSaving ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({selectedIds.Count})")
+                    </button>
+                    <button class="btn btn-reject" type="button" disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="BulkReject">
+                        @(isBulkSaving ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({selectedIds.Count})")
+                    </button>
+                    <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)" />
+                </div>
                 <div class="table-responsive">
                     <table class="table employee-table revision-table">
                         <thead>
                             <tr>
+                                <th class="select-column"><input type="checkbox" aria-label="เลือกทั้งหมดในหน้านี้" checked="@AreAllPageItemsSelected" @onchange="ToggleCurrentPage" /></th>
                                 <th>เลขที่เอกสาร</th>
                                 <th>ผู้ขอลา</th>
                                 <th>แผนก</th>
@@ -73,27 +88,29 @@
                         <tbody>
                             @if (filteredDocuments.Count == 0)
                             {
-                                <tr><td colspan="8" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะขอแก้ไข</td></tr>
+                                <tr><td colspan="9" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะขอแก้ไข</td></tr>
                             }
                             else
                             {
-                                @foreach (var document in filteredDocuments)
+                                @foreach (var document in PagedDocuments)
                                 {
                                     <tr>
-                                        <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                        <td class="select-column"><input type="checkbox" aria-label="เลือก @document.DocumentNo" checked="@selectedIds.Contains(document.Id)" @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" /></td>
+                                        <td><LeaveDocumentHoverPreview Document="@document" ShowEditRequestDetails="true"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
                                         <td>@document.CreatorName</td>
                                         <td>@document.CreatorDepartment</td>
                                         <td>@document.LeaveTypeName</td>
                                         <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
                                         <td>@document.LeaveHours.ToString("0.##")</td>
                                         <td>@document.PendingEditRequest?.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
-                                        <td><span class="status-pill revision">ขอแก้ไข</span></td>
+                                        <td><span class="status-pill editing" data-status="EDIT_REQUESTED">ขอแก้ไข</span></td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
+                <Pagination TotalItems="@filteredDocuments.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
@@ -161,6 +178,10 @@
                 {
                     <div class="state-message error">ไม่พบรายละเอียดคำขอแก้ไขที่รอดำเนินการ</div>
                 }
+                <label class="review-remark">
+                    หมายเหตุการพิจารณา <span>(ไม่บังคับ)</span>
+                    <textarea rows="3" @bind="reviewRemark" placeholder="ระบุเหตุผลหรือหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                </label>
             </div>
             <footer class="document-modal-footer">
                 @if (!string.IsNullOrWhiteSpace(actionError))
@@ -186,17 +207,34 @@
     private DateTime? endDate;
     private bool isLoading = true;
     private bool isSaving;
+    private bool isBulkSaving;
+    private bool bulkSucceeded;
+    private string? bulkMessage;
+    private string bulkRejectRemark = string.Empty;
+    private string reviewRemark = string.Empty;
+    private readonly HashSet<long> selectedIds = [];
     private string? loadError;
     private string? actionError;
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveDocumentDto> documents = [];
     private List<LeaveDocumentDto> filteredDocuments = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
     private LeaveDocumentDto? selectedDocument;
+    private CurrentMicrosoftUserDto? currentUser;
+    private List<LeaveDocumentDto> PageDocuments => PagedDocuments.ToList();
+    private bool AreAllPageItemsSelected => PageDocuments.Count > 0 && PageDocuments.All(item => selectedIds.Contains(item.Id));
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("บัญชี Microsoft ยังไม่ได้เชื่อมกับข้อมูลพนักงาน");
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             await ReloadDocuments();
         }
@@ -227,6 +265,7 @@
 
     private void Search()
     {
+        currentPage = 1;
         filteredDocuments = documents.Where(document =>
             document.Status == "EDIT_REQUESTED" &&
             (string.IsNullOrWhiteSpace(searchText) ||
@@ -237,6 +276,7 @@
             (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
             (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
             .ToList();
+        selectedIds.IntersectWith(filteredDocuments.Select(item => item.Id));
     }
 
     private void Reset()
@@ -249,6 +289,7 @@
     private async Task OpenDocument(LeaveDocumentDto document)
     {
         actionError = null;
+        reviewRemark = string.Empty;
         selectedDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>(
             $"api/leave-documents/{document.Id}") ?? document;
     }
@@ -256,7 +297,10 @@
     private void CloseDocument()
     {
         if (!isSaving)
+        {
             selectedDocument = null;
+            reviewRemark = string.Empty;
+        }
     }
 
     private async Task ApproveRequest() =>
@@ -274,7 +318,10 @@
         isSaving = true;
         try
         {
-            var review = new ReviewLeaveDocumentRequest("EMP-002", "Somchai Jaidee");
+            var review = new ReviewLeaveDocumentRequest(
+                currentUser!.EmployeeId,
+                currentUser.EmployeeName,
+                string.IsNullOrWhiteSpace(reviewRemark) ? null : reviewRemark.Trim());
             var response = await Http.PostAsJsonAsync(
                 $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending/{action}",
                 review);
@@ -300,6 +347,80 @@
         {
             isSaving = false;
         }
+    }
+
+    private void ToggleItem(long id, bool selected)
+    {
+        if (selected) selectedIds.Add(id); else selectedIds.Remove(id);
+        bulkMessage = null;
+    }
+
+    private void ToggleCurrentPage(ChangeEventArgs eventArgs)
+    {
+        var selected = (bool?)eventArgs.Value == true;
+        foreach (var item in PageDocuments)
+        {
+            if (selected) selectedIds.Add(item.Id); else selectedIds.Remove(item.Id);
+        }
+        bulkMessage = null;
+    }
+
+    private async Task BulkApprove()
+    {
+        if (selectedIds.Count == 0 || isBulkSaving || currentUser is null) return;
+        isBulkSaving = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id)).ToList())
+        {
+            try
+            {
+                var response = await Http.PostAsJsonAsync(
+                    $"api/leave-documents/{document.Id}/edit-requests/pending/approve",
+                    new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName));
+                if (response.IsSuccessStatusCode) succeeded.Add(document.Id); else failed.Add(document.DocumentNo);
+            }
+            catch { failed.Add(document.DocumentNo); }
+        }
+        documents.RemoveAll(item => succeeded.Contains(item.Id));
+        selectedIds.ExceptWith(succeeded);
+        Search();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0
+            ? $"อนุมัติคำขอแก้ไขเรียบร้อย {succeeded.Count} รายการ"
+            : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        isBulkSaving = false;
+    }
+
+    private async Task BulkReject()
+    {
+        if (selectedIds.Count == 0 || isBulkSaving || currentUser is null) return;
+        isBulkSaving = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id)).ToList())
+        {
+            try
+            {
+                var response = await Http.PostAsJsonAsync(
+                    $"api/leave-documents/{document.Id}/edit-requests/pending/reject",
+                    new ReviewLeaveDocumentRequest(
+                        currentUser.EmployeeId,
+                        currentUser.EmployeeName,
+                        string.IsNullOrWhiteSpace(bulkRejectRemark) ? null : bulkRejectRemark.Trim()));
+                if (response.IsSuccessStatusCode) succeeded.Add(document.Id); else failed.Add(document.DocumentNo);
+            }
+            catch { failed.Add(document.DocumentNo); }
+        }
+        documents.RemoveAll(item => succeeded.Contains(item.Id));
+        selectedIds.ExceptWith(succeeded);
+        Search();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0 ? $"ไม่อนุมัติคำขอแก้ไขเรียบร้อย {succeeded.Count} รายการ" : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        if (failed.Count == 0) bulkRejectRemark = string.Empty;
+        isBulkSaving = false;
     }
 
     private static string KindText(string kind) =>

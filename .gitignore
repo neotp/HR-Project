@@ -20,6 +20,8 @@
 
 # .NET build artifacts
 artifacts/
+.dotnet-cli/
+.dotnet-build-cache/
 
 # Publish output
 publish/
@@ -34,6 +36,7 @@ node_modules/
 # Runtime data
 *.pid
 *.pid.lock
+HrProject.Api/App_Data/leave-attachments/
 
 # Coverage
 coverage/

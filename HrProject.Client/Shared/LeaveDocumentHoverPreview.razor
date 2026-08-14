@@ -1,0 +1,95 @@
+<span class="preview-anchor" @onmouseenter="Show" @onmouseleave="Hide">
+    @ChildContent
+</span>
+
+@if (isVisible)
+{
+    <aside class="leave-preview-layer @(ShowEditRequestDetails ? "with-edit-details" : string.Empty)" style="@PreviewPosition" aria-hidden="true">
+        <header>
+            <div>
+                <strong>@Document.DocumentNo</strong>
+                <span class="status-pill @StatusClass(Document.Status)">@StatusText(Document.Status)</span>
+            </div>
+            <small>ตัวอย่างเอกสาร</small>
+        </header>
+        <div class="preview-body">
+            <div class="employee-row">
+                <span class="employee-avatar">@Initial(Document.CreatorName)</span>
+                <div><strong>@Document.CreatorName</strong><small>@Document.CreatorDepartment</small></div>
+            </div>
+            <dl>
+                <div><dt>ประเภทการลา</dt><dd>@Document.LeaveTypeName</dd></div>
+                <div><dt>วันที่ลา</dt><dd>@Document.LeaveDate.ToString("dd/MM/yyyy")</dd></div>
+                <div><dt>เวลา</dt><dd>@Document.StartTime.ToString("HH:mm") · @Document.LeaveHours.ToString("0.##") ชั่วโมง</dd></div>
+            </dl>
+            <div class="reason-preview"><span>เหตุผล</span><p>@Document.LeaveReason</p></div>
+            @if (ShowEditRequestDetails && Document.PendingEditRequest is { } editRequest)
+            {
+                <section class="edit-request-preview">
+                    <h4>ข้อมูลที่ขอแก้ไข</h4>
+                    @if (Document.LeaveKind != editRequest.RequestedLeaveKind)
+                    {
+                        <div><span>ชนิดการลา</span><p><del>@KindText(Document.LeaveKind)</del><b>→</b><strong>@KindText(editRequest.RequestedLeaveKind)</strong></p></div>
+                    }
+                    @if (Document.LeaveTypeId != editRequest.RequestedLeaveTypeId)
+                    {
+                        <div><span>ประเภทการลา</span><p><del>@Document.LeaveTypeName</del><b>→</b><strong>@editRequest.RequestedLeaveTypeName</strong></p></div>
+                    }
+                    @if (Document.LeaveDate != editRequest.RequestedLeaveDate)
+                    {
+                        <div><span>วันที่ลา</span><p><del>@Document.LeaveDate.ToString("dd/MM/yyyy")</del><b>→</b><strong>@editRequest.RequestedLeaveDate.ToString("dd/MM/yyyy")</strong></p></div>
+                    }
+                    @if (Document.StartTime != editRequest.RequestedStartTime)
+                    {
+                        <div><span>เวลาเริ่มต้น</span><p><del>@Document.StartTime.ToString("HH:mm")</del><b>→</b><strong>@editRequest.RequestedStartTime.ToString("HH:mm")</strong></p></div>
+                    }
+                    @if (Document.LeaveHours != editRequest.RequestedLeaveHours)
+                    {
+                        <div><span>จำนวนชั่วโมง</span><p><del>@Document.LeaveHours.ToString("0.##")</del><b>→</b><strong>@editRequest.RequestedLeaveHours.ToString("0.##")</strong></p></div>
+                    }
+                    <div class="edit-reason"><span>เหตุผลที่ขอแก้ไข</span><p>@editRequest.RequestReason</p></div>
+                </section>
+            }
+            <footer>คลิกเลขที่เอกสารเพื่อดูรายละเอียดทั้งหมด</footer>
+        </div>
+    </aside>
+}
+
+@code {
+    [Parameter, EditorRequired] public LeaveDocumentDto Document { get; set; } = default!;
+    [Parameter, EditorRequired] public RenderFragment ChildContent { get; set; } = default!;
+    [Parameter] public bool ShowEditRequestDetails { get; set; }
+
+    private bool isVisible;
+    private double pointerX;
+    private double pointerY;
+    private string PreviewPosition => $"--preview-x:{pointerX + 16:0}px;--preview-y:{pointerY + 14:0}px";
+
+    private void Show(MouseEventArgs args)
+    {
+        pointerX = args.ClientX;
+        pointerY = args.ClientY;
+        isVisible = true;
+    }
+
+    private void Hide() => isVisible = false;
+    private static string Initial(string name) => string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString();
+    private static string KindText(string kind) => kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+    private static string StatusText(string status) => status switch
+    {
+        "PENDING_APPROVAL" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "EDIT_REQUESTED" => "ขอแก้ไข",
+        "CANCELLED" => "ยกเลิก",
+        _ => status
+    };
+    private static string StatusClass(string status) => status switch
+    {
+        "APPROVED" => "approved",
+        "REJECTED" => "rejected",
+        "EDIT_REQUESTED" => "editing",
+        "CANCELLED" => "cancelled",
+        _ => "pending"
+    };
+}

@@ -63,10 +63,36 @@
             }
             else
             {
+                @if (CanApproveQuotaRequest || CanRejectQuotaRequest)
+                {
+                    <div class="bulk-toolbar">
+                        @if (!string.IsNullOrWhiteSpace(bulkMessage))
+                        {
+                            <span class="bulk-message @(bulkSucceeded ? "success" : "error")">@bulkMessage</span>
+                        }
+                        @if (CanApproveQuotaRequest)
+                        {
+                        <button class="btn btn-approve" type="button" disabled="@(selectedIds.Count == 0 || isBulkReviewing)" @onclick="BulkApprove">
+                            @(isBulkReviewing ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({selectedIds.Count})")
+                        </button>
+                        }
+                        @if (CanRejectQuotaRequest)
+                        {
+                            <button class="btn btn-reject" type="button" disabled="@(selectedIds.Count == 0 || isBulkReviewing || string.IsNullOrWhiteSpace(bulkRejectRemark))" @onclick="BulkReject">
+                                @(isBulkReviewing ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({selectedIds.Count})")
+                            </button>
+                        }
+                        <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติรายการที่เลือก" />
+                    </div>
+                }
                 <div class="table-responsive">
                     <table class="table employee-table request-table">
                         <thead>
                             <tr>
+                                @if (CanApproveQuotaRequest || CanRejectQuotaRequest)
+                                {
+                                    <th class="select-column"><input type="checkbox" aria-label="เลือกทั้งหมดในหน้านี้" checked="@AreAllPageItemsSelected" @onchange="ToggleCurrentPage" /></th>
+                                }
                                 <th>เลขที่คำขอ</th>
                                 <th>ชื่อพนักงาน</th>
                                 <th>ประเภทการลา</th>
@@ -75,19 +101,24 @@
                                 <th>เหตุผล</th>
                                 <th>วันที่ขอ</th>
                                 <th>สถานะ</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (filteredRequests.Count == 0)
                             {
-                                <tr><td colspan="8" class="no-results">ไม่พบคำขอเพิ่มโควต้าวันลา</td></tr>
+                                <tr><td colspan="@(CanApproveQuotaRequest || CanRejectQuotaRequest ? 10 : 9)" class="no-results">ไม่พบคำขอเพิ่มโควต้าวันลา</td></tr>
                             }
                             else
                             {
-                                @foreach (var request in filteredRequests)
+                                @foreach (var request in PagedRequests)
                                 {
                                     <tr>
-                                        <td><strong>@request.RequestNo</strong></td>
+                                        @if (CanApproveQuotaRequest || CanRejectQuotaRequest)
+                                        {
+                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(request.Status != "PENDING")" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
+                                        }
+                                        <td><LeaveQuotaRequestHoverPreview Request="@request" EmployeeName="@EmployeeName(request.EmployeeId)" EmployeeDepartment="@EmployeeDepartment(request.EmployeeId)"><button class="request-number" type="button" @onclick="() => OpenRequest(request)">@request.RequestNo</button></LeaveQuotaRequestHoverPreview></td>
                                         <td>@EmployeeName(request.EmployeeId)</td>
                                         <td>@request.LeaveTypeName</td>
                                         <td>@request.RequestedHours.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.RequestedHours) วัน)</small></td>
@@ -103,13 +134,15 @@
                                         </td>
                                         <td><span class="reason-cell" title="@request.RequestReason">@request.RequestReason</span></td>
                                         <td>@request.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
-                                        <td><span class="status-pill @StatusClass(request.Status)">@StatusText(request.Status)</span></td>
+                                        <td><span class="status-pill @StatusClass(request.Status)" data-status="@request.Status">@StatusText(request.Status)</span></td>
+                                        <td><button class="btn-view-request" type="button" @onclick="() => OpenRequest(request)">ดูรายละเอียด</button></td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
+                <Pagination TotalItems="@filteredRequests.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
@@ -226,12 +259,77 @@
     </div>
 }
 
+@if (selectedRequest is not null)
+{
+    <div class="request-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="review-quota-request-title">
+        <section class="request-modal review-request-modal">
+            <header class="request-modal-header">
+                <div>
+                    <h2 id="review-quota-request-title">รายละเอียดคำขอเพิ่มโควต้า</h2>
+                    <p>@selectedRequest.RequestNo</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseRequest">×</button>
+            </header>
+            <div class="request-modal-body">
+                <div class="form-grid review-detail-grid">
+                    <label>พนักงาน<input value="@EmployeeName(selectedRequest.EmployeeId)" disabled /></label>
+                    <label>แผนก<input value="@EmployeeDepartment(selectedRequest.EmployeeId)" disabled /></label>
+                    <label>ประเภทการลา<input value="@selectedRequest.LeaveTypeName" disabled /></label>
+                    <label>ปีโควต้า<input value="@selectedRequest.QuotaYear" disabled /></label>
+                    <label>จำนวนที่ขอ<input value="@($"{selectedRequest.RequestedHours:0.##} ชั่วโมง ({HoursToDays(selectedRequest.RequestedHours)} วัน)")" disabled /></label>
+                    <label>วันที่ขอ<input value="@selectedRequest.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")" disabled /></label>
+                    <label class="full-width">เหตุผลในการขอ<textarea rows="3" disabled>@selectedRequest.RequestReason</textarea></label>
+                    <label>สถานะ<input value="@StatusText(selectedRequest.Status)" disabled /></label>
+                    <label>
+                        จำนวนที่อนุมัติ (ชั่วโมง)
+                        <input type="number" min="0.5" step="0.5" max="@selectedRequest.RequestedHours"
+                               disabled="@(selectedRequest.Status != "PENDING")"
+                               @bind="reviewApprovedHours" />
+                        <small class="approved-day-preview">เท่ากับ @HoursToDays(reviewApprovedHours) วัน</small>
+                    </label>
+                    <label class="full-width">
+                        หมายเหตุการพิจารณา
+                        <textarea rows="3" disabled="@(selectedRequest.Status != "PENDING")"
+                                  @bind="reviewRemark" placeholder="กรณีไม่อนุมัติ กรุณาระบุเหตุผล"></textarea>
+                    </label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(reviewError))
+                {
+                    <div class="save-error" role="alert">@reviewError</div>
+                }
+            </div>
+            <footer class="request-modal-footer">
+                <button class="btn btn-reset" type="button" @onclick="CloseRequest">ปิด</button>
+                @if (selectedRequest.Status == "PENDING" && CanRejectQuotaRequest)
+                {
+                    <button class="btn btn-reject" type="button" disabled="@isReviewing" @onclick="RejectRequest">
+                        @(isReviewing ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                    </button>
+                }
+                @if (selectedRequest.Status == "PENDING" && CanApproveQuotaRequest)
+                {
+                    <button class="btn btn-approve" type="button" disabled="@isReviewing" @onclick="ApproveRequest">
+                        @(isReviewing ? "กำลังดำเนินการ..." : "อนุมัติ")
+                    </button>
+                }
+            </footer>
+        </section>
+    </div>
+}
+
 @code {
     private bool isLoading = true;
     private bool isCreating;
     private bool isSaving;
+    private bool isReviewing;
+    private bool isBulkReviewing;
+    private bool bulkSucceeded;
+    private string? bulkMessage;
+    private string bulkRejectRemark = string.Empty;
+    private readonly HashSet<long> selectedIds = [];
     private string? loadError;
     private string? saveError;
+    private string? reviewError;
     private string searchText = string.Empty;
     private string leaveTypeFilter = string.Empty;
     private string statusFilter = string.Empty;
@@ -240,13 +338,33 @@
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveQuotaRequestDto> requests = [];
     private List<LeaveQuotaRequestDto> filteredRequests = [];
-    private Employee? CurrentEmployee => employees.FirstOrDefault(employee => employee.EmployeeCode == "EMP-001");
-    private string CurrentEmployeeName => CurrentEmployee?.FullName ?? "Anan Sukjai";
+    private LeaveQuotaRequestDto? selectedRequest;
+    private decimal reviewApprovedHours;
+    private string reviewRemark = string.Empty;
+    private CurrentMicrosoftUserDto? currentUser;
+    private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveQuotaRequestDto> PagedRequests => filteredRequests
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredRequests.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
+    private string CurrentEmployeeId => currentUser?.EmployeeId ?? string.Empty;
+    private string CurrentEmployeeName => currentUser?.EmployeeName ?? currentUser?.DisplayName ?? string.Empty;
+    private bool CanApproveQuotaRequest => allowedActions.Contains("APPROVE") || allowedActions.Contains("VIEW_ALL");
+    private bool CanRejectQuotaRequest => allowedActions.Contains("REJECT") || allowedActions.Contains("VIEW_ALL");
+    private List<LeaveQuotaRequestDto> PageSelectableRequests => PagedRequests.Where(item => item.Status == "PENDING").ToList();
+    private bool AreAllPageItemsSelected => PageSelectableRequests.Count > 0 && PageSelectableRequests.All(item => selectedIds.Contains(item.Id));
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("บัญชี Microsoft ยังไม่ได้เชื่อมกับข้อมูลพนักงาน");
+            var actionPermissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(CurrentEmployeeId)}&pageKey=LEAVE_REQUEST_QUOTA");
+            allowedActions = actionPermissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             await ReloadData();
@@ -270,6 +388,7 @@
 
     private void Filter()
     {
+        currentPage = 1;
         filteredRequests = requests.Where(request =>
             (string.IsNullOrWhiteSpace(searchText) ||
              request.RequestNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
@@ -279,6 +398,7 @@
             (string.IsNullOrWhiteSpace(leaveTypeFilter) || request.LeaveTypeName == leaveTypeFilter) &&
             (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter))
             .ToList();
+        selectedIds.IntersectWith(filteredRequests.Where(item => item.Status == "PENDING").Select(item => item.Id));
     }
 
     private void Reset()
@@ -327,7 +447,7 @@
                         row.RequestedHours,
                         row.RequestReason)).ToList(),
                 DateTime.Today.Year,
-                "EMP-001",
+                CurrentEmployeeId,
                 CurrentEmployeeName);
             var response = await Http.PostAsJsonAsync("api/leave-quota-requests/batch", request);
             if (!response.IsSuccessStatusCode)
@@ -356,6 +476,141 @@
     {
         if (!isSaving)
             isCreating = false;
+    }
+
+    private void OpenRequest(LeaveQuotaRequestDto request)
+    {
+        selectedRequest = request;
+        reviewApprovedHours = request.ApprovedHours ?? request.RequestedHours;
+        reviewRemark = string.Empty;
+        reviewError = null;
+    }
+
+    private void CloseRequest()
+    {
+        if (!isReviewing)
+            selectedRequest = null;
+    }
+
+    private Task ApproveRequest() => ReviewRequest("approve", "อนุมัติ");
+
+    private Task RejectRequest() => ReviewRequest("reject", "ไม่อนุมัติ");
+
+    private void ToggleItem(long id, bool selected)
+    {
+        if (selected) selectedIds.Add(id); else selectedIds.Remove(id);
+        bulkMessage = null;
+    }
+
+    private void ToggleCurrentPage(ChangeEventArgs eventArgs)
+    {
+        var selected = (bool?)eventArgs.Value == true;
+        foreach (var item in PageSelectableRequests)
+        {
+            if (selected) selectedIds.Add(item.Id); else selectedIds.Remove(item.Id);
+        }
+        bulkMessage = null;
+    }
+
+    private async Task BulkApprove()
+    {
+        if (!CanApproveQuotaRequest || selectedIds.Count == 0 || isBulkReviewing) return;
+        isBulkReviewing = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        {
+            try
+            {
+                var payload = new ReviewLeaveQuotaRequest(request.RequestedHours, string.Empty, CurrentEmployeeId, CurrentEmployeeName);
+                var response = await Http.PostAsJsonAsync($"api/leave-quota-requests/{request.Id}/approve", payload);
+                if (response.IsSuccessStatusCode) succeeded.Add(request.Id); else failed.Add(request.RequestNo);
+            }
+            catch { failed.Add(request.RequestNo); }
+        }
+        selectedIds.ExceptWith(succeeded);
+        await ReloadData();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0
+            ? $"อนุมัติเพิ่มโควต้าเรียบร้อย {succeeded.Count} รายการ"
+            : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        isBulkReviewing = false;
+    }
+
+    private async Task BulkReject()
+    {
+        if (!CanRejectQuotaRequest || selectedIds.Count == 0 || isBulkReviewing || string.IsNullOrWhiteSpace(bulkRejectRemark)) return;
+        isBulkReviewing = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        {
+            try
+            {
+                var payload = new ReviewLeaveQuotaRequest(null, bulkRejectRemark.Trim(), CurrentEmployeeId, CurrentEmployeeName);
+                var response = await Http.PostAsJsonAsync($"api/leave-quota-requests/{request.Id}/reject", payload);
+                if (response.IsSuccessStatusCode) succeeded.Add(request.Id); else failed.Add(request.RequestNo);
+            }
+            catch { failed.Add(request.RequestNo); }
+        }
+        selectedIds.ExceptWith(succeeded);
+        await ReloadData();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0 ? $"ไม่อนุมัติคำขอเพิ่มโควต้าเรียบร้อย {succeeded.Count} รายการ" : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        if (failed.Count == 0) bulkRejectRemark = string.Empty;
+        isBulkReviewing = false;
+    }
+
+    private async Task ReviewRequest(string action, string actionText)
+    {
+        if (selectedRequest is null || isReviewing)
+            return;
+
+        reviewError = null;
+        if (action == "approve" &&
+            (reviewApprovedHours <= 0 || reviewApprovedHours > selectedRequest.RequestedHours))
+        {
+            reviewError = $"จำนวนที่อนุมัติต้องมากกว่า 0 และไม่เกิน {selectedRequest.RequestedHours:0.##} ชั่วโมง";
+            return;
+        }
+        if (action == "reject" && string.IsNullOrWhiteSpace(reviewRemark))
+        {
+            reviewError = "กรุณาระบุเหตุผลที่ไม่อนุมัติ";
+            return;
+        }
+
+        isReviewing = true;
+        try
+        {
+            var payload = new ReviewLeaveQuotaRequest(
+                action == "approve" ? reviewApprovedHours : null,
+                reviewRemark,
+                CurrentEmployeeId,
+                CurrentEmployeeName);
+            var response = await Http.PostAsJsonAsync(
+                $"api/leave-quota-requests/{selectedRequest.Id}/{action}", payload);
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = await response.Content.ReadAsStringAsync();
+                reviewError = string.IsNullOrWhiteSpace(details)
+                    ? $"{actionText}ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : $"{actionText}ไม่สำเร็จ: {details}";
+                return;
+            }
+
+            selectedRequest = null;
+            await ReloadData();
+        }
+        catch (Exception exception)
+        {
+            reviewError = $"{actionText}ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isReviewing = false;
+        }
     }
 
     private void AddEmployee()
@@ -408,7 +663,8 @@
     private static string StatusClass(string status) => status switch
     {
         "APPROVED" => "approved",
-        "REJECTED" or "CANCELLED" => "rejected",
+        "REJECTED" => "rejected",
+        "CANCELLED" => "cancelled",
         _ => "pending"
     };
 

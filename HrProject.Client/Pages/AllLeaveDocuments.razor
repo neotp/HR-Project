@@ -1,0 +1,336 @@
+@page "/leave/all-documents"
+@inject HttpClient Http
+
+<PageTitle>เอกสารทั้งหมด | HR Project</PageTitle>
+
+<section class="manage-page all-leave-documents-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>เอกสารทั้งหมด</h1>
+                <p>ดูเอกสารการลาของพนักงานทุกคนแบบอ่านอย่างเดียว โดยไม่แสดงไฟล์แนบ</p>
+            </div>
+            <div class="readonly-badge">ดูได้อย่างเดียว</div>
+        </div>
+    </header>
+
+    <section class="content-card criteria-card">
+        <div class="content-card-header">ค้นหาเอกสาร</div>
+        <div class="content-card-body">
+            <div class="criteria-grid">
+                <label>คำค้นหา
+                    <input @bind="searchText" @bind:event="oninput" @bind:after="Filter"
+                           placeholder="เลขที่เอกสาร พนักงาน แผนก หรือเหตุผล" />
+                </label>
+                <label>ประเภทการลา
+                    <select @bind="leaveTypeFilter" @bind:after="Filter">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.NameTh">@type.NameTh</option>
+                        }
+                    </select>
+                </label>
+                <div class="criteria-field">
+                    <span class="criteria-field-label">สถานะ</span>
+                    <details class="status-multiselect">
+                        <summary>
+                            <span>@StatusFilterSummary</span>
+                            <span class="status-multiselect-chevron" aria-hidden="true">⌄</span>
+                        </summary>
+                        <div class="status-multiselect-menu">
+                            <button class="status-filter-clear" type="button" @onclick="ClearStatusFilter">แสดงทั้งหมด</button>
+                            @foreach (var option in StatusFilterOptions)
+                            {
+                                <label class="status-multiselect-option">
+                                    <input type="checkbox" checked="@selectedStatuses.Contains(option.Code)"
+                                           @onchange="args => SetStatusFilter(option.Code, args.Value is true)" />
+                                    <span class="status-pill @StatusClass(option.Code)" data-status="@option.Code">@option.Label</span>
+                                </label>
+                            }
+                        </div>
+                    </details>
+                </div>
+                <label>วันที่ลาเริ่มต้น
+                    <input type="date" @bind="startDate" @bind:after="Filter" />
+                </label>
+                <label>วันที่ลาสิ้นสุด
+                    <input type="date" @bind="endDate" @bind:after="Filter" />
+                </label>
+            </div>
+            <div class="criteria-actions">
+                <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card result-card">
+        <div class="content-card-header">
+            รายการเอกสารการลาทั้งหมด
+            <span class="result-count">@filteredDocuments.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="state-message">กำลังโหลดเอกสาร...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="state-message error">@loadError</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table employee-table all-documents-table">
+                        <thead>
+                            <tr>
+                                <th>เลขที่เอกสาร</th>
+                                <th>พนักงาน</th>
+                                <th>แผนก</th>
+                                <th>ประเภทการลา</th>
+                                <th>วันที่ลา</th>
+                                <th>เวลาเริ่มต้น</th>
+                                <th>จำนวนชั่วโมง</th>
+                                <th>เหตุผล</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (filteredDocuments.Count == 0)
+                            {
+                                <tr><td colspan="9" class="no-results">ไม่พบเอกสารตามเงื่อนไขที่ค้นหา</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var document in PagedDocuments)
+                                {
+                                    <tr>
+                                        <td><LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
+                                        <td>@document.CreatorName</td>
+                                        <td>@document.CreatorDepartment</td>
+                                        <td>@document.LeaveTypeName</td>
+                                        <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
+                                        <td>@document.StartTime.ToString("HH:mm")</td>
+                                        <td>@document.LeaveHours.ToString("0.##") ชั่วโมง</td>
+                                        <td><span class="reason-cell" title="@document.LeaveReason">@document.LeaveReason</span></td>
+                                        <td><span class="status-pill @StatusClass(document.Status)" data-status="@document.Status">@StatusText(document.Status)</span></td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <Pagination TotalItems="@filteredDocuments.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+            }
+        </div>
+    </section>
+</section>
+
+@if (selectedDocument is not null)
+{
+    <div class="document-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="all-document-detail-title">
+        <section class="document-modal">
+            <header class="document-modal-header">
+                <div>
+                    <h2 id="all-document-detail-title">รายละเอียดเอกสารการลา</h2>
+                    <p>@selectedDocument.DocumentNo</p>
+                </div>
+                <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
+            </header>
+            <div class="document-modal-body">
+                <div class="readonly-notice">เอกสารนี้เปิดดูได้อย่างเดียว และไม่แสดงเอกสารแนบ</div>
+                <div class="form-grid">
+                    <label>ผู้สร้างเอกสาร<input value="@selectedDocument.CreatorName" disabled /></label>
+                    <label>แผนก<input value="@selectedDocument.CreatorDepartment" disabled /></label>
+                    <label>ผู้อนุมัติ<input value="@selectedDocument.ApproverName" disabled /></label>
+                    <label>วันที่สร้าง<input value="@selectedDocument.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")" disabled /></label>
+                    <label>ชนิดการลา<input value="@KindText(selectedDocument.LeaveKind)" disabled /></label>
+                    <label>ประเภทการลา<input value="@selectedDocument.LeaveTypeName" disabled /></label>
+                    <label>วันที่ลา<input value="@selectedDocument.LeaveDate.ToString("dd/MM/yyyy")" disabled /></label>
+                    <label>เวลาเริ่มต้น<input value="@selectedDocument.StartTime.ToString("HH:mm")" disabled /></label>
+                    <label>จำนวนชั่วโมง<input value="@selectedDocument.LeaveHours.ToString("0.##")" disabled /></label>
+                    <label>สถานะ<input value="@StatusText(selectedDocument.Status)" disabled /></label>
+                    <label class="full-width">เหตุผลการลา<textarea rows="3" disabled>@selectedDocument.LeaveReason</textarea></label>
+                </div>
+            </div>
+            <footer class="document-modal-footer">
+                <button class="btn btn-history" type="button" @onclick="ToggleHistory">
+                    @(isShowingHistory ? "ซ่อนประวัติเอกสาร" : "ประวัติเอกสาร")
+                </button>
+                <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (isShowingHistory && selectedDocument is not null)
+{
+    <LeaveDocumentHistoryPanel DocumentNo="@selectedDocument.DocumentNo"
+                               Items="@documentHistory" IsLoading="@isHistoryLoading"
+                               Error="@historyError" OnClose="CloseHistory" />
+}
+
+@code {
+    private bool isLoading = true;
+    private string? loadError;
+    private string searchText = string.Empty;
+    private string leaveTypeFilter = string.Empty;
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PENDING_APPROVAL", "EDIT_REQUESTED", "APPROVED"
+    };
+    private static readonly (string Code, string Label)[] StatusFilterOptions =
+    [
+        ("PENDING_APPROVAL", "รออนุมัติ"),
+        ("APPROVED", "อนุมัติแล้ว"),
+        ("REJECTED", "ไม่อนุมัติ"),
+        ("EDIT_REQUESTED", "ขอแก้ไข"),
+        ("CANCELLED", "ยกเลิก")
+    ];
+    private string StatusFilterSummary => selectedStatuses.Count switch
+    {
+        0 => "ทั้งหมด",
+        1 => StatusText(selectedStatuses.First()),
+        _ => $"เลือกแล้ว {selectedStatuses.Count} สถานะ"
+    };
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private CurrentMicrosoftUserDto? currentUser;
+    private List<LeaveTypeDto> leaveTypes = [];
+    private List<LeaveDocumentDto> documents = [];
+    private List<LeaveDocumentDto> filteredDocuments = [];
+    private LeaveDocumentDto? selectedDocument;
+    private bool isShowingHistory;
+    private bool isHistoryLoading;
+    private string? historyError;
+    private List<LeaveDocumentHistoryDto> documentHistory = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("บัญชี Microsoft ยังไม่ได้เชื่อมกับข้อมูลพนักงาน");
+
+            leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+            documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+                $"api/leave-documents?viewAll=true&actingEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
+            Filter();
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดเอกสารทั้งหมดไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void Filter()
+    {
+        currentPage = 1;
+        filteredDocuments = documents.Where(document =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorEmployeeId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.CreatorDepartment.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.LeaveTypeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             document.LeaveReason.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(leaveTypeFilter) || document.LeaveTypeName == leaveTypeFilter) &&
+            (selectedStatuses.Count == 0 || selectedStatuses.Contains(document.Status)) &&
+            (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
+            (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
+            .ToList();
+    }
+
+    private void Reset()
+    {
+        searchText = leaveTypeFilter = string.Empty;
+        selectedStatuses.Clear();
+        selectedStatuses.UnionWith(["PENDING_APPROVAL", "EDIT_REQUESTED", "APPROVED"]);
+        startDate = endDate = null;
+        Filter();
+    }
+
+    private void SetStatusFilter(string statusCode, bool isSelected)
+    {
+        if (isSelected) selectedStatuses.Add(statusCode); else selectedStatuses.Remove(statusCode);
+        Filter();
+    }
+
+    private void ClearStatusFilter()
+    {
+        selectedStatuses.Clear();
+        Filter();
+    }
+
+    private void OpenDocument(LeaveDocumentDto document)
+    {
+        selectedDocument = document;
+        isShowingHistory = false;
+        documentHistory = [];
+        historyError = null;
+    }
+
+    private void CloseDocument()
+    {
+        selectedDocument = null;
+        isShowingHistory = false;
+        documentHistory = [];
+        historyError = null;
+    }
+
+    private async Task ToggleHistory()
+    {
+        if (isShowingHistory)
+        {
+            CloseHistory();
+            return;
+        }
+        if (selectedDocument is null) return;
+        isShowingHistory = true;
+        isHistoryLoading = true;
+        historyError = null;
+        try
+        {
+            documentHistory = await Http.GetFromJsonAsync<List<LeaveDocumentHistoryDto>>(
+                $"api/leave-documents/{selectedDocument.Id}/history") ?? [];
+        }
+        catch (Exception exception)
+        {
+            historyError = $"โหลดประวัติเอกสารไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isHistoryLoading = false;
+        }
+    }
+
+    private void CloseHistory() => isShowingHistory = false;
+    private static string KindText(string kind) => kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+    private static string StatusText(string status) => status switch
+    {
+        "PENDING_APPROVAL" => "รออนุมัติ",
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        "EDIT_REQUESTED" => "ขอแก้ไข",
+        "CANCELLED" => "ยกเลิก",
+        _ => status
+    };
+    private static string StatusClass(string status) => status switch
+    {
+        "APPROVED" => "approved",
+        "PENDING_APPROVAL" => "pending",
+        "EDIT_REQUESTED" => "editing",
+        "CANCELLED" => "cancelled",
+        _ => "rejected"
+    };
+}

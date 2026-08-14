@@ -17,7 +17,7 @@
     <section class="content-card">
         <div class="content-card-header">
             โควต้าวันลาพนักงาน
-            <span class="result-count">@quotas.Count รายการ</span>
+            <span class="result-count">@filteredQuotas.Count รายการ</span>
         </div>
         <div class="content-card-body">
             @if (isLoading)
@@ -30,6 +30,18 @@
             }
             else
             {
+                <div class="quota-search-grid">
+                    <label>
+                        ชื่อพนักงาน
+                        <input type="search" placeholder="ค้นหาชื่อหรือรหัสพนักงาน"
+                               @bind="EmployeeSearch" @bind:event="oninput" />
+                    </label>
+                    <label>
+                        ประเภทการลา
+                        <input type="search" placeholder="ค้นหาประเภทการลา"
+                               @bind="LeaveTypeSearch" @bind:event="oninput" />
+                    </label>
+                </div>
                 <div class="table-responsive">
                     <table class="table employee-table quota-table">
                         <thead>
@@ -42,26 +54,32 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @if (quotas.Count == 0)
+                            @if (filteredQuotas.Count == 0)
                             {
-                                <tr><td colspan="5" class="no-results">ยังไม่มีข้อมูลโควต้าวันลา</td></tr>
+                                <tr><td colspan="5" class="no-results">ไม่พบข้อมูลโควต้าที่ตรงกับคำค้นหา</td></tr>
                             }
                             else
                             {
-                                @foreach (var quota in quotas)
+                                @foreach (var quota in PagedQuotas)
                                 {
                                     <tr>
                                         <td>@EmployeeName(quota.EmployeeId)</td>
                                         <td>@quota.LeaveTypeName</td>
                                         <td><strong class="remaining">@quota.RemainingHours.ToString("0.##")</strong></td>
                                         <td>@quota.UsedHours.ToString("0.##")</td>
-                                        <td><button class="btn-edit" type="button" @onclick="() => StartEdit(quota)">แก้ไข</button></td>
+                                        <td>
+                                            <div class="quota-row-actions">
+                                                <button class="btn-edit" type="button" @onclick="() => StartEdit(quota)">แก้ไข</button>
+                                                <button class="btn-delete" type="button" @onclick="() => RequestDelete(quota)">ลบ</button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
+                <Pagination TotalItems="@filteredQuotas.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
@@ -123,20 +141,75 @@
     </div>
 }
 
+@if (deletingQuota is not null)
+{
+    <div class="quota-modal-overlay delete-confirm-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="delete-quota-title">
+        <section class="delete-quota-dialog">
+            <h2 id="delete-quota-title">ยืนยันการลบโควต้าวันลา</h2>
+            <p>
+                ต้องการลบโควต้า <strong>@deletingQuota.LeaveTypeName</strong><br />
+                ของ <strong>@EmployeeName(deletingQuota.EmployeeId)</strong> ปี @deletingQuota.QuotaYear ใช่หรือไม่
+            </p>
+            <p class="delete-quota-note">การลบนี้ไม่ลบข้อมูลพนักงานและเอกสารการลา</p>
+            @if (!string.IsNullOrWhiteSpace(deleteError))
+            {
+                <div class="save-error" role="alert">@deleteError</div>
+            }
+            <div class="delete-quota-actions">
+                <button class="btn btn-reset" type="button" disabled="@isDeleting" @onclick="CancelDelete">ไม่ลบ</button>
+                <button class="btn btn-danger" type="button" disabled="@isDeleting" @onclick="DeleteQuota">
+                    @(isDeleting ? "กำลังลบ..." : "ลบโควต้า")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
     private bool isLoading = true;
     private bool isEditing;
     private bool isSaving;
+    private bool isDeleting;
     private string? loadError;
     private string? saveError;
+    private string? deleteError;
     private List<Employee> employees = [];
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveQuotaDto> quotas = [];
+    private List<LeaveQuotaDto> filteredQuotas = [];
+    private Dictionary<string, string> employeeNames = new(StringComparer.OrdinalIgnoreCase);
+    private string employeeSearch = string.Empty;
+    private string leaveTypeSearch = string.Empty;
+    private string EmployeeSearch
+    {
+        get => employeeSearch;
+        set
+        {
+            employeeSearch = value;
+            ApplyFilters();
+        }
+    }
+    private string LeaveTypeSearch
+    {
+        get => leaveTypeSearch;
+        set
+        {
+            leaveTypeSearch = value;
+            ApplyFilters();
+        }
+    }
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveQuotaDto> PagedQuotas => filteredQuotas
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredQuotas.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
     private long? editingQuotaId;
     private string quotaEmployeeId = string.Empty;
     private long quotaLeaveTypeId;
     private decimal quotaHours;
     private decimal usedHours;
+    private LeaveQuotaDto? deletingQuota;
     private decimal RemainingPreview => quotaHours - usedHours;
 
     protected override async Task OnInitializedAsync()
@@ -144,6 +217,10 @@
         try
         {
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            employeeNames = employees.ToDictionary(
+                employee => employee.EmployeeCode,
+                employee => employee.FullName,
+                StringComparer.OrdinalIgnoreCase);
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             await ReloadQuotas();
         }
@@ -161,6 +238,21 @@
     {
         quotas = await Http.GetFromJsonAsync<List<LeaveQuotaDto>>(
             $"api/leave-quotas?year={DateTime.Today.Year}") ?? [];
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var employeeTerm = employeeSearch.Trim();
+        var leaveTypeTerm = leaveTypeSearch.Trim();
+        filteredQuotas = quotas.Where(quota =>
+            (employeeTerm.Length == 0 ||
+             quota.EmployeeId.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase) ||
+             EmployeeName(quota.EmployeeId).Contains(employeeTerm, StringComparison.OrdinalIgnoreCase)) &&
+            (leaveTypeTerm.Length == 0 ||
+             quota.LeaveTypeName.Contains(leaveTypeTerm, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        currentPage = 1;
     }
 
     private void StartCreate()
@@ -238,7 +330,49 @@
             isEditing = false;
     }
 
+    private void RequestDelete(LeaveQuotaDto quota)
+    {
+        deletingQuota = quota;
+        deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        if (!isDeleting)
+            deletingQuota = null;
+    }
+
+    private async Task DeleteQuota()
+    {
+        if (deletingQuota is null)
+            return;
+
+        isDeleting = true;
+        deleteError = null;
+        try
+        {
+            var response = await Http.DeleteAsync($"api/leave-quotas/{deletingQuota.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                deleteError = response.StatusCode == System.Net.HttpStatusCode.NotFound
+                    ? "ไม่พบโควต้าที่ต้องการลบ อาจถูกลบไปแล้ว"
+                    : $"ลบโควต้าไม่สำเร็จ (HTTP {(int)response.StatusCode})";
+                return;
+            }
+
+            deletingQuota = null;
+            await ReloadQuotas();
+        }
+        catch (Exception exception)
+        {
+            deleteError = $"ลบโควต้าไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
     private string EmployeeName(string employeeId) =>
-        employees.FirstOrDefault(employee => employee.EmployeeCode == employeeId)?.FullName
-        ?? employeeId;
+        employeeNames.GetValueOrDefault(employeeId, employeeId);
 }

@@ -1,4 +1,5 @@
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -6,7 +7,9 @@ namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/leave-quota-requests")]
-public sealed class LeaveQuotaRequestsController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class LeaveQuotaRequestsController(
+    NpgsqlDataSource dataSource,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LeaveQuotaRequestDto>>> GetAll(
@@ -247,6 +250,183 @@ public sealed class LeaveQuotaRequestsController(NpgsqlDataSource dataSource) : 
         }
 
         return StatusCode(StatusCodes.Status201Created, created);
+    }
+
+    [HttpPost("{id:long}/approve")]
+    public Task<IActionResult> Approve(
+        long id,
+        ReviewLeaveQuotaRequest request,
+        CancellationToken cancellationToken) =>
+        Review(id, true, request, cancellationToken);
+
+    [HttpPost("{id:long}/reject")]
+    public Task<IActionResult> Reject(
+        long id,
+        ReviewLeaveQuotaRequest request,
+        CancellationToken cancellationToken) =>
+        Review(id, false, request, cancellationToken);
+
+    private async Task<IActionResult> Review(
+        long id,
+        bool approve,
+        ReviewLeaveQuotaRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (id <= 0 ||
+            string.IsNullOrWhiteSpace(request.ReviewedBy) ||
+            string.IsNullOrWhiteSpace(request.ReviewedByName))
+            return BadRequest("ข้อมูลผู้ดำเนินการไม่ครบถ้วน");
+
+        var actionKey = approve ? "APPROVE" : "REJECT";
+        var hasPermission = await actionPermissionService.HasPermission(
+            request.ReviewedBy, "LEAVE_REQUEST_QUOTA", actionKey, cancellationToken);
+        if (!hasPermission)
+        {
+            // VIEW_ALL was the original administrator permission for this page.
+            // Keep it as a compatibility fallback for users configured before
+            // APPROVE and REJECT were introduced as separate actions.
+            hasPermission = await actionPermissionService.HasPermission(
+                request.ReviewedBy, "LEAVE_REQUEST_QUOTA", "VIEW_ALL", cancellationToken);
+        }
+        if (!hasPermission)
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดำเนินการคำขอเพิ่มโควต้า");
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        const string selectSql = """
+            SELECT employee_id, leave_type_id, quota_year, requested_hours, status
+            FROM public.leave_quota_requests
+            WHERE id = @id
+            FOR UPDATE
+            """;
+        string employeeId;
+        long leaveTypeId;
+        short quotaYear;
+        decimal requestedHours;
+        string status;
+        await using (var command = new NpgsqlCommand(selectSql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("id", id);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return NotFound("ไม่พบคำขอเพิ่มโควต้า");
+            employeeId = reader.GetString(0);
+            leaveTypeId = reader.GetInt64(1);
+            quotaYear = reader.GetInt16(2);
+            requestedHours = reader.GetDecimal(3);
+            status = reader.GetString(4);
+        }
+
+        if (status != "PENDING")
+            return Conflict("ดำเนินการได้เฉพาะคำขอที่อยู่ในสถานะรออนุมัติ");
+
+        var approvedHours = approve ? request.ApprovedHours : null;
+        if (approve && (!approvedHours.HasValue || approvedHours <= 0 || approvedHours > requestedHours))
+            return BadRequest($"จำนวนที่อนุมัติต้องมากกว่า 0 และไม่เกิน {requestedHours:0.##} ชั่วโมง");
+        if (!approve && string.IsNullOrWhiteSpace(request.Remark))
+            return BadRequest("กรุณาระบุเหตุผลที่ไม่อนุมัติ");
+
+        const string updateRequestSql = """
+            UPDATE public.leave_quota_requests
+            SET status = @status,
+                approved_hours = @approved_hours,
+                reviewed_by = @reviewed_by,
+                reviewed_by_name = @reviewed_by_name,
+                reviewed_at = CURRENT_TIMESTAMP,
+                review_remark = @remark
+            WHERE id = @id AND status = 'PENDING'
+            """;
+        await using (var command = new NpgsqlCommand(updateRequestSql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("status", approve ? "APPROVED" : "REJECTED");
+            command.Parameters.Add(new NpgsqlParameter<decimal?>("approved_hours", approvedHours));
+            command.Parameters.AddWithValue("reviewed_by", request.ReviewedBy.Trim());
+            command.Parameters.AddWithValue("reviewed_by_name", request.ReviewedByName.Trim());
+            command.Parameters.Add(new NpgsqlParameter<string?>("remark", request.Remark?.Trim()));
+            command.Parameters.AddWithValue("id", id);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+                return Conflict("คำขอนี้ถูกดำเนินการไปแล้ว");
+        }
+
+        if (approve)
+        {
+            const string upsertQuotaSql = """
+                INSERT INTO public.leave_quotas
+                    (employee_id, leave_type_id, quota_year, quota_hours, notes,
+                     created_by, created_by_name, updated_by, updated_by_name)
+                VALUES
+                    (@employee_id, @leave_type_id, @quota_year, @hours, @notes,
+                     @action_by, @action_by_name, @action_by, @action_by_name)
+                ON CONFLICT (employee_id, leave_type_id, quota_year)
+                DO UPDATE SET
+                    quota_hours = public.leave_quotas.quota_hours + EXCLUDED.quota_hours,
+                    notes = EXCLUDED.notes,
+                    updated_by = EXCLUDED.updated_by,
+                    updated_by_name = EXCLUDED.updated_by_name
+                RETURNING id, quota_hours
+                """;
+            long quotaId;
+            decimal totalQuotaHours;
+            await using (var command = new NpgsqlCommand(upsertQuotaSql, connection, transaction))
+            {
+                command.Parameters.AddWithValue("employee_id", employeeId);
+                command.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                command.Parameters.AddWithValue("quota_year", quotaYear);
+                command.Parameters.AddWithValue("hours", approvedHours!.Value);
+                command.Parameters.AddWithValue("notes", $"เพิ่มจากคำขอ {id}");
+                command.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
+                command.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                await reader.ReadAsync(cancellationToken);
+                quotaId = reader.GetInt64(0);
+                totalQuotaHours = reader.GetDecimal(1);
+            }
+
+            const string quotaHistorySql = """
+                INSERT INTO public.leave_quota_history
+                    (leave_quota_id, action, details_text, after_data,
+                     action_by, action_by_name)
+                VALUES
+                    (@quota_id, 'UPDATE', @details, CAST(@after_data AS jsonb),
+                     @action_by, @action_by_name)
+                """;
+            await using var historyCommand = new NpgsqlCommand(quotaHistorySql, connection, transaction);
+            historyCommand.Parameters.AddWithValue("quota_id", quotaId);
+            historyCommand.Parameters.AddWithValue(
+                "details",
+                $"อนุมัติคำขอเพิ่มโควต้า {approvedHours.Value:0.##} ชั่วโมง; โควต้ารวม {totalQuotaHours:0.##} ชั่วโมง");
+            historyCommand.Parameters.AddWithValue(
+                "after_data",
+                $"{{\"quotaHours\":{totalQuotaHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+            historyCommand.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
+            historyCommand.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
+            await historyCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        const string requestHistorySql = """
+            INSERT INTO public.leave_quota_request_history
+                (leave_quota_request_id, action, details_text, action_by, action_by_name)
+            VALUES
+                (@request_id, @action, @details, @action_by, @action_by_name)
+            """;
+        await using (var command = new NpgsqlCommand(requestHistorySql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("request_id", id);
+            command.Parameters.AddWithValue("action", approve ? "APPROVE" : "REJECT");
+            command.Parameters.AddWithValue(
+                "details",
+                approve
+                    ? $"อนุมัติเพิ่มโควต้า {approvedHours!.Value:0.##} ชั่วโมง" +
+                      (string.IsNullOrWhiteSpace(request.Remark) ? string.Empty : $"; หมายเหตุ: {request.Remark.Trim()}")
+                    : $"ไม่อนุมัติคำขอ; เหตุผล: {request.Remark!.Trim()}");
+            command.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
+            command.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return NoContent();
     }
 
     private async Task<LeaveQuotaRequestDto?> FindById(long id, CancellationToken cancellationToken)

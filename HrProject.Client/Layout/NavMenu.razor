@@ -1,3 +1,4 @@
+<div class="nav-shell @(IsDesktopCollapsed ? "desktop-collapsed" : null)">
 <div class="top-row navbar navbar-dark">
     <div class="container-fluid">
         <img class="brand-logo" src="images/image.png" alt="SiS logo" />
@@ -8,30 +9,53 @@
     </div>
 </div>
 
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+@if (!collapseNavMenu)
+{
+    <button class="nav-backdrop" type="button" aria-label="ปิดเมนู" @onclick="ToggleNavMenu"></button>
+}
+
+<div class="@NavMenuCssClass nav-scrollable" @onclick="CloseNavMenu">
     <nav class="nav-menu">
         <p class="menu-section">การลา</p>
         <NavLink class="menu-link" href="leave/documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>เอกสารการลา</NavLink>
+        <NavLink class="menu-link" href="leave/all-documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>เอกสารทั้งหมด</NavLink>
         <NavLink class="menu-link" href="leave/pending"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 13 3 3 7-8"/></svg>เอกสารรออนุมัติ</NavLink>
         <NavLink class="menu-link" href="leave/revisions"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขเอกสารการลา</NavLink>
         <NavLink class="menu-link" href="leave/team"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 3.1a4 4 0 0 1 0 7.8M21 21v-2a6 6 0 0 0-3-5.2"/></svg>หัวหน้าแจ้งลาลูกน้อง</NavLink>
         <NavLink class="menu-link" href="leave/request-quota"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"/></svg>ขอวันลาเพิ่ม</NavLink>
         <NavLink class="menu-link" href="leave/manage-quota"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>จัดการโควต้าวันลา</NavLink>
+        
+        <p class="menu-section">การมาทำงาน</p>
+        <NavLink class="menu-link" href="attendance"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>การมาทำงาน</NavLink>
+        <NavLink class="menu-link" href="attendance/calendar-settings"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>กำหนดปฏิทินการทำงาน</NavLink>
 
         <p class="menu-section">พนักงาน</p>
         <NavLink class="menu-link" href="" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>ข้อมูลพนักงาน</NavLink>
         <NavLink class="menu-link" href="employees/edit-requests"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขข้อมูลพนักงาน</NavLink>
-        <NavLink class="menu-link" href="attendance"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>การมาทำงาน</NavLink>
-        <NavLink class="menu-link" href="attendance/calendar-settings"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>กำหนดปฏิทินการทำงาน</NavLink>
-
-        <p class="menu-section">การจัดการสิทธิ์</p>
+        
+        <p class="menu-section">การจัดการระบบ</p>
         <NavLink class="menu-link" href="permissions"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>จัดการสิทธิ์การเข้าถึง</NavLink>
+        <NavLink class="menu-link" href="system/master-data"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>จัดการข้อมูลพื้นฐานระบบ</NavLink>
     </nav>
     <LoginDisplay />
 </div>
+</div>
 
 @code {
+    [Parameter]
+    public bool IsDesktopCollapsed { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> IsDesktopCollapsedChanged { get; set; }
+
     private bool collapseNavMenu = true;
-    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
-    private void ToggleNavMenu() => collapseNavMenu = !collapseNavMenu;
+    private string NavMenuCssClass => collapseNavMenu ? "is-collapsed" : "is-open";
+
+    private async Task ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+        await IsDesktopCollapsedChanged.InvokeAsync(!IsDesktopCollapsed);
+    }
+
+    private void CloseNavMenu() => collapseNavMenu = true;
 }

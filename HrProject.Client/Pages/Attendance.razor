@@ -1,5 +1,6 @@
 @page "/attendance"
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <PageTitle>การมาทำงาน | HR Project</PageTitle>
 
@@ -84,34 +85,60 @@
                 <div class="calendar-grid">
                     @foreach (var day in CalendarDays)
                     {
-                        <button type="button"
-                                class="@GetDayCssClass(day)"
-                                aria-label="@GetDayAriaLabel(day)"
-                                @onclick="() => SelectDay(day)">
-                            <span class="day-heading">
-                                <span class="day-number">@day.Date.Day</span>
-                                @if (day.Date == Today)
-                                {
-                                    <span class="today-label">วันนี้</span>
-                                }
-                            </span>
-
-                            @if (day.Record is not null)
-                            {
-                                <span class="@GetRecordStatusCssClass(day.Record)">
-                                    <span class="status-dot" aria-hidden="true"></span>
-                                    @GetRecordStatusText(day.Record)
-                                </span>
-
-                                @if (!string.IsNullOrWhiteSpace(day.Record.ClockIn))
-                                {
-                                    <span class="attendance-time">
-                                        <span>เข้า @day.Record.ClockIn</span>
-                                        <span>ออก @day.Record.ClockOut</span>
+                        var dayLeaveDocuments = GetLeaveDocuments(day.Date);
+                        <div class="@GetDayCssClass(day)">
+                            <div class="day-layout @(dayLeaveDocuments.Count > 0 ? "has-leave-document" : null)">
+                                <button type="button" class="day-main-column"
+                                        aria-label="@GetDayAriaLabel(day)"
+                                        disabled="@(!day.IsCurrentMonth)"
+                                        @onclick="() => SelectDay(day)">
+                                    <span class="day-heading">
+                                        <span class="day-number">@day.Date.Day</span>
+                                        @if (day.Date == Today)
+                                        {
+                                            <span class="today-label">วันนี้</span>
+                                        }
                                     </span>
+
+                                    @if (day.Record is not null)
+                                    {
+                                        <span class="@GetRecordStatusCssClass(day.Record)">
+                                            <span class="status-dot" aria-hidden="true"></span>
+                                            @GetRecordStatusText(day.Record)
+                                        </span>
+
+                                        @if (day.Record.LeaveDocument is null && !string.IsNullOrWhiteSpace(day.Record.ClockIn))
+                                        {
+                                            <span class="attendance-time">
+                                                <span>เข้า @day.Record.ClockIn</span>
+                                                <span>ออก @day.Record.ClockOut</span>
+                                            </span>
+                                        }
+                                    }
+                                </button>
+
+                                @if (dayLeaveDocuments.Count > 0)
+                                {
+                                    <div class="leave-slot-list">
+                                        @foreach (var leaveDocument in dayLeaveDocuments)
+                                        {
+                                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.StartTime, leaveDocument.LeaveHours);
+                                            <button type="button"
+                                                    class="leave-document-slot @GetLeaveSlotCssClass(leaveDocument.Status)"
+                                                    aria-label="เปิดเอกสาร @leaveDocument.DocumentNo"
+                                                    @onclick="() => OpenLeaveDocument(leaveDocument.Id)">
+                                                <span class="leave-slot-heading">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" /></svg>
+                                                    <strong>@leaveDocument.LeaveTypeName</strong>
+                                                </span>
+                                                <span class="leave-slot-time">@leaveDocument.StartTime.ToString("HH:mm") <i aria-hidden="true">→</i> @leaveEndTime.ToString("HH:mm")</span>
+                                                <small><i aria-hidden="true"></i>@GetLeaveDocumentStatusText(leaveDocument.Status)</small>
+                                            </button>
+                                        }
+                                    </div>
                                 }
-                            }
-                        </button>
+                            </div>
+                        </div>
                     }
                 </div>
             </div>
@@ -141,52 +168,60 @@
                 <button type="button" class="close-detail-button" aria-label="ปิดรายละเอียด" @onclick="ClearSelectedDay">×</button>
             </div>
 
-            @if (SelectedDay.Record is null)
-            {
-                <div class="no-record">ยังไม่มีข้อมูลการมาทำงานสำหรับวันนี้</div>
-            }
-            else
-            {
-                <div class="selected-day-details">
-                    <div class="detail-item">
-                        <span>สถานะ</span>
-                        <strong class="@GetRecordStatusCssClass(SelectedDay.Record)">
-                            <span class="status-dot" aria-hidden="true"></span>
-                            @GetRecordStatusText(SelectedDay.Record)
-                        </strong>
-                    </div>
-                    <div class="detail-item">
-                        <span>เวลาเข้างาน</span>
-                        <strong>@DisplayTime(SelectedDay.Record.ClockIn)</strong>
-                    </div>
-                    <div class="detail-item">
-                        <span>เวลาออกงาน</span>
-                        <strong>@DisplayTime(SelectedDay.Record.ClockOut)</strong>
-                    </div>
-                    <div class="detail-item detail-note">
-                        <span>หมายเหตุ</span>
-                        <strong>@SelectedDay.Record.Note</strong>
-                    </div>
-                    @if (SelectedDay.Record.LeaveDocument is not null)
-                    {
+            <section class="selected-detail-section">
+                <h3>ข้อมูลการมาทำงาน</h3>
+                @if (SelectedDay.Record is null)
+                {
+                    <div class="no-record">ยังไม่มีข้อมูลการมาทำงานสำหรับวันนี้</div>
+                }
+                else
+                {
+                    <div class="selected-day-details">
                         <div class="detail-item">
-                            <span>เลขที่เอกสาร</span>
-                            <strong>@SelectedDay.Record.LeaveDocument.DocumentNo</strong>
+                            <span>สถานะ</span>
+                            <strong class="@GetRecordStatusCssClass(SelectedDay.Record)">
+                                <span class="status-dot" aria-hidden="true"></span>
+                                @GetRecordStatusText(SelectedDay.Record)
+                            </strong>
                         </div>
                         <div class="detail-item">
-                            <span>ประเภทการลา</span>
-                            <strong>@SelectedDay.Record.LeaveDocument.LeaveTypeName</strong>
+                            <span>เวลาเข้างาน</span>
+                            <strong>@DisplayTime(SelectedDay.Record.ClockIn)</strong>
                         </div>
                         <div class="detail-item">
-                            <span>จำนวน</span>
-                            <strong>@SelectedDay.Record.LeaveDocument.LeaveHours.ToString("0.##") ชั่วโมง</strong>
+                            <span>เวลาออกงาน</span>
+                            <strong>@DisplayTime(SelectedDay.Record.ClockOut)</strong>
                         </div>
                         <div class="detail-item detail-note">
-                            <span>เหตุผลการลา</span>
-                            <strong>@SelectedDay.Record.LeaveDocument.LeaveReason</strong>
+                            <span>หมายเหตุ</span>
+                            <strong>@SelectedDay.Record.Note</strong>
                         </div>
-                    }
-                </div>
+                    </div>
+                }
+            </section>
+
+            @{ var selectedLeaveDocuments = GetLeaveDocuments(SelectedDay.Date); }
+            @if (selectedLeaveDocuments.Count > 0)
+            {
+                <section class="selected-detail-section selected-leave-section">
+                    <h3>เอกสารการลา <span>@selectedLeaveDocuments.Count รายการ</span></h3>
+                    <div class="selected-leave-list">
+                        @foreach (var leaveDocument in selectedLeaveDocuments)
+                        {
+                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.StartTime, leaveDocument.LeaveHours);
+                            <article class="selected-leave-item @GetLeaveSlotCssClass(leaveDocument.Status)">
+                                <button type="button" class="selected-leave-number" @onclick="() => OpenLeaveDocument(leaveDocument.Id)">
+                                    @leaveDocument.DocumentNo
+                                </button>
+                                <div><span>ประเภทการลา</span><strong>@leaveDocument.LeaveTypeName</strong></div>
+                                <div><span>ช่วงเวลา</span><strong>@leaveDocument.StartTime.ToString("HH:mm")–@leaveEndTime.ToString("HH:mm")</strong></div>
+                                <div><span>จำนวน</span><strong>@leaveDocument.LeaveHours.ToString("0.##") ชั่วโมง</strong></div>
+                                <div><span>สถานะ</span><strong>@GetLeaveDocumentStatusText(leaveDocument.Status)</strong></div>
+                                <div class="selected-leave-reason"><span>เหตุผล</span><strong>@leaveDocument.LeaveReason</strong></div>
+                            </article>
+                        }
+                    </div>
+                </section>
             }
         </section>
     }
@@ -223,7 +258,13 @@
     }
 
     private int AwayCount =>
-        CountStatus(AttendanceStatus.Leave) + CountStatus(AttendanceStatus.Absent);
+        LeaveDocuments
+            .Where(document => document.LeaveDate.Year == DisplayedMonth.Year &&
+                document.LeaveDate.Month == DisplayedMonth.Month &&
+                IsActiveLeaveDocument(document))
+            .Select(document => document.LeaveDate)
+            .Distinct()
+            .Count() + CountStatus(AttendanceStatus.Absent);
 
     protected override async Task OnInitializedAsync()
     {
@@ -251,6 +292,9 @@
 
             LeaveDocuments = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
                 $"api/leave-documents?creatorEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
+            LeaveDocuments = LeaveDocuments
+                .Where(document => !string.Equals(document.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
         catch (HttpRequestException)
         {
@@ -307,25 +351,6 @@
 
     private AttendanceRecord? CreateCalendarRecord(DateOnly date)
     {
-        var leaveDocument = LeaveDocuments
-            .Where(document => document.LeaveDate == date)
-            .OrderBy(document => LeaveDocumentStatusPriority(document.Status))
-            .ThenByDescending(document => document.CreatedAt)
-            .FirstOrDefault();
-
-        if (leaveDocument is not null)
-        {
-            var endTime = leaveDocument.StartTime.Add(
-                TimeSpan.FromHours((double)leaveDocument.LeaveHours));
-            return new AttendanceRecord(
-                AttendanceStatus.Leave,
-                leaveDocument.StartTime.ToString("HH:mm"),
-                endTime.ToString("HH:mm"),
-                $"เอกสาร {leaveDocument.DocumentNo}",
-                leaveDocument,
-                null);
-        }
-
         var companyCalendarDay = WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
         if (companyCalendarDay?.DayType == "PUBLIC_HOLIDAY")
         {
@@ -409,6 +434,14 @@
             null);
     }
 
+    private List<LeaveDocumentDto> GetLeaveDocuments(DateOnly date) => LeaveDocuments
+        .Where(document => document.LeaveDate == date &&
+            !string.Equals(document.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+        .OrderBy(document => document.StartTime)
+        .ThenBy(document => LeaveDocumentStatusPriority(document.Status))
+        .ThenByDescending(document => document.CreatedAt)
+        .ToList();
+
     private int CountStatus(AttendanceStatus status) =>
         CalendarDays.Count(day =>
             day.IsCurrentMonth &&
@@ -423,6 +456,9 @@
             SelectedDay = day;
         }
     }
+
+    private void OpenLeaveDocument(long documentId) =>
+        Navigation.NavigateTo($"/leave/documents?documentId={documentId}");
 
     private void ClearSelectedDay() => SelectedDay = null;
 
@@ -531,6 +567,26 @@
         _ => 5
     };
 
+    private static TimeOnly CalculateLeaveEndTime(TimeOnly startTime, decimal leaveHours)
+    {
+        var lunchStart = new TimeOnly(12, 0);
+        var lunchEnd = new TimeOnly(13, 0);
+        var current = startTime >= lunchStart && startTime < lunchEnd ? lunchEnd : startTime;
+        var remainingMinutes = (double)leaveHours * 60;
+
+        if (current < lunchStart)
+        {
+            var minutesUntilLunch = (lunchStart.ToTimeSpan() - current.ToTimeSpan()).TotalMinutes;
+            if (remainingMinutes > minutesUntilLunch)
+            {
+                remainingMinutes -= minutesUntilLunch;
+                current = lunchEnd;
+            }
+        }
+
+        return current.AddMinutes(remainingMinutes);
+    }
+
     private static bool IsActiveLeaveDocument(LeaveDocumentDto? document) =>
         document is not null && document.Status is not ("REJECTED" or "CANCELLED");
 
@@ -542,6 +598,16 @@
         "CANCELLED" => "ยกเลิก",
         "EDIT_REQUESTED" => "ขอแก้ไข",
         _ => status
+    };
+
+    private static string GetLeaveSlotCssClass(string status) => status switch
+    {
+        "APPROVED" => "leave-slot-approved",
+        "PENDING_APPROVAL" => "leave-slot-pending",
+        "EDIT_REQUESTED" => "leave-slot-editing",
+        "REJECTED" => "leave-slot-rejected",
+        "CANCELLED" => "leave-slot-cancelled",
+        _ => "leave-slot-default"
     };
 
     private bool IsCompanyWorkDay(DateOnly date)

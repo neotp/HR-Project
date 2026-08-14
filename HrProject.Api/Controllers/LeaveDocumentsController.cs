@@ -1,4 +1,5 @@
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 using NpgsqlTypes;
@@ -7,25 +8,125 @@ namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/leave-documents")]
-public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class LeaveDocumentsController(
+    NpgsqlDataSource dataSource,
+    PageActionPermissionService actionPermissionService,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LeaveDocumentDto>>> GetAll(
         [FromQuery] string? creatorEmployeeId,
         [FromQuery] string? approverEmployeeId,
+        [FromQuery] string? actingEmployeeId,
         [FromQuery] string? status,
+        [FromQuery] bool viewAll,
         CancellationToken cancellationToken)
     {
+        var restrictPendingToApprover = false;
+        if (viewAll)
+        {
+            var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+            if (string.IsNullOrWhiteSpace(authenticatedEmployeeId) ||
+                string.IsNullOrWhiteSpace(actingEmployeeId) ||
+                !string.Equals(authenticatedEmployeeId, actingEmployeeId, StringComparison.OrdinalIgnoreCase))
+                return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับพนักงานที่ขอดูข้อมูล");
+
+            var canViewAll = await actionPermissionService.HasPermission(
+                    actingEmployeeId, "LEAVE_ALL_DOCUMENTS", "VIEW_ALL", cancellationToken) ||
+                await actionPermissionService.HasPermission(
+                    actingEmployeeId, "LEAVE_DOCUMENTS", "VIEW_ALL", cancellationToken);
+            if (!canViewAll)
+                return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูเอกสารการลาของพนักงานทั้งหมด");
+
+            creatorEmployeeId = null;
+            approverEmployeeId = null;
+        }
+        else if (string.IsNullOrWhiteSpace(status))
+        {
+            var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+            if (string.IsNullOrWhiteSpace(authenticatedEmployeeId))
+                return StatusCode(StatusCodes.Status403Forbidden, "ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
+            if (!string.IsNullOrWhiteSpace(creatorEmployeeId) &&
+                !string.Equals(authenticatedEmployeeId, creatorEmployeeId, StringComparison.OrdinalIgnoreCase))
+                return StatusCode(StatusCodes.Status403Forbidden, "ไม่สามารถดูเอกสารการลาของพนักงานคนอื่นได้");
+
+            creatorEmployeeId = authenticatedEmployeeId;
+        }
+        else if (string.Equals(status, "PENDING_APPROVAL", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(actingEmployeeId))
+                return BadRequest("กรุณาระบุพนักงานผู้เปิดดูเอกสารรออนุมัติ");
+            var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+            if (string.IsNullOrWhiteSpace(authenticatedEmployeeId) ||
+                !string.Equals(authenticatedEmployeeId, actingEmployeeId, StringComparison.OrdinalIgnoreCase))
+                return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับพนักงานที่ขอดูข้อมูล");
+            var canViewAll = await actionPermissionService.HasPermission(
+                    actingEmployeeId, "LEAVE_PENDING", "VIEW_ALL", cancellationToken) ||
+                await actionPermissionService.HasPermission(
+                    actingEmployeeId, "LEAVE_PENDING", "APPROVE", cancellationToken) ||
+                await actionPermissionService.HasPermission(
+                    actingEmployeeId, "LEAVE_PENDING", "REJECT", cancellationToken);
+            restrictPendingToApprover = !canViewAll;
+        }
+
         const string sql = """
             SELECT d.id, d.document_no, d.creator_employee_id, d.creator_name,
-                   d.creator_department, d.approver_employee_id, d.approver_name,
+                   d.creator_department,
+                   COALESCE(reporting_approver.employee_code, d.approver_employee_id),
+                   COALESCE(reporting_approver.full_name, creator_company.leave_approver_name, d.approver_name),
                    t.id, t.code, t.name_th, d.leave_kind, d.leave_date, d.start_time,
-                   d.leave_hours, d.leave_reason, d.status, d.created_at
+                   d.leave_hours, d.leave_reason, d.status, d.created_at,
+                   COALESCE(@acting_employee_id IN
+                       (reporting_approver.employee_code, upper_reporting_approver.employee_code), FALSE)
             FROM public.leave_documents d
             JOIN public.leave_types t ON t.id = d.leave_type_id
+            LEFT JOIN public.employees creator_employee
+                   ON creator_employee.employee_code = d.creator_employee_id
+                  AND creator_employee.is_active = TRUE
+            LEFT JOIN public.employee_company_info creator_company
+                   ON creator_company.employee_id = creator_employee.id
+            LEFT JOIN LATERAL
+            (
+                SELECT approver_employee.id AS employee_row_id,
+                       approver_employee.employee_code,
+                       COALESCE(NULLIF(approver_basic.full_name_th, ''),
+                                NULLIF(approver_basic.full_name_en, ''),
+                                CONCAT_WS(' ', approver_basic.first_name_th, approver_basic.last_name_th),
+                                approver_employee.employee_code) AS full_name
+                FROM public.employees approver_employee
+                JOIN public.employee_basic_info approver_basic
+                  ON approver_basic.employee_id = approver_employee.id
+                WHERE approver_employee.is_active = TRUE
+                  AND REGEXP_REPLACE(UPPER(BTRIM(COALESCE(creator_company.leave_approver_name, ''))), '\s+', ' ', 'g') IN
+                      (REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_th, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_en, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_th, approver_basic.last_name_th))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_en, approver_basic.last_name_en))), '\s+', ' ', 'g'))
+                ORDER BY approver_employee.id
+                LIMIT 1
+            ) reporting_approver ON TRUE
+            LEFT JOIN public.employee_company_info reporting_approver_company
+                   ON reporting_approver_company.employee_id = reporting_approver.employee_row_id
+            LEFT JOIN LATERAL
+            (
+                SELECT upper_employee.employee_code
+                FROM public.employees upper_employee
+                JOIN public.employee_basic_info upper_basic
+                  ON upper_basic.employee_id = upper_employee.id
+                WHERE upper_employee.is_active = TRUE
+                  AND REGEXP_REPLACE(UPPER(BTRIM(COALESCE(reporting_approver_company.leave_approver_name, ''))), '\s+', ' ', 'g') IN
+                      (REGEXP_REPLACE(UPPER(BTRIM(COALESCE(upper_basic.full_name_th, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(COALESCE(upper_basic.full_name_en, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', upper_basic.first_name_th, upper_basic.last_name_th))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', upper_basic.first_name_en, upper_basic.last_name_en))), '\s+', ' ', 'g'))
+                ORDER BY upper_employee.id
+                LIMIT 1
+            ) upper_reporting_approver ON TRUE
             WHERE (@creator_employee_id IS NULL OR d.creator_employee_id = @creator_employee_id)
               AND (@approver_employee_id IS NULL OR d.approver_employee_id = @approver_employee_id)
               AND (@status IS NULL OR d.status = @status)
+              AND (NOT @restrict_pending OR @acting_employee_id IN
+                  (reporting_approver.employee_code, upper_reporting_approver.employee_code))
             ORDER BY d.created_at DESC
             """;
 
@@ -33,10 +134,12 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.Add(new NpgsqlParameter<string?>("creator_employee_id", creatorEmployeeId));
         command.Parameters.Add(new NpgsqlParameter<string?>("approver_employee_id", approverEmployeeId));
+        command.Parameters.Add(new NpgsqlParameter<string?>("acting_employee_id", actingEmployeeId));
         command.Parameters.Add(new NpgsqlParameter<string?>("status", status));
+        command.Parameters.AddWithValue("restrict_pending", restrictPendingToApprover);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
-            result.Add(ReadDocument(reader));
+            result.Add(ReadDocument(reader) with { CanCurrentUserReview = reader.GetBoolean(17) });
 
         return Ok(result);
     }
@@ -87,19 +190,31 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
     {
         if (!IsValid(request.LeaveTypeId, request.LeaveKind, request.LeaveHours, request.LeaveReason))
             return BadRequest("กรุณากรอกข้อมูลการลาให้ครบถ้วน และระบุจำนวนชั่วโมงระหว่าง 0 ถึง 24 ชั่วโมง");
+        if (IsRetroactiveBeyondLimit(request.LeaveKind, request.LeaveDate))
+            return BadRequest("ลาย้อนหลังได้ไม่เกิน 3 วันปฏิทินนับจากวันที่สร้างเอกสาร");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var leaveTypeCode = await FindLeaveTypeCode(connection, request.LeaveTypeId, cancellationToken);
+        if (leaveTypeCode is null)
+            return BadRequest("ไม่พบประเภทการลา");
+        var certificateError = ValidateMedicalCertificate(
+            leaveTypeCode, request.HasMedicalCertificate, request.Attachment);
+        if (certificateError is not null)
+            return BadRequest(certificateError);
+
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         const string insertSql = """
             INSERT INTO public.leave_documents
                 (document_no, creator_employee_id, creator_name, creator_department,
                  approver_employee_id, approver_name, leave_type_id, leave_kind,
-                 leave_date, start_time, leave_hours, leave_reason, status)
+                 leave_date, start_time, leave_hours, leave_reason,
+                 has_medical_certificate, status)
             VALUES
                 (@temporary_no, @creator_id, @creator_name, @department,
                  @approver_id, @approver_name, @leave_type_id, @leave_kind,
-                 @leave_date, @start_time, @hours, @reason, 'PENDING_APPROVAL')
+                 @leave_date, @start_time, @hours, @reason,
+                 @has_medical_certificate, 'PENDING_APPROVAL')
             RETURNING id
             """;
 
@@ -119,6 +234,9 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
             command.Parameters.AddWithValue("start_time", request.StartTime);
             command.Parameters.AddWithValue("hours", request.LeaveHours);
             command.Parameters.AddWithValue("reason", request.LeaveReason.Trim());
+            command.Parameters.Add(new NpgsqlParameter<bool?>(
+                "has_medical_certificate",
+                leaveTypeCode == "SICK" ? request.HasMedicalCertificate : null));
             id = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
         }
 
@@ -134,6 +252,13 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         var details = $"{LeaveKindText(request.LeaveKind)} วันที่ลา {request.LeaveDate:dd/MM/yyyy} เวลา {request.StartTime:HH\\:mm} จำนวน {request.LeaveHours:0.##} ชั่วโมง เหตุผล: {request.LeaveReason.Trim()}";
         await InsertHistory(connection, transaction, id, "CREATE_DOCUMENT", details,
             request.CreatorEmployeeId, request.CreatorName, cancellationToken);
+        if (request.Attachment is not null)
+        {
+            var storedAttachment = await StoreAttachment(request.Attachment, cancellationToken);
+            await InsertAttachment(
+                connection, transaction, id, storedAttachment,
+                request.CreatorEmployeeId, cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
 
         var created = await FindDocument(id, cancellationToken);
@@ -163,8 +288,18 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
             return BadRequest("จำนวนชั่วโมงของแต่ละรายการต้องมากกว่า 0 และไม่เกิน 24 ชั่วโมง");
         if (request.Items.Select(item => item.LeaveDate).Distinct().Count() != request.Items.Count)
             return BadRequest("วันที่ลาในรายการต้องไม่ซ้ำกัน");
+        if (request.Items.Any(item => IsRetroactiveBeyondLimit(request.LeaveKind, item.LeaveDate)))
+            return BadRequest("ลาย้อนหลังได้ไม่เกิน 3 วันปฏิทินนับจากวันที่สร้างเอกสาร กรุณาตรวจสอบวันที่ในรายการ");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var leaveTypeCode = await FindLeaveTypeCode(connection, request.LeaveTypeId, cancellationToken);
+        if (leaveTypeCode is null)
+            return BadRequest("ไม่พบประเภทการลา");
+        var certificateError = ValidateMedicalCertificate(
+            leaveTypeCode, request.HasMedicalCertificate, request.Attachment);
+        if (certificateError is not null)
+            return BadRequest(certificateError);
+
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var createdIds = new List<long>(request.Items.Count);
 
@@ -172,11 +307,13 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
             INSERT INTO public.leave_documents
                 (document_no, creator_employee_id, creator_name, creator_department,
                  approver_employee_id, approver_name, leave_type_id, leave_kind,
-                 leave_date, start_time, leave_hours, leave_reason, status)
+                 leave_date, start_time, leave_hours, leave_reason,
+                 has_medical_certificate, status)
             VALUES
                 (@temporary_no, @creator_id, @creator_name, @department,
                  @approver_id, @approver_name, @leave_type_id, @leave_kind,
-                 @leave_date, @start_time, @hours, @reason, 'PENDING_APPROVAL')
+                 @leave_date, @start_time, @hours, @reason,
+                 @has_medical_certificate, 'PENDING_APPROVAL')
             RETURNING id
             """;
 
@@ -198,6 +335,9 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
                 command.Parameters.AddWithValue("start_time", item.StartTime);
                 command.Parameters.AddWithValue("hours", item.LeaveHours);
                 command.Parameters.AddWithValue("reason", request.LeaveReason.Trim());
+                command.Parameters.Add(new NpgsqlParameter<bool?>(
+                    "has_medical_certificate",
+                    leaveTypeCode == "SICK" ? request.HasMedicalCertificate : null));
                 id = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
             }
 
@@ -226,6 +366,17 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
                 request.CreatorName,
                 cancellationToken);
             createdIds.Add(id);
+        }
+
+        if (request.Attachment is not null)
+        {
+            var storedAttachment = await StoreAttachment(request.Attachment, cancellationToken);
+            foreach (var documentId in createdIds)
+            {
+                await InsertAttachment(
+                    connection, transaction, documentId, storedAttachment,
+                    request.CreatorEmployeeId, cancellationToken);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -304,7 +455,7 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
 
         var changedFields = DescribeChangedFields(
             currentTypeId, currentTypeName, currentKind, currentDate, currentStartTime, currentHours,
-            request.LeaveTypeId, requestedTypeName, request.LeaveKind, request.LeaveDate, request.StartTime,
+            request.LeaveTypeId, requestedTypeName, currentKind, request.LeaveDate, request.StartTime,
             request.LeaveHours);
         if (!string.Equals(currentReason, request.LeaveReason.Trim(), StringComparison.Ordinal))
             changedFields.Add($"เหตุผลการลา \"{currentReason}\" → \"{request.LeaveReason.Trim()}\"");
@@ -327,6 +478,14 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         {
             return BadRequest("ไม่พบข้อมูลผู้อนุมัติ");
         }
+
+        if (!await IsAuthenticatedActor(request.ActionBy, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับผู้ดำเนินการ");
+
+        var permissionError = await ValidateReviewer(
+            id, request.ActionBy, "APPROVE", cancellationToken);
+        if (permissionError is not null)
+            return permissionError;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -374,6 +533,14 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         {
             return BadRequest("ไม่พบข้อมูลผู้ไม่อนุมัติ");
         }
+
+        if (!await IsAuthenticatedActor(request.ActionBy, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับผู้ดำเนินการ");
+
+        var permissionError = await ValidateReviewer(
+            id, request.ActionBy, "REJECT", cancellationToken);
+        if (permissionError is not null)
+            return permissionError;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -544,7 +711,9 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         {
             command.Parameters.AddWithValue("document_id", id);
             command.Parameters.AddWithValue("leave_type_id", request.LeaveTypeId);
-            command.Parameters.AddWithValue("leave_kind", request.LeaveKind);
+            // Leave kind (advance/retroactive) is fixed when the document is
+            // created and cannot be changed through an edit request.
+            command.Parameters.AddWithValue("leave_kind", currentKind);
             command.Parameters.AddWithValue("leave_date", request.LeaveDate);
             command.Parameters.AddWithValue("start_time", request.StartTime);
             command.Parameters.AddWithValue("hours", request.LeaveHours);
@@ -624,15 +793,138 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         return await ReviewPendingEditRequest(id, request, false, cancellationToken);
     }
 
+    private async Task<IActionResult?> ValidateReviewer(
+        long documentId,
+        string actorEmployeeId,
+        string actionKey,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT reporting_approver.employee_code,
+                   upper_reporting_approver.employee_code
+            FROM public.leave_documents document
+            LEFT JOIN public.employees creator_employee
+                   ON creator_employee.employee_code = document.creator_employee_id
+                  AND creator_employee.is_active = TRUE
+            LEFT JOIN public.employee_company_info creator_company
+                   ON creator_company.employee_id = creator_employee.id
+            LEFT JOIN LATERAL
+            (
+                SELECT approver_employee.id AS employee_row_id,
+                       approver_employee.employee_code
+                FROM public.employees approver_employee
+                JOIN public.employee_basic_info approver_basic
+                  ON approver_basic.employee_id = approver_employee.id
+                WHERE approver_employee.is_active = TRUE
+                  AND REGEXP_REPLACE(UPPER(BTRIM(COALESCE(creator_company.leave_approver_name, ''))), '\s+', ' ', 'g') IN
+                      (REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_th, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_en, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_th, approver_basic.last_name_th))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_en, approver_basic.last_name_en))), '\s+', ' ', 'g'))
+                ORDER BY approver_employee.id
+                LIMIT 1
+            ) reporting_approver ON TRUE
+            LEFT JOIN public.employee_company_info reporting_approver_company
+                   ON reporting_approver_company.employee_id = reporting_approver.employee_row_id
+            LEFT JOIN LATERAL
+            (
+                SELECT upper_employee.employee_code
+                FROM public.employees upper_employee
+                JOIN public.employee_basic_info upper_basic
+                  ON upper_basic.employee_id = upper_employee.id
+                WHERE upper_employee.is_active = TRUE
+                  AND REGEXP_REPLACE(UPPER(BTRIM(COALESCE(reporting_approver_company.leave_approver_name, ''))), '\s+', ' ', 'g') IN
+                      (REGEXP_REPLACE(UPPER(BTRIM(COALESCE(upper_basic.full_name_th, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(COALESCE(upper_basic.full_name_en, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', upper_basic.first_name_th, upper_basic.last_name_th))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', upper_basic.first_name_en, upper_basic.last_name_en))), '\s+', ' ', 'g'))
+                ORDER BY upper_employee.id
+                LIMIT 1
+            ) upper_reporting_approver ON TRUE
+            WHERE document.id = @id
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", documentId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return NotFound("ไม่พบเอกสารการลา");
+        var reportingApprover = reader.IsDBNull(0) ? null : reader.GetString(0);
+        var upperReportingApprover = reader.IsDBNull(1) ? null : reader.GetString(1);
+        if (string.Equals(reportingApprover, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(upperReportingApprover, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (await actionPermissionService.HasPermission(
+                actorEmployeeId, "LEAVE_PENDING", actionKey, cancellationToken))
+            return null;
+        return StatusCode(
+            StatusCodes.Status403Forbidden,
+            $"ไม่มีสิทธิ์{(actionKey == "APPROVE" ? "อนุมัติ" : "ไม่อนุมัติ")}เอกสารนี้");
+    }
+
+    private async Task<bool> IsAuthenticatedActor(
+        string actorEmployeeId,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        return !string.IsNullOrWhiteSpace(authenticatedEmployeeId) &&
+            string.Equals(authenticatedEmployeeId, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var tenantId = User.FindFirst("tid")?.Value;
+        var objectId = User.FindFirst("oid")?.Value;
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))
+            return null;
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id
+              AND entra_object_id = @object_id
+              AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken);
+    }
+
     private async Task<LeaveDocumentDto?> FindDocument(long id, CancellationToken cancellationToken)
     {
         const string sql = """
             SELECT d.id, d.document_no, d.creator_employee_id, d.creator_name,
-                   d.creator_department, d.approver_employee_id, d.approver_name,
+                   d.creator_department,
+                   COALESCE(reporting_approver.employee_code, d.approver_employee_id),
+                   COALESCE(reporting_approver.full_name, creator_company.leave_approver_name, d.approver_name),
                    t.id, t.code, t.name_th, d.leave_kind, d.leave_date, d.start_time,
                    d.leave_hours, d.leave_reason, d.status, d.created_at
             FROM public.leave_documents d
             JOIN public.leave_types t ON t.id = d.leave_type_id
+            LEFT JOIN public.employees creator_employee
+                   ON creator_employee.employee_code = d.creator_employee_id
+                  AND creator_employee.is_active = TRUE
+            LEFT JOIN public.employee_company_info creator_company
+                   ON creator_company.employee_id = creator_employee.id
+            LEFT JOIN LATERAL
+            (
+                SELECT approver_employee.employee_code,
+                       COALESCE(NULLIF(approver_basic.full_name_th, ''),
+                                NULLIF(approver_basic.full_name_en, ''),
+                                CONCAT_WS(' ', approver_basic.first_name_th, approver_basic.last_name_th),
+                                approver_employee.employee_code) AS full_name
+                FROM public.employees approver_employee
+                JOIN public.employee_basic_info approver_basic
+                  ON approver_basic.employee_id = approver_employee.id
+                WHERE approver_employee.is_active = TRUE
+                  AND REGEXP_REPLACE(UPPER(BTRIM(COALESCE(creator_company.leave_approver_name, ''))), '\s+', ' ', 'g') IN
+                      (REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_th, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(COALESCE(approver_basic.full_name_en, ''))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_th, approver_basic.last_name_th))), '\s+', ' ', 'g'),
+                       REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', approver_basic.first_name_en, approver_basic.last_name_en))), '\s+', ' ', 'g'))
+                ORDER BY approver_employee.id
+                LIMIT 1
+            ) reporting_approver ON TRUE
             WHERE d.id = @id
             """;
         await using var command = dataSource.CreateCommand(sql);
@@ -757,7 +1049,6 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         const string approveDocumentSql = """
             UPDATE public.leave_documents
             SET leave_type_id = @leave_type_id,
-                leave_kind = @leave_kind,
                 leave_date = @leave_date,
                 start_time = @start_time,
                 leave_hours = @hours,
@@ -779,7 +1070,6 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
             if (approve)
             {
                 command.Parameters.AddWithValue("leave_type_id", requestedTypeId);
-                command.Parameters.AddWithValue("leave_kind", requestedKind);
                 command.Parameters.AddWithValue("leave_date", requestedDate);
                 command.Parameters.AddWithValue("start_time", requestedStartTime);
                 command.Parameters.AddWithValue("hours", requestedHours);
@@ -789,7 +1079,7 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
 
         var changedFields = DescribeChangedFields(
             currentTypeId, currentTypeName, currentKind, currentDate, currentStartTime, currentHours,
-            requestedTypeId, requestedTypeName, requestedKind, requestedDate, requestedStartTime,
+            requestedTypeId, requestedTypeName, currentKind, requestedDate, requestedStartTime,
             requestedHours);
         var changes = changedFields.Count == 0
             ? "ไม่มีฟิลด์ข้อมูลการลาเปลี่ยนแปลง"
@@ -797,6 +1087,8 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         var details = approve
             ? $"อนุมัติคำขอแก้ไข: {changes}; เหตุผลในการขอแก้ไข: {requestReason}"
             : $"ไม่อนุมัติคำขอแก้ไข: {changes}; เหตุผลในการขอแก้ไข: {requestReason}";
+        if (!string.IsNullOrWhiteSpace(review.Remark))
+            details += $"; หมายเหตุการพิจารณา: {review.Remark.Trim()}";
 
         await InsertHistory(
             connection,
@@ -812,6 +1104,101 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         return NoContent();
     }
 
+    private static async Task<string?> FindLeaveTypeCode(
+        NpgsqlConnection connection,
+        long leaveTypeId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT code FROM public.leave_types WHERE id = @id AND is_active = TRUE";
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", leaveTypeId);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    private static string? ValidateMedicalCertificate(
+        string leaveTypeCode,
+        bool? hasMedicalCertificate,
+        LeaveAttachmentUploadDto? attachment)
+    {
+        if (string.Equals(leaveTypeCode, "SICK", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasMedicalCertificate.HasValue)
+                return "กรุณาระบุว่ามีใบรับรองแพทย์หรือไม่";
+            if (hasMedicalCertificate == true && attachment is null)
+                return "กรุณาแนบใบรับรองแพทย์";
+        }
+
+        if (attachment is null)
+            return null;
+
+        const int maxFileSize = 10 * 1024 * 1024;
+        var extension = Path.GetExtension(Path.GetFileName(attachment.FileName)).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(attachment.FileName) || attachment.FileName.Length > 255 ||
+            extension is not (".pdf" or ".jpg" or ".jpeg" or ".png"))
+            return "รองรับเอกสารแนบเฉพาะไฟล์ PDF, JPG และ PNG";
+        if (attachment.Content is null || attachment.Content.Length == 0 || attachment.Content.Length > maxFileSize)
+            return "เอกสารแนบต้องมีขนาดมากกว่า 0 และไม่เกิน 10 MB";
+        if (attachment.ContentType?.Length > 150)
+            return "ชนิดไฟล์เอกสารแนบไม่ถูกต้อง";
+        return null;
+    }
+
+    private async Task<StoredAttachment> StoreAttachment(
+        LeaveAttachmentUploadDto attachment,
+        CancellationToken cancellationToken)
+    {
+        var originalFileName = Path.GetFileName(attachment.FileName);
+        var storedFileName = $"{Guid.NewGuid():N}{Path.GetExtension(originalFileName).ToLowerInvariant()}";
+        var relativeDirectory = Path.Combine("App_Data", "leave-attachments");
+        var storageDirectory = Path.Combine(environment.ContentRootPath, relativeDirectory);
+        Directory.CreateDirectory(storageDirectory);
+        var absolutePath = Path.Combine(storageDirectory, storedFileName);
+        await System.IO.File.WriteAllBytesAsync(absolutePath, attachment.Content, cancellationToken);
+        var relativePath = Path.Combine(relativeDirectory, storedFileName).Replace('\\', '/');
+        return new StoredAttachment(
+            originalFileName,
+            storedFileName,
+            relativePath,
+            string.IsNullOrWhiteSpace(attachment.ContentType)
+                ? "application/octet-stream"
+                : attachment.ContentType,
+            attachment.Content.LongLength);
+    }
+
+    private static async Task InsertAttachment(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        long documentId,
+        StoredAttachment attachment,
+        string uploadedBy,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO public.leave_document_attachments
+                (leave_document_id, original_file_name, stored_file_name,
+                 storage_path, content_type, file_size_bytes, uploaded_by)
+            VALUES
+                (@document_id, @original_file_name, @stored_file_name,
+                 @storage_path, @content_type, @file_size_bytes, @uploaded_by)
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("document_id", documentId);
+        command.Parameters.AddWithValue("original_file_name", attachment.OriginalFileName);
+        command.Parameters.AddWithValue("stored_file_name", attachment.StoredFileName);
+        command.Parameters.AddWithValue("storage_path", attachment.StoragePath);
+        command.Parameters.AddWithValue("content_type", attachment.ContentType);
+        command.Parameters.AddWithValue("file_size_bytes", attachment.FileSizeBytes);
+        command.Parameters.AddWithValue("uploaded_by", uploadedBy);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private sealed record StoredAttachment(
+        string OriginalFileName,
+        string StoredFileName,
+        string StoragePath,
+        string ContentType,
+        long FileSizeBytes);
+
     private static LeaveDocumentDto ReadDocument(NpgsqlDataReader reader) => new(
         reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
         reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5), reader.GetString(6),
@@ -825,6 +1212,10 @@ public sealed class LeaveDocumentsController(NpgsqlDataSource dataSource) : Cont
         hours > 0 &&
         hours <= 24 &&
         !string.IsNullOrWhiteSpace(reason);
+
+    private static bool IsRetroactiveBeyondLimit(string leaveKind, DateOnly leaveDate) =>
+        string.Equals(leaveKind, "RETROACTIVE", StringComparison.OrdinalIgnoreCase) &&
+        leaveDate < DateOnly.FromDateTime(DateTime.Today).AddDays(-3);
 
     private static List<string> DescribeChangedFields(
         long currentTypeId,

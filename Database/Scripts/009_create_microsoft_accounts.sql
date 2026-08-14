@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS public.microsoft_accounts
     entra_object_id             VARCHAR(80)  NOT NULL,
     employee_email              VARCHAR(320) NOT NULL,
     employee_email_normalized   VARCHAR(320) NOT NULL,
-    employee_id                 VARCHAR(50)  NOT NULL,
+    employee_id                 VARCHAR(50),
     display_name                VARCHAR(200) NOT NULL,
     user_principal_name         VARCHAR(320),
     is_active                   BOOLEAN      NOT NULL DEFAULT TRUE,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.microsoft_accounts
 COMMENT ON TABLE public.microsoft_accounts IS
     'Microsoft Entra identities linked to the external employee directory by normalized email.';
 COMMENT ON COLUMN public.microsoft_accounts.employee_id IS
-    'External employee key; add FK after the employee table is introduced.';
+    'Nullable external employee key; populated when an employee is matched by email.';
 
 CREATE INDEX IF NOT EXISTS ix_microsoft_accounts_employee
     ON public.microsoft_accounts(employee_id);

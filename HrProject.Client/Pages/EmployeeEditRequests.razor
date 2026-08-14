@@ -18,11 +18,11 @@
         <div class="content-card-body">
             <div class="request-criteria">
                 <label>คำค้นหา
-                    <input @bind="searchText" @bind:event="oninput"
+                    <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
                            placeholder="เลขที่เอกสาร พนักงาน เหตุผล หรือข้อมูลที่แก้ไข" />
                 </label>
                 <label>สถานะ
-                    <select @bind="statusFilter">
+                    <select @bind="statusFilter" @bind:after="ResetPaging">
                         <option value="">ทั้งหมด</option>
                         <option value="PENDING">รออนุมัติ</option>
                         <option value="APPROVED">อนุมัติแล้ว</option>
@@ -51,10 +51,36 @@
             }
             else
             {
+                @if (CanBulkApprove || CanBulkReject)
+                {
+                    <div class="bulk-toolbar">
+                        @if (!string.IsNullOrWhiteSpace(bulkMessage))
+                        {
+                            <span class="bulk-message @(bulkSucceeded ? "success" : "error")">@bulkMessage</span>
+                        }
+                        @if (CanBulkApprove)
+                        {
+                            <button class="approve-request" type="button" disabled="@(selectedIds.Count == 0 || isBulkReviewing)" @onclick="BulkApprove">
+                                @(isBulkReviewing ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({selectedIds.Count})")
+                            </button>
+                        }
+                        @if (CanBulkReject)
+                        {
+                            <button class="reject-request" type="button" disabled="@(selectedIds.Count == 0 || isBulkReviewing || string.IsNullOrWhiteSpace(bulkRejectRemark))" @onclick="BulkReject">
+                                @(isBulkReviewing ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({selectedIds.Count})")
+                            </button>
+                        }
+                        <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติรายการที่เลือก" />
+                    </div>
+                }
                 <div class="table-responsive">
                     <table class="employee-edit-request-table">
                         <thead>
                             <tr>
+                                @if (CanBulkApprove || CanBulkReject)
+                                {
+                                    <th class="select-column"><input type="checkbox" aria-label="เลือกทั้งหมดในหน้านี้" checked="@AreAllPageItemsSelected" @onchange="ToggleCurrentPage" /></th>
+                                }
                                 <th>เลขที่เอกสาร</th>
                                 <th>พนักงาน</th>
                                 <th>ข้อมูลที่ขอแก้ไข</th>
@@ -68,14 +94,18 @@
                             @if (FilteredRequests.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="7" class="request-state">ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน</td>
+                                    <td colspan="@(CanBulkApprove || CanBulkReject ? 8 : 7)" class="request-state">ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน</td>
                                 </tr>
                             }
                             else
                             {
-                                @foreach (var request in FilteredRequests)
+                                @foreach (var request in PagedRequests)
                                 {
                                     <tr>
+                                        @if (CanBulkApprove || CanBulkReject)
+                                        {
+                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(request.Status != "PENDING")" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
+                                        }
                                         <td>
                                             <button class="request-number" type="button"
                                                     @onclick="() => OpenRequest(request)">
@@ -97,13 +127,14 @@
                                         <td><span class="reason-text" title="@request.RequestReason">@request.RequestReason</span></td>
                                         <td>@request.RequestedByName</td>
                                         <td>@request.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
-                                        <td><span class="request-status @StatusClass(request.Status)">@StatusText(request.Status)</span></td>
+                                        <td><span class="request-status @StatusClass(request.Status)" data-status="@request.Status">@StatusText(request.Status)</span></td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
+                <Pagination TotalItems="@FilteredRequests.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
@@ -128,7 +159,7 @@
                     <span><strong>รหัส:</strong> @selectedRequest.EmployeeId</span>
                     <span><strong>ผู้ขอแก้ไข:</strong> @selectedRequest.RequestedByName</span>
                     <span><strong>วันที่ขอ:</strong> @selectedRequest.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
-                    <span><strong>สถานะ:</strong> <span class="request-status @StatusClass(selectedRequest.Status)">@StatusText(selectedRequest.Status)</span></span>
+                    <span><strong>สถานะ:</strong> <span class="request-status @StatusClass(selectedRequest.Status)" data-status="@selectedRequest.Status">@StatusText(selectedRequest.Status)</span></span>
                 </div>
                 <label class="request-reason-detail">
                     เหตุผลในการขอแก้ไข
@@ -206,11 +237,22 @@
     private string searchText = string.Empty;
     private string statusFilter = string.Empty;
     private List<EmployeeEditRequestDto> requests = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
     private EmployeeEditRequestDto? selectedRequest;
     private bool isReviewing;
     private bool reviewSucceeded;
     private string reviewRemark = string.Empty;
     private string? reviewMessage;
+    private CurrentMicrosoftUserDto? currentUser;
+    private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
+    private bool isBulkReviewing;
+    private bool bulkSucceeded;
+    private string? bulkMessage;
+    private string bulkRejectRemark = string.Empty;
+    private readonly HashSet<long> selectedIds = [];
+    private bool CanBulkApprove => allowedActions.Contains("APPROVE");
+    private bool CanBulkReject => allowedActions.Contains("REJECT");
 
     private List<EmployeeEditRequestDto> FilteredRequests => requests.Where(request =>
         (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter) &&
@@ -224,11 +266,28 @@
              change.OldValue.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              change.NewValue.Contains(searchText, StringComparison.OrdinalIgnoreCase))))
         .ToList();
+    private IEnumerable<EmployeeEditRequestDto> PagedRequests
+    {
+        get
+        {
+            var filtered = FilteredRequests;
+            var safePage = Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)pageSize)));
+            return filtered.Skip((safePage - 1) * pageSize).Take(pageSize);
+        }
+    }
+    private List<EmployeeEditRequestDto> PageSelectableRequests => PagedRequests.Where(item => item.Status == "PENDING").ToList();
+    private bool AreAllPageItemsSelected => PageSelectableRequests.Count > 0 && PageSelectableRequests.All(item => selectedIds.Contains(item.Id));
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("บัญชี Microsoft ยังไม่ได้เชื่อมกับข้อมูลพนักงาน");
+            var permissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&pageKey=EMPLOYEE_EDIT_REQUESTS");
+            allowedActions = permissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             requests = await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>(
                 "api/employee-edit-requests") ?? [];
         }
@@ -244,9 +303,12 @@
 
     private void ResetFilter()
     {
+        currentPage = 1;
         searchText = string.Empty;
         statusFilter = string.Empty;
     }
+
+    private void ResetPaging() => currentPage = 1;
 
     private void OpenRequest(EmployeeEditRequestDto request)
     {
@@ -272,8 +334,8 @@
         {
             var action = approve ? "approve" : "reject";
             var review = new ReviewEmployeeEditRequest(
-                "EMP-001",
-                "Anan Sukjai",
+                currentUser!.EmployeeId,
+                currentUser.EmployeeName,
                 reviewRemark);
             var response = await Http.PutAsJsonAsync(
                 $"api/employee-edit-requests/{selectedRequest.Id}/{action}",
@@ -313,6 +375,73 @@
         }
     }
 
+    private void ToggleItem(long id, bool selected)
+    {
+        if (selected) selectedIds.Add(id); else selectedIds.Remove(id);
+        bulkMessage = null;
+    }
+
+    private void ToggleCurrentPage(ChangeEventArgs eventArgs)
+    {
+        var selected = (bool?)eventArgs.Value == true;
+        foreach (var item in PageSelectableRequests)
+        {
+            if (selected) selectedIds.Add(item.Id); else selectedIds.Remove(item.Id);
+        }
+        bulkMessage = null;
+    }
+
+    private async Task BulkApprove()
+    {
+        if (!CanBulkApprove || selectedIds.Count == 0 || isBulkReviewing || currentUser is null) return;
+        isBulkReviewing = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        {
+            try
+            {
+                var payload = new ReviewEmployeeEditRequest(currentUser.EmployeeId, currentUser.EmployeeName, string.Empty);
+                var response = await Http.PutAsJsonAsync($"api/employee-edit-requests/{request.Id}/approve", payload);
+                if (response.IsSuccessStatusCode) succeeded.Add(request.Id); else failed.Add(request.RequestNo);
+            }
+            catch { failed.Add(request.RequestNo); }
+        }
+        selectedIds.ExceptWith(succeeded);
+        requests = await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>("api/employee-edit-requests") ?? [];
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0
+            ? $"อนุมัติคำขอแก้ไขข้อมูลเรียบร้อย {succeeded.Count} รายการ"
+            : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        isBulkReviewing = false;
+    }
+
+    private async Task BulkReject()
+    {
+        if (!CanBulkReject || selectedIds.Count == 0 || isBulkReviewing || currentUser is null || string.IsNullOrWhiteSpace(bulkRejectRemark)) return;
+        isBulkReviewing = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        {
+            try
+            {
+                var payload = new ReviewEmployeeEditRequest(currentUser.EmployeeId, currentUser.EmployeeName, bulkRejectRemark.Trim());
+                var response = await Http.PutAsJsonAsync($"api/employee-edit-requests/{request.Id}/reject", payload);
+                if (response.IsSuccessStatusCode) succeeded.Add(request.Id); else failed.Add(request.RequestNo);
+            }
+            catch { failed.Add(request.RequestNo); }
+        }
+        selectedIds.ExceptWith(succeeded);
+        requests = await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>("api/employee-edit-requests") ?? [];
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0 ? $"ไม่อนุมัติคำขอแก้ไขข้อมูลเรียบร้อย {succeeded.Count} รายการ" : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        if (failed.Count == 0) bulkRejectRemark = string.Empty;
+        isBulkReviewing = false;
+    }
+
     private static IReadOnlyList<EmployeeChangeSection> GroupedChanges(
         EmployeeEditRequestDto request)
     {
@@ -320,6 +449,7 @@
         {
             ("basic", "ข้อมูลพื้นฐาน"),
             ("personal", "ข้อมูลส่วนบุคคล"),
+            ("internal", "ข้อมูลภายในบริษัท"),
             ("work", "ประวัติการทำงาน"),
             ("education", "ประวัติการศึกษา"),
             ("training", "ประวัติการอบรม & สัมมนา"),
@@ -354,7 +484,8 @@
     private static string StatusClass(string status) => status switch
     {
         "APPROVED" => "approved",
-        "REJECTED" or "CANCELLED" => "rejected",
+        "REJECTED" => "rejected",
+        "CANCELLED" => "cancelled",
         _ => "pending"
     };
 

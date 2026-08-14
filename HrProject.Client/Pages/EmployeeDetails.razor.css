@@ -5,6 +5,7 @@
 .profile-summary { display: flex; align-items: center; gap: 1rem; }
 .profile-name { min-width: 0; }
 .employee-avatar { width: 4rem; height: 4rem; display: grid; flex: 0 0 auto; place-items: center; color: #fff; background: #ff6b35; border-radius: 50%; font-size: 1.25rem; font-weight: 800; }
+.employee-photo { object-fit: cover; border: 2px solid rgba(255,255,255,.75); }
 .employee-code { color: #fdba74; font-size: .78rem; font-weight: 700; letter-spacing: .06em; }
 .profile-summary h1 { margin: .15rem 0; font-size: 1.55rem; }
 .profile-summary p { margin: 0; color: #cbd5e1; }
@@ -16,9 +17,25 @@
 .employee-tab { min-width: max-content; padding: 1rem 1.1rem; color: #64748b; background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer; }
 .employee-tab:hover { color: #1e293b; background: #fff; }
 .employee-tab.active { color: #ea580c; background: #fff; border-bottom-color: #ff6b35; }
+.tab-edit-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1.5rem; background: #fff7ed; border-bottom: 1px solid #fed7aa; }
+.tab-policy-note { color: #9a3412; font-size: .78rem; }
+.tab-edit-actions > div { display: flex; gap: .55rem; }
+.direct-edit-button, .hr-only-badge { padding: .55rem .8rem; border-radius: .45rem; font: inherit; font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.direct-edit-button { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; cursor: pointer; }
+.hr-only-badge { color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; }
 .tab-content { min-height: 330px; padding: 1.5rem; }
 .tab-content h2 { margin: 0 0 1.2rem; color: #1e293b; font-size: 1.1rem; }
 .detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.employee-history-scroll { width: 100%; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: .6rem; }
+.employee-history-table { width: 100%; min-width: 720px; border-collapse: collapse; background: #fff; }
+.training-history-table { min-width: 980px; }
+.employee-history-table th, .employee-history-table td { padding: .8rem .9rem; text-align: left; vertical-align: top; border-bottom: 1px solid #e2e8f0; }
+.employee-history-table th { color: #475569; background: #f8fafc; font-size: .82rem; font-weight: 700; white-space: nowrap; }
+.employee-history-table tbody tr:last-child td { border-bottom: 0; }
+.employee-history-table tbody tr:hover { background: #fff7ed; }
+.history-empty { padding: 2.5rem 1rem !important; color: #94a3b8; text-align: center !important; }
+.history-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding: .85rem 1rem; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .55rem; }
+.history-summary strong { color: #1e293b; }
 .detail-state { padding: 3rem; text-align: center; }
 .back-button { padding: .65rem 1rem; color: #fff; background: #ff6b35; border: 0; border-radius: .45rem; cursor: pointer; }
 .employee-edit-overlay { position: fixed; inset: 0; z-index: 2200; display: grid; place-items: center; padding: 1rem; background: rgba(15,23,42,.58); }
@@ -34,6 +51,15 @@
 .edit-request-tabs button:hover { color: #334155; background: #fff; }
 .edit-request-tabs button.active { color: #ea580c; background: #fff; border-bottom-color: #ff6b35; }
 .edit-tab-panel { min-height: 220px; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0 0 .55rem .55rem; }
+.modal-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }
+.modal-table-toolbar button { padding: .5rem .75rem; color: #fff; background: #2563eb; border: 0; border-radius: .4rem; font: inherit; font-size: .78rem; font-weight: 700; }
+.editable-modal-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.training-modal-table { min-width: 1050px; }
+.editable-modal-table th, .editable-modal-table td { padding: .45rem; border: 1px solid #e2e8f0; }
+.editable-modal-table th { color: #475569; background: #f8fafc; font-size: .72rem; }
+.editable-modal-table input { width: 100%; min-height: 2.25rem; padding: .4rem .5rem; border: 1px solid #cbd5e1; border-radius: .35rem; font: inherit; font-size: .78rem; }
+.remove-table-row { width: 30px; height: 30px; padding: 0; color: #dc2626; background: #fff; border: 1px solid #fecaca; border-radius: 50%; }
+.direct-save-button { background: #2563eb; }
 .employee-edit-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
 .employee-edit-grid label { display: grid; gap: .4rem; color: #334155; font-size: .84rem; font-weight: 600; }
 .employee-edit-grid input, .employee-edit-grid select, .employee-edit-grid textarea, .edit-reason textarea { width: 100%; min-height: 2.5rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
@@ -45,4 +71,4 @@
 .cancel-edit-button { color: #475569; background: #fff; border: 1px solid #cbd5e1; }
 .submit-edit-button { color: #fff; background: #ff6b35; border: 0; }
 .submit-edit-button:disabled, .cancel-edit-button:disabled { opacity: .6; cursor: not-allowed; }
-@media (max-width: 720px) { .detail-grid, .employee-edit-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; }.employee-profile-header { padding: 1.1rem; }.tab-content { padding: 1rem; }.profile-summary { align-items: flex-start; flex-wrap: wrap; }.profile-summary h1 { font-size: 1.25rem; }.request-edit-button { width: 100%; margin-left: 0; } }
+@media (max-width: 720px) { .detail-grid, .employee-edit-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; }.employee-profile-header { padding: 1.1rem; }.tab-content { padding: 1rem; }.profile-summary { align-items: flex-start; flex-wrap: wrap; }.profile-summary h1 { font-size: 1.25rem; }.request-edit-button { width: 100%; margin-left: 0; }.history-summary { align-items: flex-start; flex-direction: column; }.employee-history-table th, .employee-history-table td { padding: .7rem; }.tab-edit-actions { align-items: stretch; flex-direction: column; padding: .75rem 1rem; }.tab-edit-actions > div { display: grid; grid-template-columns: 1fr; }.direct-edit-button, .tab-edit-actions .request-edit-button { width: 100%; }.modal-table-toolbar { align-items: stretch; flex-direction: column; }.modal-table-toolbar button { width: 100%; } }

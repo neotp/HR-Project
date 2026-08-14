@@ -8,9 +8,11 @@ CREATE TABLE IF NOT EXISTS public.leave_types
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     code            VARCHAR(30)  NOT NULL UNIQUE,
     name_th         VARCHAR(150) NOT NULL,
+    default_hours   NUMERIC(8,2) NOT NULL DEFAULT 0,
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_leave_types_default_hours CHECK (default_hours >= 0)
 );
 
 -- Main leave document. Employee IDs are external identifiers until the
@@ -191,8 +193,12 @@ INSERT INTO public.leave_types (code, name_th)
 VALUES
     ('SICK',     'ลาป่วย'),
     ('VACATION', 'ลาพักร้อน'),
-    ('PERSONAL', 'ลากิจ'),
-    ('UNPAID',   'ลาไม่รับค่าจ้าง')
-ON CONFLICT (code) DO NOTHING;
+    ('PERSONAL',   'ลากิจไม่รับเงินเดือน'),
+    ('UNPAID',     'ลาคลอด'),
+    ('ORDINATION', 'ลาบวช')
+ON CONFLICT (code)
+DO UPDATE SET
+    name_th = EXCLUDED.name_th,
+    is_active = TRUE;
 
 COMMIT;

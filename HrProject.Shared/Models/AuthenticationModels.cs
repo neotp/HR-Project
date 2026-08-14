@@ -8,4 +8,5 @@ public sealed record CurrentMicrosoftUserDto(
     string EmployeeId,
     string EmployeeName,
     string Department,
-    string Position);
+    string Position,
+    bool IsEmployeeLinked);

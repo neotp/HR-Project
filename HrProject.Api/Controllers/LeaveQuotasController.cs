@@ -182,6 +182,16 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
         return Ok(saved);
     }
 
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
+    {
+        const string sql = "DELETE FROM public.leave_quotas WHERE id = @id";
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", id);
+        var deletedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+        return deletedRows == 0 ? NotFound() : NoContent();
+    }
+
     private async Task<LeaveQuotaDto?> FindById(long id, CancellationToken cancellationToken)
     {
         const string sql = """

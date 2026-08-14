@@ -53,6 +53,93 @@
 .employee-table tbody td { padding: .75rem 1rem; color: #1e293b; vertical-align: middle; }
 .employee-table tbody tr:hover { background: #f8fafc; }
 
+/* Shared document/request status palette. Keep these colors consistent on every page. */
+.status-pill,
+.request-status {
+    display: inline-block;
+    padding: .25rem .55rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.status-pill.pending,
+.request-status.pending {
+    color: #92400e !important;
+    background: #fef3c7 !important;
+    border-color: #fde68a !important;
+}
+
+.status-pill.approved,
+.request-status.approved {
+    color: #047857 !important;
+    background: #d1fae5 !important;
+    border-color: #a7f3d0 !important;
+}
+
+.status-pill.rejected,
+.request-status.rejected {
+    color: #b91c1c !important;
+    background: #fee2e2 !important;
+    border-color: #fecaca !important;
+}
+
+.status-pill.cancelled,
+.request-status.cancelled {
+    color: #475569 !important;
+    background: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
+}
+
+.status-pill.editing,
+.request-status.editing {
+    color: #6d28d9 !important;
+    background: #ede9fe !important;
+    border-color: #ddd6fe !important;
+}
+
+/* The status code is the single source of truth for colors. Attribute selectors
+   prevent page-specific class mappings from displaying the same record differently. */
+.status-pill[data-status="PENDING"],
+.status-pill[data-status="PENDING_APPROVAL"],
+.request-status[data-status="PENDING"],
+.request-status[data-status="PENDING_APPROVAL"] {
+    color: #92400e !important;
+    background: #fef3c7 !important;
+    border-color: #fde68a !important;
+}
+
+.status-pill[data-status="APPROVED"],
+.request-status[data-status="APPROVED"] {
+    color: #047857 !important;
+    background: #d1fae5 !important;
+    border-color: #a7f3d0 !important;
+}
+
+.status-pill[data-status="REJECTED"],
+.request-status[data-status="REJECTED"] {
+    color: #b91c1c !important;
+    background: #fee2e2 !important;
+    border-color: #fecaca !important;
+}
+
+.status-pill[data-status="CANCELLED"],
+.request-status[data-status="CANCELLED"] {
+    color: #475569 !important;
+    background: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
+}
+
+.status-pill[data-status="EDIT_REQUESTED"],
+.request-status[data-status="EDIT_REQUESTED"] {
+    color: #6d28d9 !important;
+    background: #ede9fe !important;
+    border-color: #ddd6fe !important;
+}
+
 .loading-state { padding: 4rem 2rem; color: #ff6b35; text-align: center; }
 
 /* Full-page loading dialog adapted to the SeatBooking loading experience */
@@ -88,9 +175,104 @@
     .loading-overlay { left: 258px; }
 }
 
+@media (max-width: 899.98px) {
+    .loading-overlay,
+    .document-modal-overlay,
+    .request-modal-overlay,
+    .quota-modal-overlay,
+    .request-detail-overlay,
+    .employee-edit-overlay,
+    .employee-create-overlay,
+    .settings-modal-overlay { left: 0 !important; }
+}
+
 @media (max-width: 768px) {
     .manage-page { padding: 1rem; }
     .page-header-card, .content-card-body { padding: 1.25rem; }
     .employee-table { min-width: 720px; }
     .content-card-body { overflow-x: auto; }
+}
+
+@media (max-width: 640px) {
+    .manage-page { width: 100%; min-width: 0; padding: .75rem; }
+    .page-header-card { margin-bottom: 1rem; padding: 1rem; border-radius: .65rem; }
+    .page-header-content { align-items: stretch; flex-direction: column; }
+    .page-header-text h1 { font-size: 1.3rem; line-height: 1.3; }
+    .page-header-text p { font-size: .82rem; line-height: 1.45; }
+    .page-header-content > button,
+    .page-header-content > .btn,
+    .page-header-content > .header-actions { width: 100%; }
+    .content-card { max-width: 100%; border-radius: .65rem; }
+    .content-card-header { align-items: flex-start; padding: .85rem 1rem; flex-wrap: wrap; }
+    .content-card-body { max-width: 100%; padding: 1rem; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-responsive { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-responsive::after { display: block; height: 1px; content: ''; }
+    .employee-table { min-width: 680px; }
+    .employee-table th,
+    .employee-table td { padding: .65rem .75rem !important; font-size: .78rem; white-space: nowrap; }
+
+    .document-modal-overlay,
+    .request-modal-overlay,
+    .quota-modal-overlay,
+    .request-detail-overlay,
+    .employee-edit-overlay,
+    .employee-create-overlay,
+    .settings-modal-overlay {
+        inset: 0 !important;
+        left: 0 !important;
+        align-items: end !important;
+        padding: 0 !important;
+    }
+
+    .document-modal,
+    .request-modal,
+    .quota-modal,
+    .request-detail-modal,
+    .employee-edit-modal,
+    .employee-create-modal,
+    .settings-modal,
+    .delete-dialog {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: 100dvh !important;
+        border-radius: .8rem .8rem 0 0 !important;
+    }
+
+    .document-modal-footer,
+    .request-modal-footer,
+    .quota-modal-footer,
+    .employee-edit-modal-footer,
+    .employee-create-footer,
+    .settings-modal-footer,
+    .request-detail-modal > footer {
+        gap: .5rem !important;
+        padding: .75rem 1rem !important;
+        flex-wrap: wrap;
+    }
+
+    .document-modal-footer button,
+    .request-modal-footer button,
+    .quota-modal-footer button,
+    .employee-edit-modal-footer button,
+    .employee-create-footer button,
+    .settings-modal-footer button {
+        flex: 1 1 120px;
+    }
+
+    .document-history-panel,
+    .edit-request-panel {
+        inset: auto 0 0 0 !important;
+        width: 100% !important;
+        max-height: 88dvh !important;
+        border-radius: .8rem .8rem 0 0 !important;
+        transform: none !important;
+    }
+
+    .loading-overlay { left: 0 !important; }
+}
+
+@media (max-width: 380px) {
+    .manage-page { padding: .5rem; }
+    .page-header-card { padding: .85rem; }
+    .content-card-body { padding: .75rem; }
 }

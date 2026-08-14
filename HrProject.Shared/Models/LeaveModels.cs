@@ -3,7 +3,8 @@ namespace HrProject.Shared.Models;
 public sealed record LeaveTypeDto(
     long Id,
     string Code,
-    string NameTh);
+    string NameTh,
+    decimal DefaultHours);
 
 public sealed record LeaveDocumentDto(
     long Id,
@@ -23,7 +24,8 @@ public sealed record LeaveDocumentDto(
     string LeaveReason,
     string Status,
     DateTimeOffset CreatedAt,
-    LeaveEditRequestDto? PendingEditRequest);
+    LeaveEditRequestDto? PendingEditRequest,
+    bool CanCurrentUserReview = false);
 
 public sealed record CreateLeaveDocumentRequest(
     long LeaveTypeId,
@@ -36,7 +38,9 @@ public sealed record CreateLeaveDocumentRequest(
     string CreatorName,
     string CreatorDepartment,
     string? ApproverEmployeeId,
-    string ApproverName);
+    string ApproverName,
+    bool? HasMedicalCertificate,
+    LeaveAttachmentUploadDto? Attachment);
 
 public sealed record CreateMultiDayLeaveDocumentsRequest(
     long LeaveTypeId,
@@ -47,7 +51,14 @@ public sealed record CreateMultiDayLeaveDocumentsRequest(
     string CreatorName,
     string CreatorDepartment,
     string? ApproverEmployeeId,
-    string ApproverName);
+    string ApproverName,
+    bool? HasMedicalCertificate,
+    LeaveAttachmentUploadDto? Attachment);
+
+public sealed record LeaveAttachmentUploadDto(
+    string FileName,
+    string ContentType,
+    byte[] Content);
 
 public sealed record CreateMultiDayLeaveItemRequest(
     DateOnly LeaveDate,
@@ -157,3 +168,9 @@ public sealed record CreateMultiEmployeeLeaveQuotaRequest(
     int QuotaYear,
     string RequestedBy,
     string RequestedByName);
+
+public sealed record ReviewLeaveQuotaRequest(
+    decimal? ApprovedHours,
+    string? Remark,
+    string ReviewedBy,
+    string ReviewedByName);

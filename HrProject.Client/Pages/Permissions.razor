@@ -8,240 +8,469 @@
         <div class="page-header-content">
             <div class="page-header-text">
                 <h1>จัดการสิทธิ์การเข้าถึง</h1>
-                <p>กำหนดสิทธิ์ของพนักงานในการเข้าถึงแต่ละหน้าของระบบ HR</p>
+                <p>กำหนดสิทธิ์เข้าถึงหน้าและสิทธิ์เพิ่มเติมภายในแต่ละหน้า</p>
             </div>
             <button class="btn save-permission-button" type="button"
-                    disabled="@(isSaving || string.IsNullOrWhiteSpace(selectedEmployeeId) || permissions.Count == 0)"
-                    @onclick="SavePermissions">
+                    disabled="@(isSaving || !HasSelectedSubject || CurrentPermissionCount == 0)"
+                    @onclick="SaveCurrentPermissions">
                 @(isSaving ? "กำลังบันทึก..." : "บันทึกสิทธิ์")
             </button>
         </div>
     </header>
 
-    <section class="content-card permission-criteria">
-        <div class="content-card-header">เลือกพนักงาน</div>
-        <div class="content-card-body permission-criteria-body">
-            <label>พนักงาน
-                <select @bind="selectedEmployeeId" @bind:after="LoadPermissions">
-                    <option value="">-- เลือกพนักงาน --</option>
-                    @foreach (var employee in employees)
-                    {
-                        <option value="@employee.EmployeeCode">
-                            @employee.FullName (@employee.EmployeeCode)
-                        </option>
-                    }
-                </select>
-            </label>
-            <label>ค้นหาหน้าระบบ
-                <input @bind="searchText" @bind:event="oninput"
-                       placeholder="ชื่อหน้า หมวดหมู่ หรือ URL" />
-            </label>
-        </div>
-    </section>
+    <nav class="permission-subject-tabs" aria-label="รูปแบบการกำหนดสิทธิ์">
+        <button type="button" class="@(permissionSubject == "employee" ? "active" : null)"
+                @onclick='() => ChangeSubject("employee")'>กำหนดรายบุคคล</button>
+        <button type="button" class="@(permissionSubject == "role" ? "active" : null)"
+                @onclick='() => ChangeSubject("role")'>กำหนดตาม App Role</button>
+    </nav>
 
-    <section class="content-card">
-        <div class="content-card-header permission-table-header">
-            <span>สิทธิ์เข้าถึงแต่ละหน้า</span>
-            @if (permissions.Count > 0)
+    <nav class="permission-tabs" aria-label="ประเภทสิทธิ์">
+        <button type="button" class="@(activeTab == "pages" ? "active" : null)"
+                @onclick='() => ChangeTab("pages")'>สิทธิ์เข้าถึงหน้า</button>
+        <button type="button" class="@(activeTab == "actions" ? "active" : null)"
+                @onclick='() => ChangeTab("actions")'>สิทธิ์เพิ่มเติมแต่ละหน้า</button>
+    </nav>
+
+    <section class="content-card permission-criteria">
+        <div class="content-card-header">@(permissionSubject == "employee" ? "เลือกพนักงาน" : "เลือก App Role")</div>
+        <div class="content-card-body permission-criteria-body">
+            @if (permissionSubject == "employee")
             {
-                <span class="permission-summary">
-                    อนุญาต @permissions.Count(item => item.CanAccess) จาก @permissions.Count หน้า
-                </span>
-                <button type="button" @onclick="() => SetAll(true)">เลือกทั้งหมด</button>
-                <button type="button" @onclick="() => SetAll(false)">ยกเลิกทั้งหมด</button>
-            }
-        </div>
-        <div class="content-card-body">
-            @if (isLoading)
-            {
-                <div class="permission-state">กำลังโหลดสิทธิ์...</div>
-            }
-            else if (!string.IsNullOrWhiteSpace(loadError))
-            {
-                <div class="permission-state error">@loadError</div>
-            }
-            else if (string.IsNullOrWhiteSpace(selectedEmployeeId))
-            {
-                <div class="permission-state">กรุณาเลือกพนักงานที่ต้องการกำหนดสิทธิ์</div>
+                <label>พนักงาน
+                    <select @bind="selectedEmployeeId" @bind:after="LoadPermissions">
+                        <option value="">-- เลือกพนักงาน --</option>
+                        @foreach (var employee in employees)
+                        {
+                            <option value="@employee.EmployeeCode">@employee.FullName (@employee.EmployeeCode)</option>
+                        }
+                    </select>
+                </label>
             }
             else
             {
-                <div class="table-responsive">
-                    <table class="permission-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>หมวดหมู่</th>
-                                <th>หน้าระบบ</th>
-                                <th>URL</th>
-                                <th>สิทธิ์เข้าถึง</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @{
-                                var visible = FilteredPermissions.ToList();
-                            }
-                            @if (visible.Count == 0)
+                <label>App Role
+                    <select @bind="selectedRoleId" @bind:after="LoadPermissions">
+                        <option value="0">-- เลือก Role --</option>
+                        @foreach (var role in roles)
+                        {
+                            <option value="@role.Id">@role.RoleName</option>
+                        }
+                    </select>
+                </label>
+            }
+            <label>ค้นหาสิทธิ์
+                <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
+                       placeholder="ชื่อหน้า หมวดหมู่ หรือชื่อสิทธิ์" />
+            </label>
+        </div>
+        @if (permissionSubject == "role")
+        {
+            <div class="role-toolbar">
+                <button type="button" class="role-link-button" @onclick="ToggleCreateRole">+ เพิ่ม App Role</button>
+                @if (SelectedRole is not null)
+                {
+                    <span>@SelectedRole.Description</span>
+                    <strong>สมาชิก @SelectedRole.MemberEmployeeIds.Count คน</strong>
+                }
+            </div>
+            @if (showCreateRole)
+            {
+                <div class="role-create-panel">
+                    <label>ชื่อ Role<input @bind="newRoleName" placeholder="เช่น HR Admin" /></label>
+                    <label>รายละเอียด<input @bind="newRoleDescription" placeholder="อธิบายหน้าที่ของ Role" /></label>
+                    <button type="button" disabled="@isSaving" @onclick="CreateRole">สร้าง Role</button>
+                </div>
+            }
+            @if (SelectedRole is not null)
+            {
+                <div class="role-members-panel">
+                    <label>เพิ่มสมาชิก
+                        <select @bind="memberToAdd">
+                            <option value="">-- เลือกพนักงาน --</option>
+                            @foreach (var employee in AvailableRoleMembers)
                             {
-                                <tr>
-                                    <td colspan="5" class="permission-state">ไม่พบหน้าระบบที่ค้นหา</td>
-                                </tr>
+                                <option value="@employee.EmployeeCode">@employee.FullName (@employee.EmployeeCode)</option>
                             }
-                            else
-                            {
+                        </select>
+                    </label>
+                    <button type="button" disabled="@string.IsNullOrWhiteSpace(memberToAdd)" @onclick="AddRoleMember">เพิ่มสมาชิก</button>
+                    <div class="role-member-list">
+                        @foreach (var employeeId in SelectedRole.MemberEmployeeIds)
+                        {
+                            var employee = employees.FirstOrDefault(item => string.Equals(item.EmployeeCode, employeeId, StringComparison.OrdinalIgnoreCase));
+                            <span>@(employee?.FullName ?? employeeId) <button type="button" title="นำออกจาก Role" @onclick="() => RemoveRoleMember(employeeId)">×</button></span>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </section>
+
+    @if (activeTab == "pages")
+    {
+        <section class="content-card">
+            <div class="content-card-header permission-table-header">
+                <span>สิทธิ์เข้าถึงแต่ละหน้า</span>
+                @if (permissions.Count > 0)
+                {
+                    <span class="permission-summary">อนุญาต @permissions.Count(item => item.CanAccess) จาก @permissions.Count หน้า</span>
+                    <button type="button" @onclick="() => SetAllPages(true)">เลือกทั้งหมด</button>
+                    <button type="button" @onclick="() => SetAllPages(false)">ยกเลิกทั้งหมด</button>
+                }
+            </div>
+            <div class="content-card-body">
+                @if (ShowStateMessage)
+                {
+                    <div class="permission-state @(!string.IsNullOrWhiteSpace(loadError) ? "error" : null)">@StateMessage</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="permission-table">
+                            <thead><tr><th>#</th><th>หมวดหมู่</th><th>หน้าระบบ</th><th>URL</th><th>สิทธิ์เข้าถึง</th></tr></thead>
+                            <tbody>
+                                @{ var visible = PagedPermissions.ToList(); }
+                                @if (visible.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="permission-state">ไม่พบหน้าระบบที่ค้นหา</td></tr>
+                                }
                                 @for (var index = 0; index < visible.Count; index++)
                                 {
                                     var permission = visible[index];
                                     <tr>
-                                        <td>@(index + 1)</td>
+                                        <td>@((SafePage - 1) * pageSize + index + 1)</td>
                                         <td><span class="category-pill">@permission.CategoryName</span></td>
-                                        <td>
-                                            <strong>@permission.PageName</strong>
-                                            <small>@permission.PageKey</small>
-                                        </td>
+                                        <td><strong>@permission.PageName</strong><small>@permission.PageKey</small></td>
                                         <td><code>@permission.RoutePath</code></td>
                                         <td>
                                             <label class="access-switch">
-                                                <input type="checkbox" checked="@permission.CanAccess"
-                                                       @onchange="args => SetPermission(permission.PageId, args.Value is true)" />
+                                                <input type="checkbox" checked="@permission.CanAccess" @onchange="args => SetPagePermission(permission.PageId, args.Value is true)" />
                                                 <span class="switch-track"><span></span></span>
                                                 <strong>@(permission.CanAccess ? "อนุญาต" : "ไม่อนุญาต")</strong>
                                             </label>
                                         </td>
                                     </tr>
                                 }
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(saveMessage))
-            {
-                <div class="save-message @(saveSucceeded ? "success" : "error")"
-                     role="status">@saveMessage</div>
-            }
-        </div>
-    </section>
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@FilteredPermissionCount" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+                }
+                @if (!string.IsNullOrWhiteSpace(saveMessage))
+                {
+                    <div class="save-message @(saveSucceeded ? "success" : "error")" role="status">@saveMessage</div>
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="content-card">
+            <div class="content-card-header permission-table-header">
+                <span>สิทธิ์เพิ่มเติมภายในแต่ละหน้า</span>
+                @if (SelectedActionPageCount > 0)
+                {
+                    <span class="permission-summary">อนุญาต @SelectedActionPageAllowedCount จาก @SelectedActionPageCount สิทธิ์</span>
+                    <button type="button" @onclick="() => SetAllActions(true)">เลือกทั้งหมด</button>
+                    <button type="button" @onclick="() => SetAllActions(false)">ยกเลิกทั้งหมด</button>
+                }
+            </div>
+            <div class="content-card-body">
+                @if (ShowStateMessage)
+                {
+                    <div class="permission-state @(!string.IsNullOrWhiteSpace(loadError) ? "error" : null)">@StateMessage</div>
+                }
+                else
+                {
+                    <nav class="action-page-tabs" aria-label="หน้าระบบสำหรับสิทธิ์เพิ่มเติม">
+                        @foreach (var tabItem in ActionPageTabs)
+                        {
+                            <button type="button"
+                                    class="@(string.Equals(selectedActionPageKey, tabItem.PageKey, StringComparison.OrdinalIgnoreCase) ? "active" : null)"
+                                    @onclick="() => SelectActionPage(tabItem.PageKey)">
+                                <span>@tabItem.PageName</span>
+                                <small>@ActionCountForPage(tabItem.PageKey)</small>
+                            </button>
+                        }
+                    </nav>
+                    <div class="action-permission-note">
+                        สิทธิ์เหล่านี้เป็นสิทธิ์เพิ่มเติมจาก Logic เดิม เช่น ผู้อนุมัติเดิมยังอนุมัติได้ตามปกติ
+                    </div>
+                    <div class="table-responsive">
+                        <table class="permission-table action-permission-table">
+                            <thead><tr><th>#</th><th>หมวดหมู่</th><th>หน้าระบบ</th><th>สิทธิ์เพิ่มเติม</th><th>รายละเอียด</th><th>อนุญาต</th></tr></thead>
+                            <tbody>
+                                @{ var visible = PagedActionPermissions.ToList(); }
+                                @if (visible.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="permission-state">ไม่พบสิทธิ์ที่ค้นหา</td></tr>
+                                }
+                                @for (var index = 0; index < visible.Count; index++)
+                                {
+                                    var permission = visible[index];
+                                    <tr>
+                                        <td>@((SafePage - 1) * pageSize + index + 1)</td>
+                                        <td><span class="category-pill">@permission.CategoryName</span></td>
+                                        <td><strong>@permission.PageName</strong><small>@permission.PageKey</small></td>
+                                        <td><strong>@permission.ActionName</strong><small>@permission.ActionKey</small></td>
+                                        <td>@permission.Description</td>
+                                        <td>
+                                            <label class="access-switch">
+                                                <input type="checkbox" checked="@permission.CanExecute" @onchange="args => SetActionPermission(permission.ActionId, args.Value is true)" />
+                                                <span class="switch-track"><span></span></span>
+                                                <strong>@(permission.CanExecute ? "อนุญาต" : "ไม่อนุญาต")</strong>
+                                            </label>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@FilteredActionCount" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+                }
+                @if (!string.IsNullOrWhiteSpace(saveMessage))
+                {
+                    <div class="save-message @(saveSucceeded ? "success" : "error")" role="status">@saveMessage</div>
+                }
+            </div>
+        </section>
+    }
 </section>
 
 @code {
     private bool isLoading;
     private bool isSaving;
     private bool saveSucceeded;
+    private string permissionSubject = "employee";
+    private string activeTab = "pages";
+    private string selectedActionPageKey = string.Empty;
     private string selectedEmployeeId = string.Empty;
+    private long selectedRoleId;
+    private bool showCreateRole;
+    private string newRoleName = string.Empty;
+    private string newRoleDescription = string.Empty;
+    private string memberToAdd = string.Empty;
     private string searchText = string.Empty;
     private string? loadError;
     private string? saveMessage;
     private List<Employee> employees = [];
+    private List<AppRoleDto> roles = [];
     private List<PagePermissionDto> permissions = [];
+    private List<PageActionPermissionDto> actionPermissions = [];
+    private CurrentMicrosoftUserDto? currentUser;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private bool HasSelectedSubject => permissionSubject == "employee"
+        ? !string.IsNullOrWhiteSpace(selectedEmployeeId)
+        : selectedRoleId > 0;
+    private AppRoleDto? SelectedRole => roles.FirstOrDefault(role => role.Id == selectedRoleId);
+    private IEnumerable<Employee> AvailableRoleMembers => employees.Where(employee =>
+        SelectedRole is null || !SelectedRole.MemberEmployeeIds.Contains(employee.EmployeeCode, StringComparer.OrdinalIgnoreCase));
 
-    private IEnumerable<PagePermissionDto> FilteredPermissions =>
-        permissions.Where(page =>
-            string.IsNullOrWhiteSpace(searchText) ||
-            page.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-            page.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-            page.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-            page.RoutePath.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+    private int CurrentPermissionCount => activeTab == "pages" ? permissions.Count : actionPermissions.Count;
+    private IEnumerable<PagePermissionDto> FilteredPermissions => permissions.Where(item =>
+        string.IsNullOrWhiteSpace(searchText) || item.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.RoutePath.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+    private IReadOnlyList<PageActionPermissionDto> ActionPageTabs => actionPermissions
+        .GroupBy(item => item.PageKey, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.First())
+        .ToList();
+    private IEnumerable<PageActionPermissionDto> SelectedActionPagePermissions => actionPermissions.Where(item =>
+        string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase));
+    private int SelectedActionPageCount => SelectedActionPagePermissions.Count();
+    private int SelectedActionPageAllowedCount => SelectedActionPagePermissions.Count(item => item.CanExecute);
+    private IEnumerable<PageActionPermissionDto> FilteredActionPermissions => SelectedActionPagePermissions.Where(item =>
+        string.IsNullOrWhiteSpace(searchText) || item.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.ActionName.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.ActionKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        (item.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+    private int FilteredPermissionCount => FilteredPermissions.Count();
+    private int FilteredActionCount => FilteredActionPermissions.Count();
+    private int CurrentFilteredCount => activeTab == "pages" ? FilteredPermissionCount : FilteredActionCount;
+    private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(CurrentFilteredCount / (double)pageSize)));
+    private IEnumerable<PagePermissionDto> PagedPermissions => FilteredPermissions.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<PageActionPermissionDto> PagedActionPermissions => FilteredActionPermissions.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private bool ShowStateMessage => isLoading || !string.IsNullOrWhiteSpace(loadError) || !HasSelectedSubject;
+    private string StateMessage => isLoading ? "กำลังโหลดสิทธิ์..." : !string.IsNullOrWhiteSpace(loadError) ? loadError :
+        permissionSubject == "employee" ? "กรุณาเลือกพนักงานที่ต้องการกำหนดสิทธิ์" : "กรุณาเลือก App Role ที่ต้องการกำหนดสิทธิ์";
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            roles = await Http.GetFromJsonAsync<List<AppRoleDto>>("api/app-roles") ?? [];
             selectedEmployeeId = employees.FirstOrDefault()?.EmployeeCode ?? string.Empty;
             await LoadPermissions();
         }
-        catch (Exception exception)
-        {
-            loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}";
-        }
+        catch (Exception exception) { loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}"; }
     }
 
+    private async Task ChangeSubject(string subject)
+    {
+        permissionSubject = subject;
+        searchText = string.Empty;
+        currentPage = 1;
+        saveMessage = null;
+        if (subject == "role" && selectedRoleId == 0)
+            selectedRoleId = roles.FirstOrDefault()?.Id ?? 0;
+        await LoadPermissions();
+    }
+
+    private void ToggleCreateRole() => showCreateRole = !showCreateRole;
+
+    private async Task CreateRole()
+    {
+        if (string.IsNullOrWhiteSpace(newRoleName)) return;
+        isSaving = true; saveMessage = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/app-roles", new CreateAppRoleRequest(newRoleName, newRoleDescription));
+            if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
+            var role = await response.Content.ReadFromJsonAsync<AppRoleDto>();
+            if (role is null) return;
+            roles.Add(role);
+            roles = roles.OrderBy(item => item.RoleName).ToList();
+            selectedRoleId = role.Id;
+            newRoleName = newRoleDescription = string.Empty;
+            showCreateRole = false;
+            await LoadPermissions();
+        }
+        finally { isSaving = false; }
+    }
+
+    private async Task AddRoleMember()
+    {
+        if (SelectedRole is null || string.IsNullOrWhiteSpace(memberToAdd)) return;
+        await SaveRoleMembers(SelectedRole.MemberEmployeeIds.Append(memberToAdd));
+        memberToAdd = string.Empty;
+    }
+
+    private async Task RemoveRoleMember(string employeeId)
+    {
+        if (SelectedRole is null) return;
+        await SaveRoleMembers(SelectedRole.MemberEmployeeIds.Where(item =>
+            !string.Equals(item, employeeId, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task SaveRoleMembers(IEnumerable<string> employeeIds)
+    {
+        if (SelectedRole is null) return;
+        var response = await Http.PutAsJsonAsync($"api/app-roles/{SelectedRole.Id}/members",
+            new SaveAppRoleMembersRequest(employeeIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
+        if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
+        var updated = await response.Content.ReadFromJsonAsync<AppRoleDto>();
+        if (updated is null) return;
+        var index = roles.FindIndex(item => item.Id == updated.Id);
+        if (index >= 0) roles[index] = updated;
+    }
+
+    private void ChangeTab(string tab)
+    {
+        activeTab = tab;
+        EnsureSelectedActionPage();
+        currentPage = 1;
+        searchText = string.Empty;
+        saveMessage = null;
+    }
+    private void SelectActionPage(string pageKey)
+    {
+        selectedActionPageKey = pageKey;
+        currentPage = 1;
+        searchText = string.Empty;
+        saveMessage = null;
+    }
+    private int ActionCountForPage(string pageKey) => actionPermissions.Count(item =>
+        string.Equals(item.PageKey, pageKey, StringComparison.OrdinalIgnoreCase));
+    private void EnsureSelectedActionPage()
+    {
+        if (!actionPermissions.Any(item => string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase)))
+            selectedActionPageKey = ActionPageTabs.FirstOrDefault()?.PageKey ?? string.Empty;
+    }
+    private void ResetPaging() => currentPage = 1;
     private async Task LoadPermissions()
     {
-        permissions = [];
-        loadError = null;
-        saveMessage = null;
-        if (string.IsNullOrWhiteSpace(selectedEmployeeId))
-            return;
-
+        currentPage = 1; permissions = []; actionPermissions = []; loadError = null; saveMessage = null;
+        if (!HasSelectedSubject) return;
         isLoading = true;
         try
         {
-            permissions = await Http.GetFromJsonAsync<List<PagePermissionDto>>(
-                $"api/page-permissions?employeeId={Uri.EscapeDataString(selectedEmployeeId)}") ?? [];
+            var permissionUrl = permissionSubject == "employee"
+                ? $"api/page-permissions?employeeId={Uri.EscapeDataString(selectedEmployeeId)}"
+                : $"api/app-roles/{selectedRoleId}/permissions";
+            var actionUrl = permissionSubject == "employee"
+                ? $"api/page-permissions/actions?employeeId={Uri.EscapeDataString(selectedEmployeeId)}"
+                : $"api/app-roles/{selectedRoleId}/actions";
+            permissions = await Http.GetFromJsonAsync<List<PagePermissionDto>>(permissionUrl) ?? [];
+            actionPermissions = await Http.GetFromJsonAsync<List<PageActionPermissionDto>>(actionUrl) ?? [];
+            EnsureSelectedActionPage();
         }
-        catch (Exception exception)
-        {
-            loadError = $"โหลดสิทธิ์ไม่สำเร็จ: {exception.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-        }
+        catch (Exception exception) { loadError = $"โหลดสิทธิ์ไม่สำเร็จ: {exception.Message}"; }
+        finally { isLoading = false; }
     }
 
-    private void SetPermission(long pageId, bool canAccess)
+    private void SetPagePermission(long id, bool value) { var index = permissions.FindIndex(x => x.PageId == id); if (index >= 0) permissions[index] = permissions[index] with { CanAccess = value }; saveMessage = null; }
+    private void SetActionPermission(long id, bool value) { var index = actionPermissions.FindIndex(x => x.ActionId == id); if (index >= 0) actionPermissions[index] = actionPermissions[index] with { CanExecute = value }; saveMessage = null; }
+    private void SetAllPages(bool value) { permissions = permissions.Select(x => x with { CanAccess = value }).ToList(); saveMessage = null; }
+    private void SetAllActions(bool value)
     {
-        var index = permissions.FindIndex(item => item.PageId == pageId);
-        if (index < 0)
-            return;
-
-        permissions[index] = permissions[index] with { CanAccess = canAccess };
+        actionPermissions = actionPermissions.Select(item =>
+            string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase)
+                ? item with { CanExecute = value }
+                : item).ToList();
         saveMessage = null;
     }
+    private async Task SaveCurrentPermissions() { if (activeTab == "pages") await SavePages(); else await SaveActions(); }
 
-    private void SetAll(bool canAccess)
+    private (string Id, string Name) Actor() =>
+        (!string.IsNullOrWhiteSpace(currentUser?.EmployeeId) ? currentUser.EmployeeId : "SYSTEM",
+         !string.IsNullOrWhiteSpace(currentUser?.EmployeeName) ? currentUser.EmployeeName : "HR System");
+
+    private async Task SavePages()
     {
-        permissions = permissions
-            .Select(item => item with { CanAccess = canAccess })
-            .ToList();
-        saveMessage = null;
-    }
-
-    private async Task SavePermissions()
-    {
-        if (string.IsNullOrWhiteSpace(selectedEmployeeId) || permissions.Count == 0)
-            return;
-
-        isSaving = true;
-        saveMessage = null;
+        var actor = Actor(); isSaving = true; saveMessage = null;
         try
         {
-            var currentEmployee = employees.FirstOrDefault(item => item.EmployeeCode == "EMP-001");
-            var request = new SaveEmployeePagePermissionsRequest(
-                selectedEmployeeId,
-                permissions.Select(item =>
-                    new SavePagePermissionItem(item.PageId, item.CanAccess)).ToList(),
-                "EMP-001",
-                currentEmployee?.FullName ?? "Anan Sukjai");
-
-            var response = await Http.PutAsJsonAsync(
-                $"api/page-permissions/employees/{Uri.EscapeDataString(selectedEmployeeId)}",
-                request);
-            if (!response.IsSuccessStatusCode)
-            {
-                var details = await response.Content.ReadAsStringAsync();
-                saveSucceeded = false;
-                saveMessage = string.IsNullOrWhiteSpace(details)
-                    ? $"บันทึกสิทธิ์ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
-                    : $"บันทึกสิทธิ์ไม่สำเร็จ: {details}";
-                return;
-            }
-
+            var items = permissions.Select(x => new SavePagePermissionItem(x.PageId, x.CanAccess)).ToList();
+            var response = permissionSubject == "employee"
+                ? await Http.PutAsJsonAsync($"api/page-permissions/employees/{Uri.EscapeDataString(selectedEmployeeId)}",
+                    new SaveEmployeePagePermissionsRequest(selectedEmployeeId, items, actor.Id, actor.Name))
+                : await Http.PutAsJsonAsync($"api/app-roles/{selectedRoleId}/permissions",
+                    new SaveRolePagePermissionsRequest(items, actor.Id, actor.Name));
+            if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
             permissions = await response.Content.ReadFromJsonAsync<List<PagePermissionDto>>() ?? [];
-            saveSucceeded = true;
-            saveMessage = "บันทึกสิทธิ์การเข้าถึงเรียบร้อยแล้ว";
+            saveSucceeded = true; saveMessage = "บันทึกสิทธิ์การเข้าถึงเรียบร้อยแล้ว";
         }
-        catch (Exception exception)
+        catch (Exception exception) { saveSucceeded = false; saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task SaveActions()
+    {
+        var actor = Actor(); isSaving = true; saveMessage = null;
+        try
         {
-            saveSucceeded = false;
-            saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}";
+            var items = actionPermissions.Select(x => new SavePageActionPermissionItem(x.ActionId, x.CanExecute)).ToList();
+            var response = permissionSubject == "employee"
+                ? await Http.PutAsJsonAsync($"api/page-permissions/employees/{Uri.EscapeDataString(selectedEmployeeId)}/actions",
+                    new SaveEmployeePageActionPermissionsRequest(selectedEmployeeId, items, actor.Id, actor.Name))
+                : await Http.PutAsJsonAsync($"api/app-roles/{selectedRoleId}/actions",
+                    new SaveRolePageActionPermissionsRequest(items, actor.Id, actor.Name));
+            if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
+            actionPermissions = await response.Content.ReadFromJsonAsync<List<PageActionPermissionDto>>() ?? [];
+            EnsureSelectedActionPage();
+            saveSucceeded = true; saveMessage = "บันทึกสิทธิ์เพิ่มเติมเรียบร้อยแล้ว";
         }
-        finally
-        {
-            isSaving = false;
-        }
+        catch (Exception exception) { saveSucceeded = false; saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task SetSaveError(HttpResponseMessage response)
+    {
+        var details = await response.Content.ReadAsStringAsync(); saveSucceeded = false;
+        saveMessage = string.IsNullOrWhiteSpace(details) ? $"บันทึกสิทธิ์ไม่สำเร็จ (HTTP {(int)response.StatusCode})" : $"บันทึกสิทธิ์ไม่สำเร็จ: {details}";
     }
 }

@@ -1,0 +1,65 @@
+<section class="document-history-panel" role="dialog" aria-modal="true" aria-labelledby="shared-document-history-title">
+    <header class="history-panel-header">
+        <div>
+            <h2 id="shared-document-history-title">ประวัติเอกสาร</h2>
+            <p>@DocumentNo</p>
+        </div>
+        <button class="history-close" type="button" aria-label="ปิดประวัติ" @onclick="OnClose">×</button>
+    </header>
+    <div class="history-panel-body">
+        @if (IsLoading)
+        {
+            <div class="history-state">กำลังโหลดประวัติ...</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="history-state error">@Error</div>
+        }
+        else if (Items.Count == 0)
+        {
+            <div class="history-state">ยังไม่มีประวัติของเอกสารนี้</div>
+        }
+        else
+        {
+            <div class="history-table-wrap">
+                <table class="history-table">
+                    <thead>
+                        <tr><th>Action</th><th>รายละเอียด</th><th>Action By</th><th>Action Date-Time</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Items)
+                        {
+                            <tr>
+                                <td>@ActionText(item.Action)</td>
+                                <td>@item.DetailsText</td>
+                                <td>@item.ActionByName</td>
+                                <td>@item.ActionAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string DocumentNo { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<LeaveDocumentHistoryDto> Items { get; set; } = [];
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static string ActionText(string value) => value switch
+    {
+        "CREATE_DOCUMENT" => "สร้างเอกสาร",
+        "APPROVE" => "อนุมัติ",
+        "REJECT" => "ไม่อนุมัติ",
+        "EDIT" => "การแก้ไข",
+        "CANCEL" => "ยกเลิก",
+        "REQUEST_EDIT" => "ขอแก้ไข",
+        "CANCEL_EDIT_REQUEST" => "ยกเลิกขอแก้ไข",
+        "APPROVE_EDIT_REQUEST" => "อนุมัติขอแก้ไข",
+        _ => value
+    };
+}

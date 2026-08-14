@@ -1,0 +1,49 @@
+<span class="preview-anchor" @onmouseenter="Show" @onmouseleave="Hide">
+    @ChildContent
+</span>
+
+@if (isVisible)
+{
+    <aside class="quota-preview-layer" style="@PreviewPosition" aria-hidden="true">
+        <header>
+            <div>
+                <strong>@Request.RequestNo</strong>
+                <span class="status-pill @StatusClass(Request.Status)">@StatusText(Request.Status)</span>
+            </div>
+            <small>ตัวอย่างคำขอเพิ่มโควตา</small>
+        </header>
+        <div class="preview-body">
+            <div class="employee-row">
+                <span class="employee-avatar">@Initial(EmployeeName)</span>
+                <div><strong>@EmployeeName</strong><small>@Request.EmployeeId · @EmployeeDepartment</small></div>
+            </div>
+            <dl>
+                <div><dt>ประเภทการลา</dt><dd>@Request.LeaveTypeName</dd></div>
+                <div><dt>ปีโควตา</dt><dd>@Request.QuotaYear</dd></div>
+                <div><dt>จำนวนที่ขอ</dt><dd>@Request.RequestedHours.ToString("0.##") ชั่วโมง (@((Request.RequestedHours / 8).ToString("0.##")) วัน)</dd></div>
+                @if (Request.ApprovedHours.HasValue)
+                {
+                    <div><dt>จำนวนอนุมัติ</dt><dd>@Request.ApprovedHours.Value.ToString("0.##") ชั่วโมง</dd></div>
+                }
+            </dl>
+            <div class="reason-preview"><span>เหตุผล</span><p>@Request.RequestReason</p></div>
+            <footer>คลิกเลขที่คำขอเพื่อดูรายละเอียดทั้งหมด</footer>
+        </div>
+    </aside>
+}
+
+@code {
+    [Parameter, EditorRequired] public LeaveQuotaRequestDto Request { get; set; } = default!;
+    [Parameter, EditorRequired] public string EmployeeName { get; set; } = string.Empty;
+    [Parameter] public string EmployeeDepartment { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public RenderFragment ChildContent { get; set; } = default!;
+    private bool isVisible;
+    private double pointerX;
+    private double pointerY;
+    private string PreviewPosition => $"--preview-x:{pointerX + 16:0}px;--preview-y:{pointerY + 14:0}px";
+    private void Show(MouseEventArgs args) { pointerX = args.ClientX; pointerY = args.ClientY; isVisible = true; }
+    private void Hide() => isVisible = false;
+    private static string Initial(string name) => string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString();
+    private static string StatusText(string status) => status switch { "PENDING" => "รออนุมัติ", "APPROVED" => "อนุมัติแล้ว", "REJECTED" => "ไม่อนุมัติ", "CANCELLED" => "ยกเลิก", _ => status };
+    private static string StatusClass(string status) => status switch { "APPROVED" => "approved", "REJECTED" => "rejected", "CANCELLED" => "cancelled", _ => "pending" };
+}

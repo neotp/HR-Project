@@ -1,6 +1,11 @@
 @page "/leave/documents"
 @inject HttpClient Http
 
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "documentId")]
+    public long? RequestedDocumentId { get; set; }
+}
+
 <PageTitle>เอกสารการลา | HR Project</PageTitle>
 
 <section class="manage-page leave-documents-page">
@@ -73,15 +78,29 @@
                         }
                     </select>
                 </label>
-                <label>
-                    สถานะ
-                    <select @bind="status" @bind:after="Search">
-                        <option value="">ทั้งหมด</option>
-                        <option>รออนุมัติ</option>
-                        <option>อนุมัติแล้ว</option>
-                        <option>ไม่อนุมัติ</option>
-                    </select>
-                </label>
+                <div class="criteria-field">
+                    <span class="criteria-field-label">สถานะ</span>
+                    <details class="status-multiselect">
+                        <summary>
+                            <span>@StatusFilterSummary</span>
+                            <span class="status-multiselect-chevron" aria-hidden="true">⌄</span>
+                        </summary>
+                        <div class="status-multiselect-menu">
+                            <button class="status-filter-clear" type="button" @onclick="ClearStatusFilter">
+                                แสดงทั้งหมด
+                            </button>
+                            @foreach (var option in StatusFilterOptions)
+                            {
+                                <label class="status-multiselect-option">
+                                    <input type="checkbox"
+                                           checked="@selectedStatuses.Contains(option.Code)"
+                                           @onchange="args => SetStatusFilter(option.Code, args.Value is true)" />
+                                    <span class="status-pill @StatusClass(option.Code)" data-status="@option.Code">@option.Label</span>
+                                </label>
+                            }
+                        </div>
+                    </details>
+                </div>
                 <label>
                     วันที่เริ่มต้น
                     <input type="date" @bind="startDate" @bind:after="Search" />
@@ -110,22 +129,23 @@
                         }
                         else
                         {
-                            @foreach (var document in filteredDocuments)
+                            @foreach (var document in PagedDocuments)
                             {
                                 <tr>
-                                    <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                        <td><LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
                                     <td>@document.LeaveTypeName</td>
                                     <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
                                     <td>@document.StartTime.ToString("HH:mm")</td>
                                     <td>@document.LeaveHours.ToString("0.##") ชั่วโมง</td>
                                     <td><span class="reason-cell" title="@document.LeaveReason">@document.LeaveReason</span></td>
-                                    <td><span class="status-pill @StatusClass(document.Status)">@StatusText(document.Status)</span></td>
+                                    <td><span class="status-pill @StatusClass(document.Status)" data-status="@document.Status">@StatusText(document.Status)</span></td>
                                 </tr>
                             }
                         }
                     </tbody>
                 </table>
             </div>
+            <Pagination TotalItems="@filteredDocuments.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
         </div>
     </section>
 </section>
@@ -143,8 +163,8 @@
                 <div class="form-grid readonly-grid">
                     <label>ผู้อนุมัติ<input value="สมชาย ใจดี" disabled /></label>
                     <label>วันที่สร้างเอกสาร<input value="@DateTime.Today.ToString("dd/MM/yyyy")" disabled /></label>
-                    <label>ผู้สร้างเอกสาร<input value="Anan Sukjai" disabled /></label>
-                    <label>แผนก (ผู้สร้าง)<input value="Human Resources" disabled /></label>
+                    <label>ผู้สร้างเอกสาร<input value="@CurrentEmployeeName" disabled /></label>
+                    <label>แผนก (ผู้สร้าง)<input value="@CurrentEmployeeDepartment" disabled /></label>
                 </div>
 
                 <div class="leave-mode-tabs" role="tablist" aria-label="รูปแบบการลา">
@@ -161,18 +181,38 @@
                 <h3>รายละเอียดการลา</h3>
                 <div class="form-grid">
                     <label>ชนิดการลา<span class="required">*</span>
-                        <select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select>
+                        <select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option>@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select>
                     </label>
                     <label>ประเภทการลา<span class="required">*</span>
-                        <select @bind="newLeaveType"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select>
+                        <select @bind="newLeaveType" @bind:after="HandleLeaveTypeChanged"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select>
                     </label>
+                    @if (IsSickLeave)
+                    {
+                        <fieldset class="medical-certificate-field full-width">
+                            <legend>ใบรับรองแพทย์<span class="required">*</span></legend>
+                            <label class="radio-option">
+                                <input type="radio" name="medical-certificate" checked="@(newHasMedicalCertificate == true)"
+                                       @onchange="() => SetMedicalCertificate(true)" />
+                                มีใบรับรองแพทย์
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="medical-certificate" checked="@(newHasMedicalCertificate == false)"
+                                       @onchange="() => SetMedicalCertificate(false)" />
+                                ไม่มีใบรับรองแพทย์
+                            </label>
+                        </fieldset>
+                    }
                     @if (createMode == "single")
                     {
                         <label>วันที่ลา<span class="required">*</span><input type="date" @bind="newSingleLeaveDate" /></label>
                         <label>เวลาเริ่มต้น<span class="required">*</span><input type="time" @bind="newLeaveStartTime" /></label>
                         <label>จำนวนชั่วโมง<span class="required">*</span><input type="number" min="0.5" max="8" step="0.5" @bind="newLeaveHours" /></label>
                     }
-                    <label>เอกสารแนบ<input type="file" @onchange="SelectAttachment" /></label>
+                    <label>
+                        <span>เอกสารแนบ<span class="required" hidden="@(!(IsSickLeave && newHasMedicalCertificate == true))">*</span></span>
+                        <InputFile @key="attachmentInputVersion" OnChange="SelectAttachment" accept=".pdf,.jpg,.jpeg,.png" />
+                        <small class="attachment-help">PDF, JPG หรือ PNG ขนาดไม่เกิน 10 MB</small>
+                    </label>
                     <label class="full-width">เหตุผลการลา<span class="required">*</span><textarea rows="3" @bind="newLeaveReason" placeholder="ระบุเหตุผลการลา"></textarea></label>
                 </div>
 
@@ -251,7 +291,7 @@
                 </div>
                 <h3>รายละเอียดการลา</h3>
                 <div class="form-grid">
-                    <label>ชนิดการลา<select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly"><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select></label>
+                    <label>ชนิดการลา<select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly">@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></label>
                     <label>ประเภทการลา<select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
                     <label>วันที่ลา<input type="date" @bind="detailLeaveDate" disabled="@IsDocumentReadOnly" /></label>
                     <label>เวลาเริ่มต้น<input type="time" @bind="detailLeaveStartTime" disabled="@IsDocumentReadOnly" /></label>
@@ -288,23 +328,8 @@
 
 @if (isShowingHistory && selectedDocument is not null)
 {
-    <div class="document-history-panel" role="dialog" aria-modal="true" aria-labelledby="document-history-title">
-        <header class="history-panel-header">
-            <div><h2 id="document-history-title">ประวัติเอกสาร</h2><p>@selectedDocument.DocumentNo</p></div>
-            <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseHistory">×</button>
-        </header>
-        <div class="history-panel-body">
-            <table class="history-table">
-                <thead><tr><th>Action</th><th>รายละเอียด</th><th>Action By</th><th>Action Date-Time</th></tr></thead>
-                <tbody>
-                    @foreach (var item in documentHistory)
-                    {
-                        <tr><td>@ActionText(item.Action)</td><td>@item.DetailsText</td><td>@item.ActionByName</td><td>@item.ActionAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <LeaveDocumentHistoryPanel DocumentNo="@selectedDocument.DocumentNo"
+                               Items="@documentHistory" OnClose="CloseHistory" />
 }
 
 @if (isRequestingEdit)
@@ -316,13 +341,16 @@
         </header>
         <div class="edit-request-body">
             <div class="form-grid single-column">
-                <label>ชนิดการลา<select @bind="requestLeaveKind"><option>ลาล่วงหน้า</option><option>ลาย้อนหลัง</option></select></label>
                 <label>ประเภทการลา<select @bind="requestLeaveType">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
                 <label>วันที่ลา<input type="date" @bind="requestLeaveDate" /></label>
                 <label>เวลาเริ่มต้น<input type="time" @bind="requestLeaveStartTime" /></label>
                 <label>จำนวนชั่วโมง<input type="number" min="0.5" max="8" step="0.5" @bind="requestLeaveHours" /></label>
                 <label>เหตุผลในการขอแก้ไข<textarea rows="3" @bind="requestEditReason" placeholder="ระบุเหตุผลที่ต้องการแก้ไขเอกสาร"></textarea></label>
             </div>
+            @if (!string.IsNullOrWhiteSpace(editRequestError))
+            {
+                <div class="form-error" role="alert">@editRequestError</div>
+            }
         </div>
         <footer class="edit-request-footer">
             @if (selectedDocument?.Status == "EDIT_REQUESTED")
@@ -337,7 +365,24 @@
 @code {
     private string searchText = string.Empty;
     private string leaveType = string.Empty;
-    private string status = string.Empty;
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PENDING_APPROVAL", "EDIT_REQUESTED", "APPROVED"
+    };
+    private static readonly (string Code, string Label)[] StatusFilterOptions =
+    [
+        ("PENDING_APPROVAL", "รออนุมัติ"),
+        ("APPROVED", "อนุมัติแล้ว"),
+        ("REJECTED", "ไม่อนุมัติ"),
+        ("EDIT_REQUESTED", "ขอแก้ไข"),
+        ("CANCELLED", "ยกเลิก")
+    ];
+    private string StatusFilterSummary => selectedStatuses.Count switch
+    {
+        0 => "ทั้งหมด",
+        1 => StatusText(selectedStatuses.First()),
+        _ => $"เลือกแล้ว {selectedStatuses.Count} สถานะ"
+    };
     private DateTime? startDate;
     private DateTime? endDate;
     private bool isCreating;
@@ -352,6 +397,14 @@
     private readonly List<MultiDayLeaveRow> multiDayRows = [];
     private string newLeaveReason = string.Empty;
     private string? attachmentName;
+    private string attachmentContentType = string.Empty;
+    private byte[]? attachmentContent;
+    private int attachmentInputVersion;
+    private bool? newHasMedicalCertificate;
+    private bool IsSickLeave => string.Equals(
+        FindLeaveType(newLeaveType)?.Code,
+        "SICK",
+        StringComparison.OrdinalIgnoreCase);
     private string? saveError;
     private LeaveDocumentDto? selectedDocument;
     private string detailLeaveKind = "ลาล่วงหน้า";
@@ -369,47 +422,98 @@
     private bool isDocumentActionSaving;
     private string? detailActionError;
     private bool isRequestingEdit;
-    private string requestLeaveKind = string.Empty;
     private string requestLeaveType = string.Empty;
     private DateTime requestLeaveDate = DateTime.Today;
     private TimeOnly requestLeaveStartTime = new(9, 0);
     private decimal requestLeaveHours = 8;
     private string requestEditReason = string.Empty;
+    private string? editRequestError;
     private bool isShowingHistory;
     private List<LeaveDocumentHistoryDto> documentHistory = [];
     private List<LeaveTypeDto> leaveTypes = [];
+    private List<MasterDataItemDto> leaveKinds = [];
     private List<LeaveQuotaDto> myLeaveQuotas = [];
     private List<LeaveDocumentDto> documents = [];
+    private bool hasOpenedRequestedDocument;
+    private CurrentMicrosoftUserDto? currentUser;
+    private string CurrentEmployeeId => currentUser?.EmployeeId ?? string.Empty;
+    private string CurrentEmployeeName => currentUser?.EmployeeName ?? currentUser?.DisplayName ?? string.Empty;
+    private string CurrentEmployeeDepartment => currentUser?.Department ?? string.Empty;
     private List<LeaveDocumentDto> filteredDocuments = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
 
-    protected override async Task OnInitializedAsync() => await ReloadData();
+    protected override async Task OnInitializedAsync()
+    {
+        currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+        await ReloadData();
+    }
 
     private async Task ReloadData()
     {
         leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+        leaveKinds = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+            "api/system-master-data/items?category=LEAVE_KIND&includeInactive=false") ?? [];
+        if (string.IsNullOrWhiteSpace(CurrentEmployeeId))
+        {
+            myLeaveQuotas = [];
+            documents = [];
+            Search();
+            return;
+        }
         myLeaveQuotas = await Http.GetFromJsonAsync<List<LeaveQuotaDto>>(
-            $"api/leave-quotas?year={DateTime.Today.Year}&employeeId=EMP-001") ?? [];
-        documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>("api/leave-documents?creatorEmployeeId=EMP-001") ?? [];
+            $"api/leave-quotas?year={DateTime.Today.Year}&employeeId={Uri.EscapeDataString(CurrentEmployeeId)}") ?? [];
+        documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+            $"api/leave-documents?creatorEmployeeId={Uri.EscapeDataString(CurrentEmployeeId)}") ?? [];
         Search();
+        if (!hasOpenedRequestedDocument && RequestedDocumentId is long requestedId)
+        {
+            hasOpenedRequestedDocument = true;
+            var requestedDocument = documents.FirstOrDefault(document => document.Id == requestedId);
+            if (requestedDocument is not null)
+                await OpenDocument(requestedDocument);
+        }
     }
 
     private void Search()
     {
+        currentPage = 1;
         filteredDocuments = documents.Where(document =>
             (string.IsNullOrWhiteSpace(searchText) ||
              document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.LeaveTypeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.LeaveReason.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
             (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
-            (string.IsNullOrWhiteSpace(status) || StatusText(document.Status) == status) &&
+            (selectedStatuses.Count == 0 || selectedStatuses.Contains(document.Status)) &&
             (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
             (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value))).ToList();
     }
 
     private void Reset()
     {
-        searchText = leaveType = status = string.Empty;
+        searchText = leaveType = string.Empty;
+        selectedStatuses.Clear();
+        selectedStatuses.UnionWith(["PENDING_APPROVAL", "EDIT_REQUESTED", "APPROVED"]);
         startDate = endDate = null;
+        Search();
+    }
+
+    private void SetStatusFilter(string statusCode, bool isSelected)
+    {
+        if (isSelected)
+            selectedStatuses.Add(statusCode);
+        else
+            selectedStatuses.Remove(statusCode);
+
+        Search();
+    }
+
+    private void ClearStatusFilter()
+    {
+        selectedStatuses.Clear();
         Search();
     }
 
@@ -423,6 +527,10 @@
         newLeaveHours = 8;
         multiDayRows.Clear();
         attachmentName = null;
+        attachmentContent = null;
+        attachmentContentType = string.Empty;
+        attachmentInputVersion++;
+        newHasMedicalCertificate = null;
         saveError = null;
     }
 
@@ -497,9 +605,9 @@
     {
         if (selectedDocument?.Status is not ("APPROVED" or "EDIT_REQUESTED")) return;
         isRequestingEdit = true;
+        editRequestError = null;
         if (selectedDocument.PendingEditRequest is { } existingRequest)
         {
-            requestLeaveKind = KindText(existingRequest.RequestedLeaveKind);
             requestLeaveType = existingRequest.RequestedLeaveTypeName;
             requestLeaveDate = existingRequest.RequestedLeaveDate.ToDateTime(TimeOnly.MinValue);
             requestLeaveStartTime = existingRequest.RequestedStartTime;
@@ -508,7 +616,6 @@
         }
         else
         {
-            requestLeaveKind = detailLeaveKind;
             requestLeaveType = detailLeaveType;
             requestLeaveDate = detailLeaveDate;
             requestLeaveStartTime = detailLeaveStartTime;
@@ -517,17 +624,32 @@
         }
     }
 
-    private void CloseEditRequest() => isRequestingEdit = false;
+    private void CloseEditRequest()
+    {
+        isRequestingEdit = false;
+        editRequestError = null;
+    }
 
     private async Task SaveEditRequest()
     {
         if (selectedDocument is null) return;
+        editRequestError = null;
         var type = FindLeaveType(requestLeaveType);
-        if (type is null || string.IsNullOrWhiteSpace(requestEditReason)) return;
-        var request = new SaveLeaveEditRequest(type.Id, KindCode(requestLeaveKind), DateOnly.FromDateTime(requestLeaveDate), requestLeaveStartTime,
-            requestLeaveHours, requestEditReason, "EMP-001", "Anan Sukjai");
+        if (type is null || string.IsNullOrWhiteSpace(requestEditReason))
+        {
+            editRequestError = "กรุณาระบุประเภทการลาและเหตุผลในการขอแก้ไขให้ครบถ้วน";
+            return;
+        }
+        var request = new SaveLeaveEditRequest(type.Id, selectedDocument.LeaveKind, DateOnly.FromDateTime(requestLeaveDate), requestLeaveStartTime,
+            requestLeaveHours, requestEditReason, CurrentEmployeeId, CurrentEmployeeName);
         var response = await Http.PostAsJsonAsync($"api/leave-documents/{selectedDocument.Id}/edit-requests", request);
-        if (!response.IsSuccessStatusCode) return;
+        if (!response.IsSuccessStatusCode)
+        {
+            editRequestError = await response.Content.ReadAsStringAsync();
+            if (string.IsNullOrWhiteSpace(editRequestError))
+                editRequestError = "ไม่สามารถบันทึกคำขอแก้ไขได้ กรุณาลองใหม่อีกครั้ง";
+            return;
+        }
         await ReloadData();
         CloseEditRequest();
         CloseDocument();
@@ -536,7 +658,7 @@
     private async Task CancelEditRequest()
     {
         if (selectedDocument?.Status != "EDIT_REQUESTED") return;
-        var url = $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending?actionBy=EMP-001&actionByName={Uri.EscapeDataString("Anan Sukjai")}";
+        var url = $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending?actionBy={Uri.EscapeDataString(CurrentEmployeeId)}&actionByName={Uri.EscapeDataString(CurrentEmployeeName)}";
         var response = await Http.DeleteAsync(url);
         if (!response.IsSuccessStatusCode) return;
         await ReloadData();
@@ -552,7 +674,7 @@
         isDocumentActionSaving = true;
         try
         {
-            var request = new ReviewLeaveDocumentRequest("EMP-001", "Anan Sukjai");
+            var request = new ReviewLeaveDocumentRequest(CurrentEmployeeId, CurrentEmployeeName);
             var response = await Http.PostAsJsonAsync(
                 $"api/leave-documents/{selectedDocument.Id}/cancel",
                 request);
@@ -584,7 +706,7 @@
         var type = FindLeaveType(detailLeaveType);
         if (type is null || string.IsNullOrWhiteSpace(detailLeaveReason)) return;
         var request = new UpdateLeaveDocumentRequest(type.Id, KindCode(detailLeaveKind), DateOnly.FromDateTime(detailLeaveDate), detailLeaveStartTime,
-            detailLeaveHours, detailLeaveReason, "EMP-001", "Anan Sukjai");
+            detailLeaveHours, detailLeaveReason, CurrentEmployeeId, CurrentEmployeeName);
         var response = await Http.PutAsJsonAsync($"api/leave-documents/{selectedDocument.Id}", request);
         if (!response.IsSuccessStatusCode) return;
         await ReloadData();
@@ -593,8 +715,52 @@
 
     private void CloseCreate() => isCreating = false;
 
-    private void SelectAttachment(ChangeEventArgs eventArgs)
-        => attachmentName = eventArgs.Value?.ToString();
+    private void HandleLeaveTypeChanged()
+    {
+        newHasMedicalCertificate = null;
+        saveError = null;
+    }
+
+    private void SetMedicalCertificate(bool hasCertificate)
+    {
+        newHasMedicalCertificate = hasCertificate;
+        saveError = null;
+        if (!hasCertificate)
+        {
+            attachmentName = null;
+            attachmentContent = null;
+            attachmentContentType = string.Empty;
+            attachmentInputVersion++;
+        }
+    }
+
+    private async Task SelectAttachment(InputFileChangeEventArgs eventArgs)
+    {
+        saveError = null;
+        var file = eventArgs.File;
+        var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+        if (extension is not (".pdf" or ".jpg" or ".jpeg" or ".png"))
+        {
+            saveError = "รองรับเอกสารแนบเฉพาะไฟล์ PDF, JPG และ PNG";
+            return;
+        }
+
+        const long maxFileSize = 10 * 1024 * 1024;
+        if (file.Size > maxFileSize)
+        {
+            saveError = "เอกสารแนบต้องมีขนาดไม่เกิน 10 MB";
+            return;
+        }
+
+        await using var stream = file.OpenReadStream(maxFileSize);
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory);
+        attachmentName = Path.GetFileName(file.Name);
+        attachmentContentType = string.IsNullOrWhiteSpace(file.ContentType)
+            ? "application/octet-stream"
+            : file.ContentType;
+        attachmentContent = memory.ToArray();
+    }
 
     private async Task SaveDocument()
     {
@@ -605,21 +771,52 @@
             saveError = "กรุณาเลือกชนิดการลา ประเภทการลา และกรอกเหตุผลการลาให้ครบถ้วน";
             return;
         }
+        var leaveKindCode = KindCode(newLeaveKind);
+        var oldestRetroactiveDate = DateOnly.FromDateTime(DateTime.Today).AddDays(-3);
+        if (leaveKindCode == "RETROACTIVE" && createMode == "single" &&
+            DateOnly.FromDateTime(newSingleLeaveDate) < oldestRetroactiveDate)
+        {
+            saveError = $"ลาย้อนหลังได้ไม่เกิน 3 วัน วันที่เก่าสุดที่เลือกได้คือ {oldestRetroactiveDate:dd/MM/yyyy}";
+            return;
+        }
+        if (leaveKindCode == "RETROACTIVE" && createMode != "single" &&
+            multiDayRows.Any(row => DateOnly.FromDateTime(row.LeaveDate) < oldestRetroactiveDate))
+        {
+            saveError = $"ลาย้อนหลังได้ไม่เกิน 3 วัน กรุณาลบวันที่ก่อน {oldestRetroactiveDate:dd/MM/yyyy} ออกจากรายการ";
+            return;
+        }
+        if (IsSickLeave && !newHasMedicalCertificate.HasValue)
+        {
+            saveError = "กรุณาระบุว่ามีใบรับรองแพทย์หรือไม่";
+            return;
+        }
+        if (IsSickLeave && newHasMedicalCertificate == true &&
+            (attachmentContent is null || string.IsNullOrWhiteSpace(attachmentName)))
+        {
+            saveError = "กรุณาแนบใบรับรองแพทย์ก่อนบันทึกเอกสาร";
+            return;
+        }
+
+        var attachment = attachmentContent is null || string.IsNullOrWhiteSpace(attachmentName)
+            ? null
+            : new LeaveAttachmentUploadDto(attachmentName, attachmentContentType, attachmentContent);
         HttpResponseMessage response;
         if (createMode == "single")
         {
             var request = new CreateLeaveDocumentRequest(
                 type.Id,
-                KindCode(newLeaveKind),
+                leaveKindCode,
                 DateOnly.FromDateTime(newSingleLeaveDate),
                 newLeaveStartTime,
                 newLeaveHours,
                 newLeaveReason,
-                "EMP-001",
-                "Anan Sukjai",
-                "Human Resources",
+                CurrentEmployeeId,
+                CurrentEmployeeName,
+                CurrentEmployeeDepartment,
                 "EMP-002",
-                "Somchai Jaidee");
+                "Somchai Jaidee",
+                IsSickLeave ? newHasMedicalCertificate : null,
+                attachment);
             response = await Http.PostAsJsonAsync("api/leave-documents", request);
         }
         else
@@ -642,17 +839,19 @@
 
             var request = new CreateMultiDayLeaveDocumentsRequest(
                 type.Id,
-                KindCode(newLeaveKind),
+                leaveKindCode,
                 multiDayRows.Select(row => new CreateMultiDayLeaveItemRequest(
                     DateOnly.FromDateTime(row.LeaveDate),
                     row.StartTime,
                     row.LeaveHours)).ToList(),
                 newLeaveReason,
-                "EMP-001",
-                "Anan Sukjai",
-                "Human Resources",
+                CurrentEmployeeId,
+                CurrentEmployeeName,
+                CurrentEmployeeDepartment,
                 "EMP-002",
-                "Somchai Jaidee");
+                "Somchai Jaidee",
+                IsSickLeave ? newHasMedicalCertificate : null,
+                attachment);
             response = await Http.PostAsJsonAsync("api/leave-documents/batch", request);
         }
         if (!response.IsSuccessStatusCode)
@@ -668,8 +867,10 @@
     }
     private LeaveTypeDto? FindLeaveType(string name) => leaveTypes.FirstOrDefault(x => x.NameTh == name);
 
-    private static string KindText(string kind) => kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
-    private static string KindCode(string kind) => kind == "ลาล่วงหน้า" ? "ADVANCE" : "RETROACTIVE";
+    private string KindText(string kind) =>
+        leaveKinds.FirstOrDefault(item => item.ItemCode == kind)?.NameTh ?? kind;
+    private string KindCode(string kind) =>
+        leaveKinds.FirstOrDefault(item => item.NameTh == kind)?.ItemCode ?? kind;
     private static string HoursToDays(decimal hours) => (hours / 8).ToString("0.##");
 
     private sealed class MultiDayLeaveRow
@@ -692,20 +893,10 @@
     private static string StatusClass(string value) => value switch
     {
         "APPROVED" => "approved",
-        "REJECTED" or "CANCELLED" => "rejected",
+        "REJECTED" => "rejected",
+        "CANCELLED" => "cancelled",
+        "EDIT_REQUESTED" => "editing",
         _ => "pending"
     };
 
-    private static string ActionText(string value) => value switch
-    {
-        "CREATE_DOCUMENT" => "สร้างเอกสาร",
-        "APPROVE" => "อนุมัติ",
-        "REJECT" => "ไม่อนุมัติ",
-        "EDIT" => "การแก้ไข",
-        "CANCEL" => "ยกเลิก",
-        "REQUEST_EDIT" => "ขอแก้ไข",
-        "CANCEL_EDIT_REQUEST" => "ยกเลิกขอแก้ไข",
-        "APPROVE_EDIT_REQUEST" => "อนุมัติขอแก้ไข",
-        _ => value
-    };
 }

@@ -42,6 +42,7 @@ INSERT INTO public.application_pages
     (page_key, page_name, route_path, category_name, display_order)
 VALUES
     ('LEAVE_DOCUMENTS', 'เอกสารการลา', '/leave/documents', 'การลา', 10),
+    ('LEAVE_ALL_DOCUMENTS', 'เอกสารทั้งหมด', '/leave/all-documents', 'การลา', 15),
     ('LEAVE_PENDING', 'เอกสารรออนุมัติ', '/leave/pending', 'การลา', 20),
     ('LEAVE_REVISIONS', 'ขอแก้ไขเอกสารการลา', '/leave/revisions', 'การลา', 30),
     ('LEAVE_TEAM', 'หัวหน้าแจ้งลาลูกน้อง', '/leave/team', 'การลา', 40),

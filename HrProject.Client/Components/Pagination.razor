@@ -1,0 +1,61 @@
+@if (TotalItems > 0)
+{
+    <div class="paging-bar" aria-label="การแบ่งหน้า">
+        <div class="paging-summary">
+            แสดง @StartItem-@EndItem จาก @TotalItems รายการ
+            <label>
+                ต่อหน้า
+                <select value="@PageSize" @onchange="ChangePageSize">
+                    @foreach (var size in PageSizeOptions)
+                    {
+                        <option value="@size">@size</option>
+                    }
+                </select>
+            </label>
+        </div>
+        <div class="paging-buttons">
+            <button type="button" disabled="@(SafePage <= 1)" @onclick="() => GoToPage(1)" aria-label="หน้าแรก">«</button>
+            <button type="button" disabled="@(SafePage <= 1)" @onclick="() => GoToPage(SafePage - 1)" aria-label="หน้าก่อนหน้า">‹</button>
+            @foreach (var pageNumber in VisiblePages)
+            {
+                <button type="button" class="@(pageNumber == SafePage ? "active" : null)" @onclick="() => GoToPage(pageNumber)">@pageNumber</button>
+            }
+            <button type="button" disabled="@(SafePage >= TotalPages)" @onclick="() => GoToPage(SafePage + 1)" aria-label="หน้าถัดไป">›</button>
+            <button type="button" disabled="@(SafePage >= TotalPages)" @onclick="() => GoToPage(TotalPages)" aria-label="หน้าสุดท้าย">»</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int TotalItems { get; set; }
+    [Parameter] public int CurrentPage { get; set; } = 1;
+    [Parameter] public EventCallback<int> CurrentPageChanged { get; set; }
+    [Parameter] public int PageSize { get; set; } = 10;
+    [Parameter] public EventCallback<int> PageSizeChanged { get; set; }
+    [Parameter] public int[] PageSizeOptions { get; set; } = [10, 20, 50];
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalItems / (double)Math.Max(1, PageSize)));
+    private int SafePage => Math.Clamp(CurrentPage, 1, TotalPages);
+    private int StartItem => (SafePage - 1) * PageSize + 1;
+    private int EndItem => Math.Min(SafePage * PageSize, TotalItems);
+    private IEnumerable<int> VisiblePages
+    {
+        get
+        {
+            var start = Math.Max(1, SafePage - 2);
+            var end = Math.Min(TotalPages, start + 4);
+            start = Math.Max(1, end - 4);
+            return Enumerable.Range(start, end - start + 1);
+        }
+    }
+
+    private Task GoToPage(int page) => CurrentPageChanged.InvokeAsync(Math.Clamp(page, 1, TotalPages));
+
+    private async Task ChangePageSize(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var size) || size <= 0)
+            return;
+        await PageSizeChanged.InvokeAsync(size);
+        await CurrentPageChanged.InvokeAsync(1);
+    }
+}

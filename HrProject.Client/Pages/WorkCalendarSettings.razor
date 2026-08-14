@@ -90,7 +90,7 @@
                         }
                         else
                         {
-                            @foreach (var item in CalendarDays)
+                            @foreach (var item in PagedCalendarDays)
                             {
                                 <tr>
                                     <td><strong>@item.CalendarDate.ToString("dd/MM/yyyy")</strong></td>
@@ -120,6 +120,7 @@
                     </tbody>
                 </table>
             </div>
+            <Pagination TotalItems="@CalendarDays.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
         }
     </section>
 </section>
@@ -352,6 +353,11 @@
     private string? SaveError;
     private string? DeleteError;
     private List<WorkCalendarDayDto> CalendarDays = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<WorkCalendarDayDto> PagedCalendarDays => CalendarDays
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(CalendarDays.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
     private CurrentMicrosoftUserDto? CurrentUser;
     private long? EditingId;
     private DateOnly EditingDate = DateOnly.FromDateTime(DateTime.Today);
@@ -413,6 +419,7 @@
 
     private async Task LoadCalendarDays()
     {
+        currentPage = 1;
         IsLoading = true;
         LoadError = null;
         try
@@ -495,9 +502,19 @@
             return;
         }
 
-        if (CurrentUser is null)
+        try
         {
-            SaveError = "ไม่พบข้อมูลพนักงานของผู้ใช้งาน กรุณาเข้าสู่ระบบใหม่";
+            CurrentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+        }
+        catch (Exception exception)
+        {
+            SaveError = $"ตรวจสอบบัญชีผู้ใช้งานไม่สำเร็จ: {exception.Message}";
+            return;
+        }
+
+        if (CurrentUser is null || string.IsNullOrWhiteSpace(CurrentUser.EmployeeId))
+        {
+            SaveError = "บัญชี Microsoft ยังไม่ได้ผูกข้อมูลพนักงาน จึงยังบันทึกรายการไม่ได้";
             return;
         }
 

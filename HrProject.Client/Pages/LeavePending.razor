@@ -64,10 +64,31 @@
             }
             else
             {
+                <div class="bulk-toolbar">
+                    @if (!string.IsNullOrWhiteSpace(bulkMessage))
+                    {
+                        <span class="bulk-message @(bulkSucceeded ? "success" : "error")">@bulkMessage</span>
+                    }
+                    <button class="btn btn-approve" type="button"
+                            disabled="@(SelectedCanApproveCount == 0 || isBulkSaving)"
+                            @onclick="BulkApprove">
+                        @(isBulkSaving ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({SelectedCanApproveCount})")
+                    </button>
+                    <button class="btn btn-reject" type="button"
+                            disabled="@(SelectedCanRejectCount == 0 || isBulkSaving || string.IsNullOrWhiteSpace(bulkRejectRemark))"
+                            @onclick="BulkReject">
+                        @(isBulkSaving ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({SelectedCanRejectCount})")
+                    </button>
+                    <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติรายการที่เลือก" />
+                </div>
                 <div class="table-responsive">
                     <table class="table employee-table pending-table">
                         <thead>
                             <tr>
+                                <th class="select-column">
+                                    <input type="checkbox" aria-label="เลือกทั้งหมดในหน้านี้"
+                                           checked="@AreAllPageItemsSelected" @onchange="ToggleCurrentPage" />
+                                </th>
                                 <th>เลขที่เอกสาร</th>
                                 <th>ผู้ขอลา</th>
                                 <th>แผนก</th>
@@ -82,14 +103,20 @@
                         <tbody>
                             @if (filteredDocuments.Count == 0)
                             {
-                                <tr><td colspan="9" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะรออนุมัติ</td></tr>
+                                <tr><td colspan="10" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะรออนุมัติ</td></tr>
                             }
                             else
                             {
-                                @foreach (var document in filteredDocuments)
+                                @foreach (var document in PagedDocuments)
                                 {
                                     <tr>
-                                        <td><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></td>
+                                        <td class="select-column">
+                                            <input type="checkbox" aria-label="เลือก @document.DocumentNo"
+                                                   disabled="@(!CanApprove(document))"
+                                                   checked="@selectedIds.Contains(document.Id)"
+                                                   @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" />
+                                        </td>
+                                        <td><LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
                                         <td>@document.CreatorName</td>
                                         <td>@document.CreatorDepartment</td>
                                         <td>@document.LeaveTypeName</td>
@@ -97,13 +124,14 @@
                                         <td>@document.StartTime.ToString("HH:mm")</td>
                                         <td>@document.LeaveHours.ToString("0.##")</td>
                                         <td>@document.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
-                                        <td><span class="status-pill pending">รออนุมัติ</span></td>
+                                        <td><span class="status-pill pending" data-status="PENDING_APPROVAL">รออนุมัติ</span></td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
+                <Pagination TotalItems="@filteredDocuments.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
             }
         </div>
     </section>
@@ -140,12 +168,18 @@
                     <span class="action-error" role="alert">@actionError</span>
                 }
                 <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
-                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectDocument">
-                    @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
-                </button>
-                <button class="btn btn-approve" type="button" disabled="@isSaving" @onclick="ApproveDocument">
-                    @(isSaving ? "กำลังอนุมัติ..." : "อนุมัติ")
-                </button>
+                @if (CanReject(selectedDocument))
+                {
+                    <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectDocument">
+                        @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                    </button>
+                }
+                @if (CanApprove(selectedDocument))
+                {
+                    <button class="btn btn-approve" type="button" disabled="@isSaving" @onclick="ApproveDocument">
+                        @(isSaving ? "กำลังอนุมัติ..." : "อนุมัติ")
+                    </button>
+                }
             </footer>
         </section>
     </div>
@@ -160,18 +194,41 @@
     private string? loadError;
     private string? actionError;
     private bool isSaving;
+    private bool isBulkSaving;
+    private bool bulkSucceeded;
+    private string? bulkMessage;
+    private string bulkRejectRemark = string.Empty;
+    private readonly HashSet<long> selectedIds = [];
     private List<LeaveTypeDto> leaveTypes = [];
+    private CurrentMicrosoftUserDto? currentUser;
+    private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
     private List<LeaveDocumentDto> documents = [];
     private List<LeaveDocumentDto> filteredDocuments = [];
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
+        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
     private LeaveDocumentDto? selectedDocument;
+    private List<LeaveDocumentDto> PageSelectableDocuments => PagedDocuments.Where(item => CanApprove(item) || CanReject(item)).ToList();
+    private int SelectedCanApproveCount => documents.Count(item => selectedIds.Contains(item.Id) && CanApprove(item));
+    private int SelectedCanRejectCount => documents.Count(item => selectedIds.Contains(item.Id) && CanReject(item));
+    private bool AreAllPageItemsSelected => PageSelectableDocuments.Count > 0 &&
+        PageSelectableDocuments.All(document => selectedIds.Contains(document.Id));
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("บัญชี Microsoft ยังไม่ได้เชื่อมกับข้อมูลพนักงาน");
+            var actionPermissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&pageKey=LEAVE_PENDING");
+            allowedActions = actionPermissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             documents = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
-                "api/leave-documents?status=PENDING_APPROVAL") ?? [];
+                $"api/leave-documents?status=PENDING_APPROVAL&actingEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
 
             // Keep a client-side guard as well, so this page can never show another status.
             documents = documents
@@ -191,6 +248,7 @@
 
     private void Search()
     {
+        currentPage = 1;
         filteredDocuments = documents.Where(document =>
             document.Status == "PENDING_APPROVAL" &&
             (string.IsNullOrWhiteSpace(searchText) ||
@@ -201,6 +259,7 @@
             (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
             (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
             .ToList();
+        selectedIds.IntersectWith(filteredDocuments.Select(document => document.Id));
     }
 
     private void Reset()
@@ -213,8 +272,9 @@
     private async Task OpenDocument(LeaveDocumentDto document)
     {
         actionError = null;
-        selectedDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>(
+        var detail = await Http.GetFromJsonAsync<LeaveDocumentDto>(
             $"api/leave-documents/{document.Id}") ?? document;
+        selectedDocument = detail with { CanCurrentUserReview = document.CanCurrentUserReview };
     }
 
     private void CloseDocument() => selectedDocument = null;
@@ -224,6 +284,77 @@
 
     private async Task RejectDocument()
         => await ReviewDocument("reject", "ไม่อนุมัติ");
+
+    private void ToggleItem(long id, bool selected)
+    {
+        if (selected) selectedIds.Add(id); else selectedIds.Remove(id);
+        bulkMessage = null;
+    }
+
+    private void ToggleCurrentPage(ChangeEventArgs eventArgs)
+    {
+        var selected = (bool?)eventArgs.Value == true;
+        foreach (var document in PageSelectableDocuments)
+        {
+            if (selected) selectedIds.Add(document.Id); else selectedIds.Remove(document.Id);
+        }
+        bulkMessage = null;
+    }
+
+    private async Task BulkApprove()
+    {
+        if (selectedIds.Count == 0 || isBulkSaving || currentUser is null) return;
+        isBulkSaving = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id) && CanApprove(item)).ToList())
+        {
+            try
+            {
+                var response = await Http.PostAsJsonAsync(
+                    $"api/leave-documents/{document.Id}/approve",
+                    new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName));
+                if (response.IsSuccessStatusCode) succeeded.Add(document.Id);
+                else failed.Add(document.DocumentNo);
+            }
+            catch { failed.Add(document.DocumentNo); }
+        }
+        documents.RemoveAll(item => succeeded.Contains(item.Id));
+        selectedIds.ExceptWith(succeeded);
+        Search();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0
+            ? $"อนุมัติเรียบร้อย {succeeded.Count} รายการ"
+            : $"อนุมัติสำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        isBulkSaving = false;
+    }
+
+    private async Task BulkReject()
+    {
+        if (SelectedCanRejectCount == 0 || isBulkSaving || currentUser is null || string.IsNullOrWhiteSpace(bulkRejectRemark)) return;
+        isBulkSaving = true;
+        bulkMessage = null;
+        var succeeded = new List<long>();
+        var failed = new List<string>();
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id) && CanReject(item)).ToList())
+        {
+            try
+            {
+                var response = await Http.PostAsJsonAsync($"api/leave-documents/{document.Id}/reject",
+                    new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName, bulkRejectRemark.Trim()));
+                if (response.IsSuccessStatusCode) succeeded.Add(document.Id); else failed.Add(document.DocumentNo);
+            }
+            catch { failed.Add(document.DocumentNo); }
+        }
+        documents.RemoveAll(item => succeeded.Contains(item.Id));
+        selectedIds.ExceptWith(succeeded);
+        Search();
+        bulkSucceeded = failed.Count == 0;
+        bulkMessage = failed.Count == 0 ? $"ไม่อนุมัติเรียบร้อย {succeeded.Count} รายการ" : $"สำเร็จ {succeeded.Count} รายการ; ไม่สำเร็จ: {string.Join(", ", failed)}";
+        if (failed.Count == 0) bulkRejectRemark = string.Empty;
+        isBulkSaving = false;
+    }
 
     private async Task ReviewDocument(string action, string actionText)
     {
@@ -235,8 +366,8 @@
         try
         {
             var request = new ReviewLeaveDocumentRequest(
-                "EMP-002",
-                "Somchai Jaidee");
+                currentUser!.EmployeeId,
+                currentUser.EmployeeName);
             var response = await Http.PostAsJsonAsync(
                 $"api/leave-documents/{selectedDocument.Id}/{action}",
                 request);
@@ -266,4 +397,12 @@
 
     private static string KindText(string kind) =>
         kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+
+    private bool CanApprove(LeaveDocumentDto document) =>
+        document.CanCurrentUserReview ||
+        allowedActions.Contains("APPROVE");
+
+    private bool CanReject(LeaveDocumentDto document) =>
+        document.CanCurrentUserReview ||
+        allowedActions.Contains("REJECT");
 }
