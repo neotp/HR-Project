@@ -1,0 +1,35 @@
+.time-minute-picker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: .45rem;
+    width: 100%;
+}
+
+.time-minute-picker select {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    padding: 0 .75rem;
+    border: 1px solid #cbd7e7;
+    border-radius: 8px;
+    background: #fff;
+    color: #17233d;
+    font: inherit;
+}
+
+.time-minute-picker select:focus {
+    border-color: #2563eb;
+    outline: 2px solid rgba(37, 99, 235, .14);
+}
+
+.time-minute-picker select:disabled {
+    background: #e5ebf3;
+    color: #6b7890;
+    cursor: not-allowed;
+}
+
+.time-minute-picker span {
+    color: #52617a;
+    font-weight: 700;
+}

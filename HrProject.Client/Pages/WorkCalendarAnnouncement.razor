@@ -1,0 +1,211 @@
+@page "/attendance/calendar-settings/print/{DayType}/{Year:int}"
+@layout PrintLayout
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>@DocumentTitle | HR Project</PageTitle>
+
+<div class="print-toolbar no-print">
+    <a href="/attendance/calendar-settings">← กลับหน้ากำหนดปฏิทิน</a>
+    <span>ตรวจสอบตัวอย่างก่อนเลือก “บันทึกเป็น PDF” ในหน้าต่างพิมพ์</span>
+    <button type="button" disabled="@IsLoading" @onclick="PrintDocument">พิมพ์ / บันทึก PDF</button>
+</div>
+
+@if (IsLoading)
+{
+    <div class="announcement-state">กำลังจัดเตรียมเอกสาร...</div>
+}
+else if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="announcement-state error">@ErrorMessage</div>
+}
+else
+{
+    <article class="announcement-sheet" style="@TemplateStyle">
+        <header class="announcement-letterhead">
+            <div class="top-red-band"></div>
+            <div class="top-red-line"></div>
+            @if (Template.ShowLogo)
+            {
+                <img class="@(Template.LogoPosition.Equals("LEFT", StringComparison.OrdinalIgnoreCase) ? "logo-left" : "logo-right")" src="images/image.png" alt="SiS" />
+            }
+        </header>
+
+        <section class="announcement-content">
+            <div class="template-heading">
+                <h1>@TemplateText(Template.TitleThai)</h1>
+                @if (Template.ShowEnglishTitle && !string.IsNullOrWhiteSpace(Template.TitleEnglish))
+                {
+                    <h2>@TemplateText(Template.TitleEnglish)</h2>
+                }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Template.IntroText))
+            {
+                <p class="template-intro">@TemplateText(Template.IntroText)</p>
+            }
+            @if (IsHolidayDocument)
+            {
+                <ol class="holiday-announcement-list">
+                    @foreach (var item in Items)
+                    {
+                        <li>
+                            <div class="holiday-thai-row">
+                                <span>@ThaiWeekday(item.CalendarDate.DayOfWeek)</span>
+                                <strong>@item.CalendarDate.Day</strong>
+                                <span>@ThaiMonth(item.CalendarDate.Month)</span>
+                                <span>@item.Name</span>
+                            </div>
+                            <div class="holiday-english-row">
+                                <span>@EnglishWeekday(item.CalendarDate.DayOfWeek)</span>
+                                <span></span>
+                                <span>@EnglishMonth(item.CalendarDate.Month)</span>
+                                <span>@(string.IsNullOrWhiteSpace(item.Note) ? item.Name : item.Note)</span>
+                            </div>
+                        </li>
+                    }
+                </ol>
+            }
+            else
+            {
+                <h3>วันเสาร์ทำงาน</h3>
+
+                <ol class="saturday-announcement-list">
+                    @foreach (var item in Items)
+                    {
+                        <li>
+                            <span>เสาร์</span>
+                            <strong>@item.CalendarDate.Day</strong>
+                            <span>@ThaiMonth(item.CalendarDate.Month)</span>
+                            @if (!string.IsNullOrWhiteSpace(item.Note))
+                            {
+                                <small>@item.Note</small>
+                            }
+                        </li>
+                    }
+                </ol>
+
+                <section class="saturday-policy">
+                    <p>@TemplateText(Template.PolicyText)</p>
+                </section>
+            }
+        </section>
+
+        @if (Template.ShowFooter)
+        {
+            <footer class="announcement-footer">
+                <section class="footer-language footer-thai">
+                    @foreach (var line in FooterLines(Template.FooterThai, true))
+                    {
+                        <strong>@line</strong>
+                    }
+                </section>
+                <section class="footer-language footer-english">
+                    @foreach (var line in FooterLines(Template.FooterEnglish, false))
+                    {
+                        <span>@line</span>
+                    }
+                </section>
+            </footer>
+        }
+    </article>
+}
+
+@code {
+    [Parameter] public string DayType { get; set; } = string.Empty;
+    [Parameter] public int Year { get; set; }
+
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+    private List<WorkCalendarDayDto> Items = [];
+    private WorkCalendarTemplateSettings Template = new();
+    private bool IsHolidayDocument => string.Equals(DayType, "holidays", StringComparison.OrdinalIgnoreCase);
+    private string ApiDayType => IsHolidayDocument ? "PUBLIC_HOLIDAY" : "WORKING_SATURDAY";
+    private string DocumentTitle => IsHolidayDocument ? $"ประกาศวันหยุด {Year}" : $"ประกาศวันเสาร์ทำงาน {Year}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        if (Year is < 2000 or > 2200 ||
+            (!IsHolidayDocument && !string.Equals(DayType, "saturdays", StringComparison.OrdinalIgnoreCase)))
+        {
+            ErrorMessage = "ประเภทเอกสารหรือปีไม่ถูกต้อง";
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            var allItems = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>($"api/work-calendar?year={Year}") ?? [];
+            Items = allItems.Where(item => item.DayType == ApiDayType).OrderBy(item => item.CalendarDate).ToList();
+            Template = await LoadTemplate();
+            if (Items.Count == 0) ErrorMessage = $"ยังไม่มีรายการ{(IsHolidayDocument ? "วันหยุดนักขัตฤกษ์" : "วันเสาร์ทำงาน")}ในปี {Year}";
+        }
+        catch (Exception exception)
+        {
+            ErrorMessage = $"โหลดข้อมูลสำหรับเอกสารไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task PrintDocument() => await JS.InvokeVoidAsync("hrPrint.print");
+
+    private async Task<WorkCalendarTemplateSettings> LoadTemplate()
+    {
+        try
+        {
+            var dto = await Http.GetFromJsonAsync<WorkCalendarTemplateDto>($"api/work-calendar-templates/published/{ApiDayType}");
+            return dto?.Settings ?? DefaultTemplate();
+        }
+        catch
+        {
+            return DefaultTemplate();
+        }
+    }
+
+    private WorkCalendarTemplateSettings DefaultTemplate() => new()
+    {
+        TitleThai = IsHolidayDocument ? "ประกาศวันหยุดตามประเพณี ประจำปี {{year_th}}" : "ประกาศ|วันเสาร์ทำงานประจำปี พ.ศ. {{year_th}}",
+        TitleEnglish = IsHolidayDocument ? "Announcement : Public Holidays for year {{year_en}}" : "Working Saturdays for year {{year_en}}",
+        PolicyText = IsHolidayDocument ? "" : "เวลาทำงาน 09:00 - 17:00 น. และพักกลางวัน 12:00 - 13:00 น.|วันเสาร์ที่ไม่ปรากฏในประกาศนี้ถือเป็นวันหยุดประจำสัปดาห์",
+        FooterThai = "บริษัท เอสไอเอส ดิสทริบิวชั่น (ประเทศไทย) จำกัด (มหาชน)|เลขที่ 9 อาคารภคินท์ ชั้น 9 ห้องเลขที่ 901 ถนนรัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพฯ 10400 โทรศัพท์ 02-020-3000",
+        FooterEnglish = "SIS DISTRIBUTION (THAILAND) PUBLIC COMPANY LIMITED|9 Pakin Building, 9th Floor, Room No.901, Ratchadaphisek Road, Din Daeng, Bangkok 10400 Tel: +662-020-3000"
+    };
+
+    private string TemplateText(string? value) => (value ?? "")
+        .Replace("{{year_th}}", (Year + 543).ToString())
+        .Replace("{{year_en}}", Year.ToString())
+        .Replace("|", "\n");
+
+    private IEnumerable<string> FooterLines(string? value, bool isThai)
+    {
+        var text = (value ?? string.Empty)
+            .Replace("{{year_th}}", (Year + 543).ToString())
+            .Replace("{{year_en}}", Year.ToString())
+            .Replace("\r", string.Empty);
+        if (!text.Contains('|') && !text.Contains('\n'))
+            text = isThai
+                ? text.Replace(" เลขที่ 9 ", "|เลขที่ 9 ", StringComparison.Ordinal)
+                : text.Replace(" 9 Pakin Building", "|9 Pakin Building", StringComparison.OrdinalIgnoreCase);
+        return text.Split(['|', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private string TemplateStyle => $"--header-band:{Template.HeaderBandColor};--accent:{Template.AccentColor};--title-color:{Template.TitleColor};--title-align:{Template.TitleAlignment.ToLowerInvariant()};--page-margin:{Template.PageMarginMm}mm;--base-font:{Template.BaseFontSizePt}pt;--list-spacing:{Template.ListSpacingMm}mm";
+
+    private static string ThaiMonth(int month) => ThaiMonths[month - 1];
+    private static string EnglishMonth(int month) => EnglishMonths[month - 1];
+    private static string ThaiWeekday(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Sunday => "อาทิตย์", DayOfWeek.Monday => "จันทร์", DayOfWeek.Tuesday => "อังคาร",
+        DayOfWeek.Wednesday => "พุธ", DayOfWeek.Thursday => "พฤหัสบดี", DayOfWeek.Friday => "ศุกร์",
+        _ => "เสาร์"
+    };
+    private static string EnglishWeekday(DayOfWeek day) => day.ToString();
+    private static readonly string[] ThaiMonths =
+        ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+    private static readonly string[] EnglishMonths =
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+}

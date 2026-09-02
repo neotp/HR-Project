@@ -1,0 +1,98 @@
+.confirm-action-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 6000;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, .58);
+    backdrop-filter: blur(2px);
+}
+
+.confirm-action-dialog {
+    width: min(440px, 100%);
+    padding: 1.5rem;
+    text-align: center;
+    background: #fff;
+    border-radius: .85rem;
+    box-shadow: 0 24px 65px rgba(15, 23, 42, .3);
+}
+
+.confirm-action-icon {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    margin: 0 auto .8rem;
+    color: #fff;
+    font-size: 1.5rem;
+    font-weight: 800;
+    background: #2563eb;
+    border-radius: 50%;
+}
+
+.confirm-action-icon.danger { background: #dc2626; }
+.confirm-action-icon.warning { background: #f97316; }
+.confirm-action-icon.success { background: #16a34a; }
+
+.confirm-action-dialog h2 {
+    margin: 0;
+    color: #172442;
+    font-size: 1.25rem;
+}
+
+.confirm-action-dialog > p {
+    margin: .55rem 0 1.25rem;
+    color: #64748b;
+    white-space: pre-line;
+}
+
+.confirm-action-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .65rem;
+    margin-bottom: 1rem;
+    padding: .7rem;
+    color: #334155;
+    background: #f8fafc;
+    border-radius: .5rem;
+}
+
+.confirm-action-spinner {
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 3px solid #cbd5e1;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: confirm-spin .7s linear infinite;
+}
+
+.confirm-action-dialog footer {
+    display: flex;
+    justify-content: center;
+    gap: .65rem;
+}
+
+.confirm-action-dialog button {
+    min-width: 7rem;
+    padding: .65rem 1rem;
+    font: inherit;
+    font-weight: 700;
+    border-radius: .45rem;
+    cursor: pointer;
+}
+
+.confirm-action-dialog button:disabled { cursor: wait; opacity: .65; }
+.confirm-cancel { color: #475569; background: #fff; border: 1px solid #cbd5e1; }
+.confirm-submit { color: #fff; background: #2563eb; border: 1px solid #2563eb; }
+.confirm-submit.danger { background: #dc2626; border-color: #dc2626; }
+.confirm-submit.warning { background: #f97316; border-color: #f97316; }
+.confirm-submit.success { background: #16a34a; border-color: #16a34a; }
+
+@keyframes confirm-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 480px) {
+    .confirm-action-dialog footer { flex-direction: column-reverse; }
+    .confirm-action-dialog button { width: 100%; }
+}

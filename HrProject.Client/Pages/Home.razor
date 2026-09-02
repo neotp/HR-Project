@@ -73,12 +73,12 @@
             {
                 <table class="table employee-table">
                     <thead>
-                        <tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>อีเมล</th><th></th></tr>
+                        <tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>Email for Lotus Notes</th><th>Email</th><th></th></tr>
                     </thead>
                     <tbody>
                         @if (FilteredEmployees.Count == 0)
                         {
-                            <tr><td colspan="6" class="employee-empty-state">ไม่พบพนักงานตามคำค้นหา</td></tr>
+                            <tr><td colspan="7" class="employee-empty-state">ไม่พบพนักงานตามคำค้นหา</td></tr>
                         }
                         @foreach (var employee in PagedEmployees)
                         {
@@ -90,6 +90,7 @@
                                 <td><strong>@employee.FullName</strong></td>
                                 <td>@employee.Department</td>
                                 <td>@employee.Position</td>
+                                <td>@employee.LotusNotesEmail</td>
                                 <td>@employee.Email</td>
                                 <td><span class="view-details">ดูข้อมูล ›</span></td>
                             </tr>
@@ -159,14 +160,15 @@
                                         }
                                     </div>
                                 </div>
-                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" /></label>
+                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" /></label>
                                 <label>คำนำหน้าชื่อ<select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>ชื่อ <span>*</span><input @bind="newEmployee.FirstName" /></label>
                                 <label>นามสกุล <span>*</span><input @bind="newEmployee.LastName" /></label>
                                 <label>ชื่อ-นามสกุล (ไทย)<input @bind="newEmployee.ThaiFullName" /></label>
                                 <label>ชื่อ-นามสกุล (อังกฤษ)<input @bind="newEmployee.EnglishFullName" /></label>
                                 <label>ชื่อเล่น<input @bind="newEmployee.Nickname" /></label>
-                                <label>E-mail <span>*</span><input type="email" @bind="newEmployee.Email" /></label>
+                                <label>Email for Lotus Notes<input @bind="newEmployee.LotusNotesEmail" /></label>
+                                <label>Email <span>*</span><input type="email" @bind="newEmployee.Email" /></label>
                                 <label>เบอร์มือถือส่วนตัว<input @bind="newEmployee.PersonalMobile" /></label>
                                 <label>โทรศัพท์บ้าน<input @bind="newEmployee.HomePhone" /></label>
                             </div>
@@ -204,7 +206,7 @@
                                 </label>
                                 <label>เวลาทำงาน<select @bind="newEmployee.WorkSchedule"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_SCHEDULE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>สถานที่ทำงาน<select @bind="newEmployee.WorkLocation"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_LOCATION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>วันที่เริ่มงาน <span>*</span><input type="date" @bind="newEmployee.StartDate" /></label>
+                                <label>วันที่เริ่มงาน <span>*</span><DateOnlyPicker Value="@newEmployee.StartDate" ValueChanged="value => newEmployee.StartDate = value ?? newEmployee.StartDate" AriaLabel="วันที่เริ่มงาน" /></label>
                                 <label>Ext. ภายใน<input @bind="newEmployee.InternalExtension" /></label>
                                 <label>เบอร์โทรสายตรง<input @bind="newEmployee.DirectPhone" /></label>
                                 <label>เบอร์มือถือบริษัท<input @bind="newEmployee.CompanyMobile" /></label>
@@ -216,6 +218,10 @@
                                         <option value="ทดลองงาน">ทดลองงาน</option>
                                         <option value="พักงาน">พักงาน</option>
                                     </select>
+                                </label>
+                                <label class="attendance-exclusion-option">
+                                    <input type="checkbox" @bind="newEmployee.ExcludeAttendanceCalculation" />
+                                    <span>ไม่ต้องคำนวณการมาทำงาน</span>
                                 </label>
                             </div>
                             break;
@@ -322,7 +328,7 @@
                                 </label>
                                 <label>คำนำหน้าคู่สมรส<input @bind="newEmployee.SpouseTitle" /></label>
                                 <label>ชื่อ-นามสกุลคู่สมรส<input @bind="newEmployee.SpouseName" /></label>
-                                <label>วันที่สมรส<input type="date" @bind="newEmployee.MarriageDate" /></label>
+                                <label>วันที่สมรส<DateOnlyPicker @bind-Value="newEmployee.MarriageDate" AriaLabel="วันที่สมรส" /></label>
                                 <label>คู่สมรสมีรายได้
                                     <select @bind="spouseHasIncome"><option value="">-- เลือก --</option><option value="true">มีรายได้</option><option value="false">ไม่มีรายได้</option></select>
                                 </label>
@@ -384,6 +390,7 @@
              employee.ThaiFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              employee.EnglishFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              employee.Nickname.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.LotusNotesEmail.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              employee.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
             (string.IsNullOrWhiteSpace(positionSearch) ||
              employee.Position.Contains(positionSearch, StringComparison.OrdinalIgnoreCase)) &&
@@ -491,6 +498,11 @@
     private async Task SaveEmployee()
     {
         createError = null;
+        if (newEmployee.EmployeeCode.Trim().Length != 6)
+        {
+            createError = "รหัสพนักงานต้องมี 6 ตัว";
+            return;
+        }
         if (string.IsNullOrWhiteSpace(newEmployee.EmployeeCode) ||
             string.IsNullOrWhiteSpace(newEmployee.FirstName) ||
             string.IsNullOrWhiteSpace(newEmployee.LastName) ||

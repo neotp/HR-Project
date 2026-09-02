@@ -10,12 +10,26 @@
 }
 
 .btn-create,
-.btn-secondary-action {
+.btn-secondary-action,
+.btn-pdf {
     min-height: 42px;
     padding: .6rem 1rem;
     border: 1px solid transparent;
     border-radius: .55rem;
     font-weight: 700;
+}
+
+.btn-pdf {
+    color: #172442;
+    background: #fff;
+    border-color: #cbd5e1;
+    text-decoration: none;
+}
+
+.btn-pdf:hover {
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-color: #93c5fd;
 }
 
 .btn-create {

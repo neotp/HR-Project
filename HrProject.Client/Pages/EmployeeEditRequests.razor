@@ -21,15 +21,9 @@
                     <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
                            placeholder="เลขที่เอกสาร พนักงาน เหตุผล หรือข้อมูลที่แก้ไข" />
                 </label>
-                <label>สถานะ
-                    <select @bind="statusFilter" @bind:after="ResetPaging">
-                        <option value="">ทั้งหมด</option>
-                        <option value="PENDING">รออนุมัติ</option>
-                        <option value="APPROVED">อนุมัติแล้ว</option>
-                        <option value="REJECTED">ไม่อนุมัติ</option>
-                        <option value="CANCELLED">ยกเลิก</option>
-                    </select>
-                </label>
+                <div class="criteria-filter"><span>สถานะ</span>
+                    <CriteriaMultiSelect Options="@StatusFilterOptions" Values="@selectedStatuses" ValuesChanged="SetStatusFilters" />
+                </div>
                 <button class="reset-filter" type="button" @onclick="ResetFilter">ล้างข้อมูล</button>
             </div>
         </div>
@@ -178,7 +172,23 @@
                                     {
                                         <label>
                                             <span>@change.FieldName</span>
-                                            <input value="@change.OldValue" disabled />
+                                            @if (IsProfileImageChange(change))
+                                            {
+                                                <div class="profile-change-preview current-image">
+                                                    @if (string.IsNullOrWhiteSpace(change.OldValue))
+                                                    {
+                                                        <span>ไม่มีรูปโปรไฟล์</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <img src="@change.OldValue" alt="รูปโปรไฟล์ปัจจุบัน" />
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <input value="@change.OldValue" disabled />
+                                            }
                                         </label>
                                     }
                                 </section>
@@ -191,7 +201,16 @@
                                                 @change.FieldName
                                                 <small>มีการเปลี่ยนแปลง</small>
                                             </span>
-                                            <input value="@change.NewValue" disabled />
+                                            @if (IsProfileImageChange(change))
+                                            {
+                                                <div class="profile-change-preview requested-image">
+                                                    <img src="@change.NewValue" alt="รูปโปรไฟล์ที่ขอแก้ไข" />
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <input value="@change.NewValue" disabled />
+                                            }
                                         </label>
                                     }
                                 </section>
@@ -235,7 +254,9 @@
     private bool isLoading = true;
     private string? loadError;
     private string searchText = string.Empty;
-    private string statusFilter = string.Empty;
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly IReadOnlyList<CriteriaFilterOption> StatusFilterOptions =
+        [new("PENDING", "รออนุมัติ"), new("APPROVED", "อนุมัติแล้ว"), new("REJECTED", "ไม่อนุมัติ"), new("CANCELLED", "ยกเลิก")];
     private List<EmployeeEditRequestDto> requests = [];
     private int currentPage = 1;
     private int pageSize = 10;
@@ -255,7 +276,7 @@
     private bool CanBulkReject => allowedActions.Contains("REJECT");
 
     private List<EmployeeEditRequestDto> FilteredRequests => requests.Where(request =>
-        (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter) &&
+        (selectedStatuses.Count == 0 || selectedStatuses.Contains(request.Status)) &&
         (string.IsNullOrWhiteSpace(searchText) ||
          request.RequestNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
          request.EmployeeId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
@@ -305,10 +326,16 @@
     {
         currentPage = 1;
         searchText = string.Empty;
-        statusFilter = string.Empty;
+        selectedStatuses.Clear();
     }
 
     private void ResetPaging() => currentPage = 1;
+
+    private Task SetStatusFilters(IReadOnlyCollection<string> values)
+    {
+        selectedStatuses.Clear(); selectedStatuses.UnionWith(values); ResetPaging();
+        return Task.CompletedTask;
+    }
 
     private void OpenRequest(EmployeeEditRequestDto request)
     {
@@ -471,6 +498,9 @@
         var separator = fieldKey.IndexOf('.');
         return separator > 0 ? fieldKey[..separator] : "basic";
     }
+
+    private static bool IsProfileImageChange(EmployeeFieldChangeDto change) =>
+        string.Equals(change.FieldKey, "profileImage", StringComparison.OrdinalIgnoreCase);
 
     private static string StatusText(string status) => status switch
     {

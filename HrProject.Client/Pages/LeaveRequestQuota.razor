@@ -22,24 +22,8 @@
                     <input @bind="searchText" @bind:event="oninput" @bind:after="Filter"
                            placeholder="เลขที่คำขอ ประเภท หรือเหตุผล" />
                 </label>
-                <label>ประเภทการลา
-                    <select @bind="leaveTypeFilter" @bind:after="Filter">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var type in leaveTypes)
-                        {
-                            <option value="@type.NameTh">@type.NameTh</option>
-                        }
-                    </select>
-                </label>
-                <label>สถานะ
-                    <select @bind="statusFilter" @bind:after="Filter">
-                        <option value="">ทั้งหมด</option>
-                        <option value="PENDING">รออนุมัติ</option>
-                        <option value="APPROVED">อนุมัติแล้ว</option>
-                        <option value="REJECTED">ไม่อนุมัติ</option>
-                        <option value="CANCELLED">ยกเลิก</option>
-                    </select>
-                </label>
+                <div class="criteria-field"><span>ประเภทการลา</span><CriteriaMultiSelect Options="@LeaveTypeFilterOptions" Values="@selectedLeaveTypes" ValuesChanged="SetLeaveTypeFilters" /></div>
+                <div class="criteria-field"><span>สถานะ</span><CriteriaMultiSelect Options="@StatusFilterOptions" Values="@selectedStatuses" ValuesChanged="SetStatusFilters" /></div>
             </div>
             <div class="criteria-actions">
                 <button class="btn btn-reset" type="button" @onclick="Reset">ล้างข้อมูล</button>
@@ -202,15 +186,9 @@
                                             <tr @key="row.RowId">
                                                 <td>@(index + 1)</td>
                                                 <td>
-                                                    <select @bind="row.EmployeeId">
-                                                        <option value="">-- เลือกพนักงาน --</option>
-                                                        @foreach (var employee in AvailableEmployeesFor(row))
-                                                        {
-                                                            <option value="@employee.EmployeeCode">
-                                                                @employee.FullName (@employee.EmployeeCode)
-                                                            </option>
-                                                        }
-                                                    </select>
+                                                    <EmployeeSearchSelect Items="@AvailableEmployeesFor(row).ToList()"
+                                                                          @bind-Value="row.EmployeeId"
+                                                                          Placeholder="ค้นหาพนักงาน" />
                                                 </td>
                                                 <td>@EmployeeDepartment(row.EmployeeId)</td>
                                                 <td>
@@ -331,8 +309,10 @@
     private string? saveError;
     private string? reviewError;
     private string searchText = string.Empty;
-    private string leaveTypeFilter = string.Empty;
-    private string statusFilter = string.Empty;
+    private readonly HashSet<string> selectedLeaveTypes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CriteriaFilterOption> LeaveTypeFilterOptions => leaveTypes.Select(x => new CriteriaFilterOption(x.NameTh, x.NameTh)).ToList();
+    private static readonly IReadOnlyList<CriteriaFilterOption> StatusFilterOptions = [new("PENDING", "รออนุมัติ"), new("APPROVED", "อนุมัติแล้ว"), new("REJECTED", "ไม่อนุมัติ"), new("CANCELLED", "ยกเลิก")];
     private readonly List<EmployeeQuotaRequestRow> employeeRequests = [];
     private List<Employee> employees = [];
     private List<LeaveTypeDto> leaveTypes = [];
@@ -395,17 +375,19 @@
              EmployeeName(request.EmployeeId).Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              request.LeaveTypeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              request.RequestReason.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(leaveTypeFilter) || request.LeaveTypeName == leaveTypeFilter) &&
-            (string.IsNullOrWhiteSpace(statusFilter) || request.Status == statusFilter))
+            (selectedLeaveTypes.Count == 0 || selectedLeaveTypes.Contains(request.LeaveTypeName)) &&
+            (selectedStatuses.Count == 0 || selectedStatuses.Contains(request.Status)))
             .ToList();
         selectedIds.IntersectWith(filteredRequests.Where(item => item.Status == "PENDING").Select(item => item.Id));
     }
 
     private void Reset()
     {
-        searchText = leaveTypeFilter = statusFilter = string.Empty;
+        searchText = string.Empty; selectedLeaveTypes.Clear(); selectedStatuses.Clear();
         Filter();
     }
+    private Task SetLeaveTypeFilters(IReadOnlyCollection<string> values) { selectedLeaveTypes.Clear(); selectedLeaveTypes.UnionWith(values); Filter(); return Task.CompletedTask; }
+    private Task SetStatusFilters(IReadOnlyCollection<string> values) { selectedStatuses.Clear(); selectedStatuses.UnionWith(values); Filter(); return Task.CompletedTask; }
 
     private void OpenCreate()
     {

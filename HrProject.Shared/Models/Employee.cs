@@ -12,6 +12,7 @@ public sealed class Employee
     public string Nickname { get; set; } = string.Empty;
     public string Department { get; set; } = string.Empty;
     public string Position { get; set; } = string.Empty;
+    public string LotusNotesEmail { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public DateOnly StartDate { get; set; }
     public string Company { get; set; } = string.Empty;
@@ -58,6 +59,7 @@ public sealed class Employee
     public string PreviousWorkDetails { get; set; } = string.Empty;
     public List<EmployeeWorkHistoryItem> WorkHistory { get; set; } = [];
     public bool? CanTravelUpcountry { get; set; }
+    public bool ExcludeAttendanceCalculation { get; set; }
     public string EducationLevel { get; set; } = string.Empty;
     public string EducationInstitution { get; set; } = string.Empty;
     public string EducationMajor { get; set; } = string.Empty;

@@ -1,5 +1,6 @@
 using HrProject.Shared.Models;
 using HrProject.Api.Services;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -9,7 +10,8 @@ namespace HrProject.Api.Controllers;
 [Route("api/page-permissions")]
 public sealed class PagePermissionsController(
     NpgsqlDataSource dataSource,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    PageAccessService pageAccessService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<PagePermissionDto>>> GetAll(
@@ -102,6 +104,85 @@ public sealed class PagePermissionsController(
         var actions = await actionPermissionService.GetAllowedActions(
             employeeId.Trim(), pageKey.Trim().ToUpperInvariant(), cancellationToken);
         return Ok(new CurrentPageActionPermissionsDto(pageKey.Trim().ToUpperInvariant(), actions));
+    }
+
+    [HttpGet("current-access/{pageKey}")]
+    public async Task<ActionResult<CurrentPageAccessDto>> GetCurrentAccess(
+        string pageKey,
+        CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return StatusCode(StatusCodes.Status403Forbidden,
+                "ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
+
+        var normalizedPageKey = pageKey.Trim().ToUpperInvariant();
+        var access = await pageAccessService.GetAccess(
+            employeeId, normalizedPageKey, cancellationToken);
+        return Ok(new CurrentPageAccessDto(
+            normalizedPageKey,
+            access.CanAccess,
+            access.GrantedByBusinessRule,
+            access.GrantedByExplicitPermission));
+    }
+
+    [HttpGet("availability")]
+    public async Task<ActionResult<IReadOnlyList<ApplicationPageAvailabilityDto>>> GetAvailability(
+        CancellationToken cancellationToken) =>
+        Ok(await LoadAvailability(cancellationToken));
+
+    [HttpPut("availability")]
+    public async Task<ActionResult<IReadOnlyList<ApplicationPageAvailabilityDto>>> SaveAvailability(
+        SaveApplicationPageAvailabilityRequest request,
+        CancellationToken cancellationToken)
+    {
+        var pages = request.Pages?
+            .GroupBy(item => item.PageId)
+            .Select(group => group.Last())
+            .ToList() ?? [];
+
+        if (pages.Count == 0 || pages.Any(item => item.PageId <= 0) ||
+            string.IsNullOrWhiteSpace(request.UpdatedBy) ||
+            string.IsNullOrWhiteSpace(request.UpdatedByName))
+            return BadRequest("ข้อมูลสถานะเมนูไม่ครบถ้วน");
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        const string sql = """
+            UPDATE public.application_pages
+            SET is_enabled = @is_enabled,
+                availability_updated_by = @updated_by,
+                availability_updated_by_name = @updated_by_name,
+                availability_updated_at = CURRENT_TIMESTAMP
+            WHERE id = @page_id
+              AND is_active = TRUE
+              AND page_key <> 'PERMISSIONS'
+            """;
+
+        foreach (var page in pages)
+        {
+            await using var command = new NpgsqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("page_id", page.PageId);
+            command.Parameters.AddWithValue("is_enabled", page.IsEnabled);
+            command.Parameters.AddWithValue("updated_by", request.UpdatedBy.Trim());
+            command.Parameters.AddWithValue("updated_by_name", request.UpdatedByName.Trim());
+            var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+            if (affected == 0)
+            {
+                const string pageKeySql = "SELECT page_key FROM public.application_pages WHERE id = @page_id AND is_active = TRUE";
+                await using var keyCommand = new NpgsqlCommand(pageKeySql, connection, transaction);
+                keyCommand.Parameters.AddWithValue("page_id", page.PageId);
+                var pageKey = await keyCommand.ExecuteScalarAsync(cancellationToken) as string;
+                if (!string.Equals(pageKey, "PERMISSIONS", StringComparison.OrdinalIgnoreCase))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return BadRequest($"ไม่พบหน้าระบบรหัส {page.PageId}");
+                }
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return Ok(await LoadAvailability(cancellationToken));
     }
 
     [HttpPut("employees/{employeeId}/actions")]
@@ -220,5 +301,54 @@ public sealed class PagePermissionsController(
                 reader.GetInt32(8), reader.GetBoolean(9)));
         }
         return result;
+    }
+
+    private async Task<IReadOnlyList<ApplicationPageAvailabilityDto>> LoadAvailability(
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT id, page_key, page_name, route_path, category_name,
+                   display_order, is_enabled, availability_updated_at,
+                   availability_updated_by_name
+            FROM public.application_pages
+            WHERE is_active = TRUE
+            ORDER BY display_order, id
+            """;
+
+        var result = new List<ApplicationPageAvailabilityDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new ApplicationPageAvailabilityDto(
+                reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
+                reader.GetString(3), reader.GetString(4), reader.GetInt32(5),
+                reader.GetBoolean(6),
+                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8)));
+        }
+
+        return result;
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))
+            return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id
+              AND entra_object_id = @object_id
+              AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 }

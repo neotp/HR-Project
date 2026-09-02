@@ -1,0 +1,88 @@
+@page { size: A4 portrait; margin: 0; }
+
+.print-toolbar {
+    position: sticky;
+    z-index: 10;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: .75rem 1rem;
+    color: #334155;
+    background: #fff;
+    border-bottom: 1px solid #cbd5e1;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, .08);
+    font-size: .85rem;
+}
+.print-toolbar a { color: #2563eb; font-weight: 700; text-decoration: none; }
+.print-toolbar button { padding: .55rem .9rem; color: #fff; background: #ff6b35; border: 0; border-radius: .45rem; font: inherit; font-weight: 700; cursor: pointer; }
+.announcement-state { width: min(210mm, 100%); margin: 2rem auto; padding: 2rem; color: #334155; background: #fff; text-align: center; }
+.announcement-state.error { color: #b91c1c; }
+
+.announcement-sheet {
+    position: relative;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 1.25rem auto;
+    overflow: hidden;
+    color: #111827;
+    background: #fff;
+    box-shadow: 0 10px 35px rgba(15, 23, 42, .2);
+    font-family: Tahoma, "Leelawadee UI", "Noto Sans Thai", sans-serif;
+}
+.announcement-letterhead { height: 39mm; }
+.top-red-band { height: 15.5mm; background: var(--header-band, #f31322); }
+.top-red-line { height: 1.5mm; margin-top: 1.2mm; background: var(--header-band, #f31322); }
+.announcement-letterhead img { position: absolute; top: 23mm; width: 25mm; height: auto; }
+.announcement-letterhead img.logo-right { right: 15mm; }
+.announcement-letterhead img.logo-left { left: 15mm; }
+.announcement-content { padding: 0 var(--page-margin, 17mm) 31mm; font-size: var(--base-font, 9.2pt); }
+.template-heading { color: var(--title-color, #111827); text-align: var(--title-align, center); }
+.announcement-content .template-heading h1 { margin: 0; white-space: pre-line; font-size: 17pt; font-weight: 500; text-align: inherit; text-decoration: underline; }
+.announcement-content .template-heading h2 { margin: 2mm 0 9mm; white-space: pre-line; font-size: 12.5pt; font-weight: 400; text-align: inherit; text-decoration: underline; }
+.template-intro { white-space: pre-line; line-height: 1.6; }
+
+.holiday-announcement-list { display: grid; gap: var(--list-spacing, 2.2mm); margin: 0; padding-left: 10mm; font-size: var(--base-font, 9.2pt); }
+.holiday-announcement-list li { padding-left: 2mm; }
+.holiday-thai-row, .holiday-english-row { display: grid; grid-template-columns: 25mm 11mm 25mm minmax(0, 1fr); gap: 2mm; align-items: start; }
+.holiday-thai-row strong { font-weight: 500; }
+.holiday-english-row { margin-top: .8mm; color: #1f2937; font-size: 7.8pt; }
+
+.announcement-content .saturday-main-title { margin-top: -5mm; font-size: 22pt; font-weight: 600; }
+.announcement-content .saturday-year-title { margin: 1mm 0 2mm; font-size: 15pt; text-decoration: none; }
+.announcement-content h3 { margin: 0 0 4mm; font-size: 14pt; font-weight: 500; text-decoration: underline; }
+.saturday-announcement-list { display: grid; gap: var(--list-spacing, 2.3mm); margin: 0 0 12mm; padding-left: 13mm; font-size: 13pt; }
+.saturday-announcement-list li { display: grid; grid-template-columns: 24mm 15mm 42mm 1fr; gap: 3mm; padding-left: 3mm; }
+.saturday-announcement-list strong { font-weight: 500; }
+.saturday-announcement-list small { align-self: center; font-size: 9pt; }
+.saturday-policy h3 { margin-bottom: 2mm; }
+.saturday-policy p { margin: 0 0 2mm; white-space: pre-line; font-size: 11pt; line-height: 1.65; }
+
+.announcement-footer {
+    position: absolute;
+    right: 7mm;
+    bottom: 7mm;
+    left: 7mm;
+    display: flex;
+    flex-direction: column;
+    gap: .7mm;
+    padding-top: 1.2mm;
+    border-top: .35mm solid var(--accent, #001b80);
+    color: var(--accent, #001b80);
+    font-size: 5.8pt;
+    line-height: 1.25;
+}
+.announcement-footer .footer-language { display: flex; flex-direction: column; gap: .25mm; margin: 0; padding: 0; }
+.announcement-footer strong, .announcement-footer span { display: block; }
+.announcement-footer .footer-english { margin-top: .4mm; }
+
+@media print {
+    .no-print { display: none !important; }
+    .announcement-sheet { margin: 0; box-shadow: none; }
+}
+
+@media screen and (max-width: 900px) {
+    .print-toolbar { align-items: stretch; flex-direction: column; }
+    .announcement-sheet { transform-origin: top left; }
+}

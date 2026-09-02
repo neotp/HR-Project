@@ -92,11 +92,13 @@ public sealed class ManagerLeaveNotificationsController(
         const string sql = """
             SELECT n.id, n.notification_no, se.employee_code, n.sender_name, n.sender_email,
                    re.employee_code, n.recipient_name, n.recipient_email,
+                   n.leave_type_id, leave_type.name_th,
                    n.start_date, n.start_time, n.end_time, n.leave_hours, n.details,
                    n.email_status, n.created_at, n.sent_at, n.email_error
             FROM public.manager_leave_notifications n
             JOIN public.employees se ON se.id = n.sender_employee_id
             JOIN public.employees re ON re.id = n.recipient_employee_id
+            LEFT JOIN public.leave_types leave_type ON leave_type.id = n.leave_type_id
             WHERE n.sender_employee_id = @sender_id
             ORDER BY n.created_at DESC, n.id DESC
             """;
@@ -122,10 +124,9 @@ public sealed class ManagerLeaveNotificationsController(
             actor.EmployeeCode, "LEAVE_TEAM", "CREATE_FOR_OTHERS", cancellationToken);
         if (string.IsNullOrWhiteSpace(request.RecipientEmployeeId))
             return BadRequest("กรุณาเลือกลูกน้อง");
-        if (request.EndTime <= request.StartTime)
-            return BadRequest("เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น");
-        if (request.LeaveHours <= 0 || request.LeaveHours > 24)
-            return BadRequest("จำนวนชั่วโมงต้องมากกว่า 0 และไม่เกิน 24 ชั่วโมง");
+        if (request.LeaveTypeId <= 0)
+            return BadRequest("กรุณาเลือกประเภทการลา");
+        var leaveDate = DateOnly.FromDateTime(DateTime.Today);
 
         var recipient = await FindAllowedRecipient(
             actor.EmployeeDatabaseId, request.RecipientEmployeeId,
@@ -135,6 +136,10 @@ public sealed class ManagerLeaveNotificationsController(
         if (!recipient.Email.Contains('@', StringComparison.Ordinal))
             return BadRequest("พนักงานที่เลือกยังไม่มีอีเมลที่สามารถส่งได้");
 
+        var leaveTypeName = await FindLeaveTypeName(request.LeaveTypeId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(leaveTypeName))
+            return BadRequest("ไม่พบประเภทการลาที่เลือก หรือประเภทการลานี้ถูกปิดใช้งานแล้ว");
+
         const string insertSql = """
             WITH next_id AS
             (
@@ -143,11 +148,11 @@ public sealed class ManagerLeaveNotificationsController(
             INSERT INTO public.manager_leave_notifications
                 (id, notification_no, sender_employee_id, recipient_employee_id,
                  sender_name, sender_email, recipient_name, recipient_email,
-                 subject, start_date, end_date, start_time, end_time, leave_hours, details, email_status)
+                 subject, leave_type_id, start_date, end_date, start_time, end_time, leave_hours, details, email_status)
             SELECT id, 'INF-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-' || LPAD(id::text, 6, '0'),
                    @sender_id, @recipient_id, @sender_name, @sender_email,
-                   @recipient_name, @recipient_email, @subject, @start_date, @end_date,
-                   @start_time, @end_time, @leave_hours, @details, 'PENDING'
+                   @recipient_name, @recipient_email, @subject, @leave_type_id, @leave_date, @leave_date,
+                   NULL, NULL, NULL, @details, 'PENDING'
             FROM next_id
             RETURNING id
             """;
@@ -161,12 +166,9 @@ public sealed class ManagerLeaveNotificationsController(
             command.Parameters.AddWithValue("sender_email", actor.Email);
             command.Parameters.AddWithValue("recipient_name", recipient.Name);
             command.Parameters.AddWithValue("recipient_email", recipient.Email);
-            command.Parameters.AddWithValue("subject", "แจ้งการลา");
-            command.Parameters.AddWithValue("start_date", request.LeaveDate);
-            command.Parameters.AddWithValue("end_date", request.LeaveDate);
-            command.Parameters.AddWithValue("start_time", request.StartTime);
-            command.Parameters.AddWithValue("end_time", request.EndTime);
-            command.Parameters.AddWithValue("leave_hours", request.LeaveHours);
+            command.Parameters.AddWithValue("subject", $"แจ้งการลา ({leaveTypeName})");
+            command.Parameters.AddWithValue("leave_type_id", request.LeaveTypeId);
+            command.Parameters.AddWithValue("leave_date", leaveDate);
             command.Parameters.AddWithValue("details", request.Note?.Trim() ?? string.Empty);
             notificationId = (long)(await command.ExecuteScalarAsync(cancellationToken)
                 ?? throw new InvalidOperationException("สร้างประวัติการแจ้งไม่สำเร็จ"));
@@ -174,10 +176,9 @@ public sealed class ManagerLeaveNotificationsController(
 
         try
         {
-            var emailSubject = $"[HR Info] แจ้งการลา {recipient.Name} วันที่ {request.LeaveDate:dd/MM/yyyy}";
+            var emailSubject = $"[HR Info] แจ้งการลา ({leaveTypeName}) {recipient.Name} วันที่ {leaveDate:dd/MM/yyyy}";
             var body = MicrosoftGraphMailService.BuildBody(
-                actor.Name, recipient.Name, request.LeaveDate,
-                request.StartTime, request.EndTime, request.LeaveHours,
+                actor.Name, recipient.Name, leaveTypeName, leaveDate,
                 request.Note?.Trim() ?? string.Empty);
             await mailService.SendAsync(
                 actor.Email, recipient.Email, emailSubject, body, cancellationToken);
@@ -290,17 +291,29 @@ public sealed class ManagerLeaveNotificationsController(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private async Task<string?> FindLeaveTypeName(
+        long leaveTypeId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT name_th FROM public.leave_types WHERE id = @id AND is_active = TRUE";
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", leaveTypeId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
+
     private async Task<ManagerLeaveNotificationDto?> FindNotification(
         long id, long senderId, CancellationToken cancellationToken)
     {
         const string sql = """
             SELECT n.id, n.notification_no, se.employee_code, n.sender_name, n.sender_email,
                    re.employee_code, n.recipient_name, n.recipient_email,
+                   n.leave_type_id, leave_type.name_th,
                    n.start_date, n.start_time, n.end_time, n.leave_hours, n.details,
                    n.email_status, n.created_at, n.sent_at, n.email_error
             FROM public.manager_leave_notifications n
             JOIN public.employees se ON se.id = n.sender_employee_id
             JOIN public.employees re ON re.id = n.recipient_employee_id
+            LEFT JOIN public.leave_types leave_type ON leave_type.id = n.leave_type_id
             WHERE n.id = @id AND n.sender_employee_id = @sender_id
             """;
         await using var command = dataSource.CreateCommand(sql);
@@ -313,13 +326,15 @@ public sealed class ManagerLeaveNotificationsController(
     private static ManagerLeaveNotificationDto ReadNotification(NpgsqlDataReader reader) => new(
         reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
         reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
-        reader.GetFieldValue<DateOnly>(8),
-        reader.IsDBNull(9) ? null : reader.GetFieldValue<TimeOnly>(9),
-        reader.IsDBNull(10) ? null : reader.GetFieldValue<TimeOnly>(10),
-        reader.IsDBNull(11) ? null : reader.GetDecimal(11), reader.GetString(12),
-        reader.GetString(13), reader.GetFieldValue<DateTimeOffset>(14),
-        reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
-        reader.IsDBNull(16) ? null : reader.GetString(16));
+        reader.IsDBNull(8) ? null : reader.GetInt64(8),
+        reader.IsDBNull(9) ? null : reader.GetString(9),
+        reader.GetFieldValue<DateOnly>(10),
+        reader.IsDBNull(11) ? null : reader.GetFieldValue<TimeOnly>(11),
+        reader.IsDBNull(12) ? null : reader.GetFieldValue<TimeOnly>(12),
+        reader.IsDBNull(13) ? null : reader.GetDecimal(13), reader.GetString(14),
+        reader.GetString(15), reader.GetFieldValue<DateTimeOffset>(16),
+        reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
+        reader.IsDBNull(18) ? null : reader.GetString(18));
 
     private sealed record Actor(long EmployeeDatabaseId, string EmployeeCode, string Name, string Email);
     private sealed record Recipient(long DatabaseId, string Name, string Email);

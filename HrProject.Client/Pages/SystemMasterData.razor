@@ -28,7 +28,7 @@
         </div>
     </section>
 
-    <section class="content-card">
+    <section class="content-card master-list-card">
         <div class="content-card-header master-list-header">
             <span>@(selectedCategory?.Name ?? "ข้อมูลพื้นฐาน")</span>
             <span class="master-count">@FilteredCount รายการ</span>
@@ -39,13 +39,9 @@
                     <input type="search" @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
                            placeholder="ค้นหารหัสหรือชื่อ" />
                 </label>
-                <label class="active-filter">สถานะ
-                    <select @bind="statusFilter" @bind:after="ResetPaging">
-                        <option value="ALL">ทั้งหมด</option>
-                        <option value="ACTIVE">ใช้งาน</option>
-                        <option value="INACTIVE">ปิดใช้งาน</option>
-                    </select>
-                </label>
+                <div class="active-filter"><span>สถานะ</span>
+                    <CriteriaMultiSelect Options="@StatusFilterOptions" Values="@selectedStatuses" ValuesChanged="SetStatusFilters" />
+                </div>
             </div>
 
             @if (isLoading)
@@ -62,11 +58,11 @@
                     @if (IsLeaveType)
                     {
                         <table class="table master-table">
-                            <thead><tr><th>รหัส</th><th>ชื่อประเภทการลา</th><th>ค่าเริ่มต้น</th><th>สถานะ</th><th></th></tr></thead>
+                            <thead><tr><th>รหัส</th><th>ชื่อประเภทการลา</th><th>โควต้าเริ่มต้น</th><th>หักโบนัสเริ่มต้น</th><th>สถานะ</th><th></th></tr></thead>
                             <tbody>
                                 @if (!PagedLeaveTypes.Any())
                                 {
-                                    <tr><td colspan="5" class="master-state">ไม่พบข้อมูล</td></tr>
+                                    <tr><td colspan="6" class="master-state">ไม่พบข้อมูล</td></tr>
                                 }
                                 @foreach (var item in PagedLeaveTypes)
                                 {
@@ -74,8 +70,42 @@
                                         <td><code>@item.Code</code></td>
                                         <td><strong>@item.NameTh</strong></td>
                                         <td>@item.DefaultHours.ToString("0.##") ชั่วโมง (@(item.DefaultHours / 8) วัน)</td>
+                                        <td>
+                                            @if (item.DefaultBonusDeductionEnabled)
+                                            {
+                                                <span class="status-pill inactive">หัก @item.DefaultBonusDeductionPercent.ToString("0.##")%</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="status-pill active">ไม่หัก</span>
+                                            }
+                                        </td>
                                         <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
                                         <td><button class="master-edit-button" type="button" @onclick="() => StartEditLeaveType(item)">แก้ไข</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else if (IsAttendanceEventType)
+                    {
+                        <table class="table master-table">
+                            <thead><tr><th>รหัส</th><th>ชื่อภาษาไทย</th><th>ชื่อภาษาอังกฤษ</th><th>นำไปคำนวณการมาทำงาน</th><th>ลำดับ</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>
+                                @if (!PagedAttendanceEventTypes.Any())
+                                {
+                                    <tr><td colspan="7" class="master-state">ไม่พบข้อมูล</td></tr>
+                                }
+                                @foreach (var item in PagedAttendanceEventTypes)
+                                {
+                                    <tr>
+                                        <td><code>@item.Code</code></td>
+                                        <td><strong>@item.NameTh</strong></td>
+                                        <td>@(item.NameEn ?? "-")</td>
+                                        <td><span class="status-pill @(item.CountsAsWorkTime ? "active" : "inactive")">@(item.CountsAsWorkTime ? "นำไปคำนวณ" : "ไม่คำนวณ")</span></td>
+                                        <td>@item.DisplayOrder</td>
+                                        <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
+                                        <td><button class="master-edit-button" type="button" @onclick="() => StartEditAttendanceEventType(item)">แก้ไข</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -126,7 +156,8 @@
             <div class="master-modal-body">
                 <div class="master-form-grid">
                     <label>รหัส *
-                        <input @bind="editCode" maxlength="100" placeholder="เช่น IS" />
+                        <input @bind="editCode" maxlength="100" placeholder="เช่น IS"
+                               disabled="@(IsAttendanceEventType && editingId.HasValue)" />
                     </label>
                     <label>ชื่อภาษาไทย *
                         <input @bind="editNameTh" maxlength="250" />
@@ -138,6 +169,28 @@
                         </label>
                         <label>เทียบเป็นวัน
                             <input value="@((editDefaultHours / 8).ToString("0.##")) วัน" disabled />
+                        </label>
+                        <label class="master-active-check">
+                            <input type="checkbox" @bind="editDefaultBonusDeductionEnabled" />
+                            หักโบนัสเป็นค่าเริ่มต้น
+                        </label>
+                        <label>เปอร์เซ็นต์หักโบนัสเริ่มต้น
+                            <input type="number" min="0" max="100" step="0.01"
+                                   disabled="@(!editDefaultBonusDeductionEnabled)"
+                                   @bind="editDefaultBonusDeductionPercent" />
+                        </label>
+                    }
+                    else if (IsAttendanceEventType)
+                    {
+                        <label>ชื่อภาษาอังกฤษ
+                            <input @bind="editNameEn" maxlength="200" />
+                        </label>
+                        <label>ลำดับแสดงผล
+                            <input type="number" min="0" @bind="editDisplayOrder" />
+                        </label>
+                        <label class="master-active-check">
+                            <input type="checkbox" @bind="editCountsAsWorkTime" />
+                            นำช่วงเวลา Event ไปคำนวณการมาทำงาน
                         </label>
                     }
                     else
@@ -186,6 +239,7 @@
     private List<MasterDataItemDto> items = [];
     private List<MasterDataItemDto> businessUnits = [];
     private List<LeaveTypeMasterDto> leaveTypes = [];
+    private List<AttendanceEventTypeMasterDto> attendanceEventTypes = [];
     private MasterDataCategoryDto? selectedCategory;
     private bool isLoading = true;
     private bool isEditorOpen;
@@ -193,7 +247,8 @@
     private string? loadError;
     private string? saveError;
     private string searchText = string.Empty;
-    private string statusFilter = "ALL";
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly IReadOnlyList<CriteriaFilterOption> StatusFilterOptions = [new("ACTIVE", "ใช้งาน"), new("INACTIVE", "ปิดใช้งาน")];
     private int currentPage = 1;
     private int pageSize = 10;
     private long? editingId;
@@ -202,10 +257,14 @@
     private string editNameEn = string.Empty;
     private int editDisplayOrder;
     private decimal editDefaultHours;
+    private bool editDefaultBonusDeductionEnabled;
+    private decimal editDefaultBonusDeductionPercent;
+    private bool editCountsAsWorkTime;
     private bool editIsActive = true;
     private string editParentItemId = string.Empty;
 
     private bool IsLeaveType => selectedCategory?.IsLeaveType == true;
+    private bool IsAttendanceEventType => selectedCategory?.IsAttendanceEventType == true;
     private bool IsDepartment => selectedCategory?.Code == "DEPARTMENT";
     private IEnumerable<MasterDataItemDto> FilteredItems => items.Where(item =>
         MatchesStatus(item.IsActive) &&
@@ -219,10 +278,20 @@
         (string.IsNullOrWhiteSpace(searchText) ||
          item.Code.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
          item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase)));
-    private int FilteredCount => IsLeaveType ? FilteredLeaveTypes.Count() : FilteredItems.Count();
+    private IEnumerable<AttendanceEventTypeMasterDto> FilteredAttendanceEventTypes => attendanceEventTypes.Where(item =>
+        MatchesStatus(item.IsActive) &&
+        (string.IsNullOrWhiteSpace(searchText) ||
+         item.Code.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         (item.NameEn?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)));
+    private int FilteredCount => IsLeaveType
+        ? FilteredLeaveTypes.Count()
+        : IsAttendanceEventType ? FilteredAttendanceEventTypes.Count() : FilteredItems.Count();
     private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)pageSize)));
     private IEnumerable<MasterDataItemDto> PagedItems => FilteredItems.Skip((SafePage - 1) * pageSize).Take(pageSize);
     private IEnumerable<LeaveTypeMasterDto> PagedLeaveTypes => FilteredLeaveTypes.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<AttendanceEventTypeMasterDto> PagedAttendanceEventTypes =>
+        FilteredAttendanceEventTypes.Skip((SafePage - 1) * pageSize).Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -248,7 +317,7 @@
     {
         selectedCategory = category;
         searchText = string.Empty;
-        statusFilter = "ALL";
+        selectedStatuses.Clear();
         currentPage = 1;
         await LoadData();
     }
@@ -262,6 +331,9 @@
         {
             if (IsLeaveType)
                 leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeMasterDto>>("api/system-master-data/leave-types") ?? [];
+            else if (IsAttendanceEventType)
+                attendanceEventTypes = await Http.GetFromJsonAsync<List<AttendanceEventTypeMasterDto>>(
+                    "api/system-master-data/attendance-event-types?includeInactive=true") ?? [];
             else
                 items = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
                     $"api/system-master-data/items?category={Uri.EscapeDataString(selectedCategory.Code)}&includeInactive=true") ?? [];
@@ -282,6 +354,9 @@
         editCode = editNameTh = editNameEn = string.Empty;
         editDisplayOrder = 0;
         editDefaultHours = 0;
+        editDefaultBonusDeductionEnabled = false;
+        editDefaultBonusDeductionPercent = 0;
+        editCountsAsWorkTime = false;
         editIsActive = true;
         editParentItemId = string.Empty;
         saveError = null;
@@ -307,6 +382,21 @@
         editCode = item.Code;
         editNameTh = item.NameTh;
         editDefaultHours = item.DefaultHours;
+        editDefaultBonusDeductionEnabled = item.DefaultBonusDeductionEnabled;
+        editDefaultBonusDeductionPercent = item.DefaultBonusDeductionPercent;
+        editIsActive = item.IsActive;
+        saveError = null;
+        isEditorOpen = true;
+    }
+
+    private void StartEditAttendanceEventType(AttendanceEventTypeMasterDto item)
+    {
+        editingId = item.Id;
+        editCode = item.Code;
+        editNameTh = item.NameTh;
+        editNameEn = item.NameEn ?? string.Empty;
+        editCountsAsWorkTime = item.CountsAsWorkTime;
+        editDisplayOrder = item.DisplayOrder;
         editIsActive = item.IsActive;
         saveError = null;
         isEditorOpen = true;
@@ -326,10 +416,23 @@
             HttpResponseMessage response;
             if (IsLeaveType)
             {
-                var request = new SaveLeaveTypeMasterRequest(editCode, editNameTh, editDefaultHours, editIsActive);
+                var request = new SaveLeaveTypeMasterRequest(
+                    editCode, editNameTh, editDefaultHours,
+                    editDefaultBonusDeductionEnabled,
+                    editDefaultBonusDeductionPercent,
+                    editIsActive);
                 response = editingId.HasValue
                     ? await Http.PutAsJsonAsync($"api/system-master-data/leave-types/{editingId.Value}", request)
                     : await Http.PostAsJsonAsync("api/system-master-data/leave-types", request);
+            }
+            else if (IsAttendanceEventType)
+            {
+                var request = new SaveAttendanceEventTypeMasterRequest(
+                    editCode, editNameTh, editNameEn, editCountsAsWorkTime,
+                    editDisplayOrder, editIsActive);
+                response = editingId.HasValue
+                    ? await Http.PutAsJsonAsync($"api/system-master-data/attendance-event-types/{editingId.Value}", request)
+                    : await Http.PostAsJsonAsync("api/system-master-data/attendance-event-types", request);
             }
             else
             {
@@ -369,12 +472,14 @@
         }
     }
 
-    private bool MatchesStatus(bool isActive) => statusFilter switch
+    private bool MatchesStatus(bool isActive) => selectedStatuses.Count == 0 ||
+        (selectedStatuses.Contains("ACTIVE") && isActive) ||
+        (selectedStatuses.Contains("INACTIVE") && !isActive);
+    private Task SetStatusFilters(IReadOnlyCollection<string> values)
     {
-        "ACTIVE" => isActive,
-        "INACTIVE" => !isActive,
-        _ => true
-    };
+        selectedStatuses.Clear(); selectedStatuses.UnionWith(values); ResetPaging();
+        return Task.CompletedTask;
+    }
     private void ResetPaging() => currentPage = 1;
     private void CloseEditor() { if (!isSaving) isEditorOpen = false; }
 }

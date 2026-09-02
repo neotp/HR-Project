@@ -1,5 +1,6 @@
 @page "/permissions"
 @inject HttpClient Http
+@inject HrProject.Client.Services.PageAvailabilityState PageAvailability
 
 <PageTitle>จัดการสิทธิ์การเข้าถึง | HR Project</PageTitle>
 
@@ -11,40 +12,44 @@
                 <p>กำหนดสิทธิ์เข้าถึงหน้าและสิทธิ์เพิ่มเติมภายในแต่ละหน้า</p>
             </div>
             <button class="btn save-permission-button" type="button"
-                    disabled="@(isSaving || !HasSelectedSubject || CurrentPermissionCount == 0)"
+                    disabled="@(isSaving || !CanSaveCurrent)"
                     @onclick="SaveCurrentPermissions">
-                @(isSaving ? "กำลังบันทึก..." : "บันทึกสิทธิ์")
+                @(isSaving ? "กำลังบันทึก..." : activeTab == "availability" ? "บันทึกสถานะเมนู" : "บันทึกสิทธิ์")
             </button>
         </div>
     </header>
 
+    @if (activeTab != "availability")
+    {
     <nav class="permission-subject-tabs" aria-label="รูปแบบการกำหนดสิทธิ์">
         <button type="button" class="@(permissionSubject == "employee" ? "active" : null)"
                 @onclick='() => ChangeSubject("employee")'>กำหนดรายบุคคล</button>
         <button type="button" class="@(permissionSubject == "role" ? "active" : null)"
                 @onclick='() => ChangeSubject("role")'>กำหนดตาม App Role</button>
     </nav>
+    }
 
     <nav class="permission-tabs" aria-label="ประเภทสิทธิ์">
         <button type="button" class="@(activeTab == "pages" ? "active" : null)"
                 @onclick='() => ChangeTab("pages")'>สิทธิ์เข้าถึงหน้า</button>
         <button type="button" class="@(activeTab == "actions" ? "active" : null)"
                 @onclick='() => ChangeTab("actions")'>สิทธิ์เพิ่มเติมแต่ละหน้า</button>
+        <button type="button" class="@(activeTab == "availability" ? "active" : null)"
+                @onclick='() => ChangeTab("availability")'>เปิด/ปิดเมนู</button>
     </nav>
 
+    @if (activeTab != "availability")
+    {
     <section class="content-card permission-criteria">
         <div class="content-card-header">@(permissionSubject == "employee" ? "เลือกพนักงาน" : "เลือก App Role")</div>
         <div class="content-card-body permission-criteria-body">
             @if (permissionSubject == "employee")
             {
                 <label>พนักงาน
-                    <select @bind="selectedEmployeeId" @bind:after="LoadPermissions">
-                        <option value="">-- เลือกพนักงาน --</option>
-                        @foreach (var employee in employees)
-                        {
-                            <option value="@employee.EmployeeCode">@employee.FullName (@employee.EmployeeCode)</option>
-                        }
-                    </select>
+                    <EmployeeSearchSelect Items="employees"
+                                          @bind-Value="selectedEmployeeId"
+                                          @bind-Value:after="LoadPermissions"
+                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                 </label>
             }
             else
@@ -86,13 +91,9 @@
             {
                 <div class="role-members-panel">
                     <label>เพิ่มสมาชิก
-                        <select @bind="memberToAdd">
-                            <option value="">-- เลือกพนักงาน --</option>
-                            @foreach (var employee in AvailableRoleMembers)
-                            {
-                                <option value="@employee.EmployeeCode">@employee.FullName (@employee.EmployeeCode)</option>
-                            }
-                        </select>
+                        <EmployeeSearchSelect Items="@AvailableRoleMembers.ToList()"
+                                              @bind-Value="memberToAdd"
+                                              Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                     </label>
                     <button type="button" disabled="@string.IsNullOrWhiteSpace(memberToAdd)" @onclick="AddRoleMember">เพิ่มสมาชิก</button>
                     <div class="role-member-list">
@@ -106,6 +107,19 @@
             }
         }
     </section>
+    }
+    else
+    {
+        <section class="content-card permission-criteria">
+            <div class="content-card-header">ค้นหาเมนู</div>
+            <div class="content-card-body permission-criteria-body availability-criteria">
+                <label>ชื่อเมนูหรือหมวดหมู่
+                    <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
+                           placeholder="ชื่อเมนู หมวดหมู่ หรือ URL" />
+                </label>
+            </div>
+        </section>
+    }
 
     @if (activeTab == "pages")
     {
@@ -164,7 +178,7 @@
             </div>
         </section>
     }
-    else
+    else if (activeTab == "actions")
     {
         <section class="content-card">
             <div class="content-card-header permission-table-header">
@@ -236,6 +250,81 @@
             </div>
         </section>
     }
+    else
+    {
+        <section class="content-card">
+            <div class="content-card-header permission-table-header">
+                <span>สถานะเปิดใช้งานเมนู</span>
+                <span class="permission-summary">เปิด @availabilities.Count(item => item.IsEnabled) จาก @availabilities.Count เมนู</span>
+                <button type="button" @onclick="() => SetAllAvailability(true)">เปิดทั้งหมด</button>
+                <button type="button" @onclick="() => SetAllAvailability(false)">ปิดทั้งหมด</button>
+            </div>
+            <div class="content-card-body">
+                <div class="action-permission-note availability-note">
+                    สถานะนี้มีผลกับผู้ใช้ทุกคน เมนูที่ปิดจะกดไม่ได้และเมื่อเปิด URL ตรงจะแสดงหน้าปิดปรับปรุง
+                    หน้า “จัดการสิทธิ์การเข้าถึง” จะเปิดไว้เสมอเพื่อให้สามารถกลับมาเปิดเมนูอื่นได้
+                </div>
+                @if (isLoading)
+                {
+                    <div class="permission-state">กำลังโหลดสถานะเมนู...</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(loadError))
+                {
+                    <div class="permission-state error">@loadError</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="permission-table availability-table">
+                            <thead><tr><th>#</th><th>หมวดหมู่</th><th>เมนู</th><th>URL</th><th>แก้ไขล่าสุด</th><th>สถานะ</th></tr></thead>
+                            <tbody>
+                                @{ var visibleAvailability = PagedAvailabilities.ToList(); }
+                                @if (visibleAvailability.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="permission-state">ไม่พบเมนูที่ค้นหา</td></tr>
+                                }
+                                @for (var index = 0; index < visibleAvailability.Count; index++)
+                                {
+                                    var availabilityItem = visibleAvailability[index];
+                                    var isProtected = string.Equals(availabilityItem.PageKey, "PERMISSIONS", StringComparison.OrdinalIgnoreCase);
+                                    <tr class="@(!availabilityItem.IsEnabled ? "availability-closed-row" : null)">
+                                        <td>@((SafePage - 1) * pageSize + index + 1)</td>
+                                        <td><span class="category-pill">@availabilityItem.CategoryName</span></td>
+                                        <td><strong>@availabilityItem.PageName</strong><small>@availabilityItem.PageKey</small></td>
+                                        <td><code>@availabilityItem.RoutePath</code></td>
+                                        <td>
+                                            @if (availabilityItem.UpdatedAt.HasValue)
+                                            {
+                                                <span>@availabilityItem.UpdatedAt.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                                <small>@availabilityItem.UpdatedByName</small>
+                                            }
+                                            else
+                                            {
+                                                <span>-</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <label class="access-switch @(isProtected ? "protected-switch" : null)" title="@(isProtected ? "เมนูนี้ต้องเปิดไว้เพื่อจัดการสถานะเมนูอื่น" : null)">
+                                                <input type="checkbox" checked="@availabilityItem.IsEnabled" disabled="@isProtected"
+                                                       @onchange="args => SetAvailability(availabilityItem.PageId, args.Value is true)" />
+                                                <span class="switch-track"><span></span></span>
+                                                <strong>@(availabilityItem.IsEnabled ? "เปิดใช้งาน" : "ปิดปรับปรุง")</strong>
+                                            </label>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@FilteredAvailabilityCount" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+                }
+                @if (!string.IsNullOrWhiteSpace(saveMessage))
+                {
+                    <div class="save-message @(saveSucceeded ? "success" : "error")" role="status">@saveMessage</div>
+                }
+            </div>
+        </section>
+    }
 </section>
 
 @code {
@@ -258,17 +347,25 @@
     private List<AppRoleDto> roles = [];
     private List<PagePermissionDto> permissions = [];
     private List<PageActionPermissionDto> actionPermissions = [];
+    private List<ApplicationPageAvailabilityDto> availabilities = [];
     private CurrentMicrosoftUserDto? currentUser;
     private int currentPage = 1;
     private int pageSize = 10;
     private bool HasSelectedSubject => permissionSubject == "employee"
         ? !string.IsNullOrWhiteSpace(selectedEmployeeId)
         : selectedRoleId > 0;
+    private bool CanSaveCurrent => !isSaving && CurrentPermissionCount > 0 &&
+        (activeTab == "availability" || HasSelectedSubject);
     private AppRoleDto? SelectedRole => roles.FirstOrDefault(role => role.Id == selectedRoleId);
     private IEnumerable<Employee> AvailableRoleMembers => employees.Where(employee =>
         SelectedRole is null || !SelectedRole.MemberEmployeeIds.Contains(employee.EmployeeCode, StringComparer.OrdinalIgnoreCase));
 
-    private int CurrentPermissionCount => activeTab == "pages" ? permissions.Count : actionPermissions.Count;
+    private int CurrentPermissionCount => activeTab switch
+    {
+        "pages" => permissions.Count,
+        "actions" => actionPermissions.Count,
+        _ => availabilities.Count
+    };
     private IEnumerable<PagePermissionDto> FilteredPermissions => permissions.Where(item =>
         string.IsNullOrWhiteSpace(searchText) || item.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
         item.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
@@ -288,10 +385,21 @@
         (item.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
     private int FilteredPermissionCount => FilteredPermissions.Count();
     private int FilteredActionCount => FilteredActionPermissions.Count();
-    private int CurrentFilteredCount => activeTab == "pages" ? FilteredPermissionCount : FilteredActionCount;
+    private IEnumerable<ApplicationPageAvailabilityDto> FilteredAvailabilities => availabilities.Where(item =>
+        string.IsNullOrWhiteSpace(searchText) || item.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+        item.RoutePath.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+    private int FilteredAvailabilityCount => FilteredAvailabilities.Count();
+    private int CurrentFilteredCount => activeTab switch
+    {
+        "pages" => FilteredPermissionCount,
+        "actions" => FilteredActionCount,
+        _ => FilteredAvailabilityCount
+    };
     private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(CurrentFilteredCount / (double)pageSize)));
     private IEnumerable<PagePermissionDto> PagedPermissions => FilteredPermissions.Skip((SafePage - 1) * pageSize).Take(pageSize);
     private IEnumerable<PageActionPermissionDto> PagedActionPermissions => FilteredActionPermissions.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<ApplicationPageAvailabilityDto> PagedAvailabilities => FilteredAvailabilities.Skip((SafePage - 1) * pageSize).Take(pageSize);
     private bool ShowStateMessage => isLoading || !string.IsNullOrWhiteSpace(loadError) || !HasSelectedSubject;
     private string StateMessage => isLoading ? "กำลังโหลดสิทธิ์..." : !string.IsNullOrWhiteSpace(loadError) ? loadError :
         permissionSubject == "employee" ? "กรุณาเลือกพนักงานที่ต้องการกำหนดสิทธิ์" : "กรุณาเลือก App Role ที่ต้องการกำหนดสิทธิ์";
@@ -304,6 +412,7 @@
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
             roles = await Http.GetFromJsonAsync<List<AppRoleDto>>("api/app-roles") ?? [];
             selectedEmployeeId = employees.FirstOrDefault()?.EmployeeCode ?? string.Empty;
+            availabilities = await Http.GetFromJsonAsync<List<ApplicationPageAvailabilityDto>>("api/page-permissions/availability") ?? [];
             await LoadPermissions();
         }
         catch (Exception exception) { loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}"; }
@@ -414,6 +523,13 @@
 
     private void SetPagePermission(long id, bool value) { var index = permissions.FindIndex(x => x.PageId == id); if (index >= 0) permissions[index] = permissions[index] with { CanAccess = value }; saveMessage = null; }
     private void SetActionPermission(long id, bool value) { var index = actionPermissions.FindIndex(x => x.ActionId == id); if (index >= 0) actionPermissions[index] = actionPermissions[index] with { CanExecute = value }; saveMessage = null; }
+    private void SetAvailability(long id, bool value)
+    {
+        var index = availabilities.FindIndex(item => item.PageId == id);
+        if (index >= 0 && !string.Equals(availabilities[index].PageKey, "PERMISSIONS", StringComparison.OrdinalIgnoreCase))
+            availabilities[index] = availabilities[index] with { IsEnabled = value };
+        saveMessage = null;
+    }
     private void SetAllPages(bool value) { permissions = permissions.Select(x => x with { CanAccess = value }).ToList(); saveMessage = null; }
     private void SetAllActions(bool value)
     {
@@ -423,7 +539,20 @@
                 : item).ToList();
         saveMessage = null;
     }
-    private async Task SaveCurrentPermissions() { if (activeTab == "pages") await SavePages(); else await SaveActions(); }
+    private void SetAllAvailability(bool value)
+    {
+        availabilities = availabilities.Select(item =>
+            string.Equals(item.PageKey, "PERMISSIONS", StringComparison.OrdinalIgnoreCase)
+                ? item with { IsEnabled = true }
+                : item with { IsEnabled = value }).ToList();
+        saveMessage = null;
+    }
+    private async Task SaveCurrentPermissions()
+    {
+        if (activeTab == "pages") await SavePages();
+        else if (activeTab == "actions") await SaveActions();
+        else await SaveAvailability();
+    }
 
     private (string Id, string Name) Actor() =>
         (!string.IsNullOrWhiteSpace(currentUser?.EmployeeId) ? currentUser.EmployeeId : "SYSTEM",
@@ -465,6 +594,29 @@
             saveSucceeded = true; saveMessage = "บันทึกสิทธิ์เพิ่มเติมเรียบร้อยแล้ว";
         }
         catch (Exception exception) { saveSucceeded = false; saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task SaveAvailability()
+    {
+        var actor = Actor(); isSaving = true; saveMessage = null;
+        try
+        {
+            var items = availabilities.Select(item =>
+                new SaveApplicationPageAvailabilityItem(item.PageId, item.IsEnabled)).ToList();
+            var response = await Http.PutAsJsonAsync("api/page-permissions/availability",
+                new SaveApplicationPageAvailabilityRequest(items, actor.Id, actor.Name));
+            if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
+            availabilities = await response.Content.ReadFromJsonAsync<List<ApplicationPageAvailabilityDto>>() ?? [];
+            await PageAvailability.RefreshAsync();
+            saveSucceeded = true;
+            saveMessage = "บันทึกสถานะเปิด/ปิดเมนูเรียบร้อยแล้ว";
+        }
+        catch (Exception exception)
+        {
+            saveSucceeded = false;
+            saveMessage = $"บันทึกสถานะเมนูไม่สำเร็จ: {exception.Message}";
+        }
         finally { isSaving = false; }
     }
 

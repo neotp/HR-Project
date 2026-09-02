@@ -1,0 +1,230 @@
+@page "/attendance/calendar-settings/templates"
+@inject HttpClient Http
+
+<PageTitle>จัดการ Template PDF | HR Project</PageTitle>
+
+<section class="template-page">
+    <header class="page-header-card">
+        <div>
+            <a class="back-link" href="/attendance/calendar-settings">← กลับหน้ากำหนดปฏิทินการทำงาน</a>
+            <h1>จัดการ Template PDF</h1>
+            <p>ปรับรูปแบบประกาศ บันทึกเป็นฉบับร่าง และเผยแพร่เวอร์ชันที่ต้องการใช้งาน</p>
+        </div>
+    </header>
+
+    <div class="type-tabs">
+        <button class="@(TemplateType == HolidayType ? "active" : null)" @onclick="() => ChangeType(HolidayType)">วันหยุดนักขัตฤกษ์</button>
+        <button class="@(TemplateType == SaturdayType ? "active" : null)" @onclick="() => ChangeType(SaturdayType)">วันเสาร์ทำงาน</button>
+    </div>
+
+    @if (IsLoading)
+    {
+        <div class="template-loading"><span class="spinner"></span>กำลังโหลด Template...</div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <div class="message @(IsError ? "error" : "success")">@Message</div>
+        }
+
+        <div class="template-workspace">
+            <section class="editor-card">
+                <div class="version-row">
+                    <label>
+                        เวอร์ชัน
+                        <select value="@SelectedId" @onchange="SelectVersion">
+                            @foreach (var version in Versions)
+                            {
+                                <option value="@version.Id">v@version.Version - @version.TemplateName @(version.IsPublished ? "(เผยแพร่แล้ว)" : "(ฉบับร่าง)")</option>
+                            }
+                        </select>
+                    </label>
+                    @if (Selected?.IsPublished == true)
+                    {
+                        <span class="published-badge">กำลังใช้งาน</span>
+                    }
+                </div>
+
+                <fieldset>
+                    <legend>ข้อมูล Template</legend>
+                    <label>ชื่อ Template<input @bind="TemplateName" maxlength="200" /></label>
+                    <div class="three-columns">
+                        <label>สีแถบหัว<input type="color" @bind="Settings.HeaderBandColor" /></label>
+                        <label>สีเน้น/ท้ายกระดาษ<input type="color" @bind="Settings.AccentColor" /></label>
+                        <label>สีหัวข้อ<input type="color" @bind="Settings.TitleColor" /></label>
+                    </div>
+                </fieldset>
+
+                <fieldset>
+                    <legend>หัวเอกสาร</legend>
+                    <div class="check-row"><input id="show-logo" type="checkbox" @bind="Settings.ShowLogo" /><label for="show-logo">แสดงโลโก้</label></div>
+                    <div class="two-columns">
+                        <label>ตำแหน่งโลโก้<select @bind="Settings.LogoPosition"><option value="LEFT">ซ้าย</option><option value="RIGHT">ขวา</option></select></label>
+                        <label>จัดแนวหัวข้อ<select @bind="Settings.TitleAlignment"><option value="LEFT">ซ้าย</option><option value="CENTER">กึ่งกลาง</option><option value="RIGHT">ขวา</option></select></label>
+                    </div>
+                    <label>หัวข้อภาษาไทย<textarea @bind="Settings.TitleThai" rows="2"></textarea></label>
+                    <div class="check-row"><input id="show-english" type="checkbox" @bind="Settings.ShowEnglishTitle" /><label for="show-english">แสดงหัวข้อภาษาอังกฤษ</label></div>
+                    <label>หัวข้อภาษาอังกฤษ<textarea @bind="Settings.TitleEnglish" rows="2"></textarea></label>
+                    <p class="hint">ใช้ {{year_th}} สำหรับปี พ.ศ., {{year_en}} สำหรับปี ค.ศ. และใช้ | เพื่อขึ้นบรรทัดใหม่</p>
+                </fieldset>
+
+                <fieldset>
+                    <legend>เนื้อหาและข้อกำหนด</legend>
+                    <label>ข้อความนำ<textarea @bind="Settings.IntroText" rows="3" placeholder="เว้นว่างได้"></textarea></label>
+                    <label>ข้อความข้อกำหนด<textarea @bind="Settings.PolicyText" rows="4" placeholder="ใช้ | เพื่อขึ้นบรรทัดใหม่"></textarea></label>
+                </fieldset>
+
+                <fieldset>
+                    <legend>ท้ายเอกสาร</legend>
+                    <div class="check-row"><input id="show-footer" type="checkbox" @bind="Settings.ShowFooter" /><label for="show-footer">แสดงท้ายเอกสาร</label></div>
+                    <label>ข้อความภาษาไทย<textarea @bind="Settings.FooterThai" rows="3"></textarea></label>
+                    <label>ข้อความภาษาอังกฤษ<textarea @bind="Settings.FooterEnglish" rows="3"></textarea></label>
+                </fieldset>
+
+                <fieldset>
+                    <legend>ระยะและขนาด</legend>
+                    <div class="three-columns">
+                        <label>ขอบซ้าย/ขวา (มม.)<input type="number" min="8" max="30" step="1" @bind="Settings.PageMarginMm" /></label>
+                        <label>ขนาดอักษร (pt)<input type="number" min="7" max="18" step="0.1" @bind="Settings.BaseFontSizePt" /></label>
+                        <label>ระยะรายการ (มม.)<input type="number" min="0" max="8" step="0.1" @bind="Settings.ListSpacingMm" /></label>
+                    </div>
+                </fieldset>
+
+                <div class="editor-actions">
+                    <button class="btn-secondary" disabled="@IsSaving" @onclick="ResetFromSelected">คืนค่าของเวอร์ชันนี้</button>
+                    <button class="btn-primary" disabled="@IsSaving" @onclick="SaveDraft">@(IsSaving ? "กำลังบันทึก..." : "บันทึกเป็นฉบับร่างใหม่")</button>
+                    <button class="btn-publish" disabled="@(IsSaving || Selected is null || Selected.IsPublished)" @onclick="Publish">เผยแพร่เวอร์ชันนี้</button>
+                </div>
+            </section>
+
+            <aside class="preview-panel">
+                <div class="preview-title"><strong>ตัวอย่างเอกสาร</strong><span>ข้อมูลตัวอย่าง ปี 2569 / 2026</span></div>
+                <article class="paper" style="@PreviewStyle">
+                    <div class="preview-band"></div><div class="preview-line"></div>
+                    @if (Settings.ShowLogo)
+                    {
+                        <img class="preview-logo @Settings.LogoPosition.ToLowerInvariant()" src="images/image.png" alt="SiS" />
+                    }
+                    <div class="preview-body">
+                        <h2>@TokenText(Settings.TitleThai)</h2>
+                        @if (Settings.ShowEnglishTitle && !string.IsNullOrWhiteSpace(Settings.TitleEnglish))
+                        {
+                            <h3>@TokenText(Settings.TitleEnglish)</h3>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Settings.IntroText)) { <p>@TokenText(Settings.IntroText)</p> }
+                        <ol>
+                            <li>จันทร์ 6 เมษายน วันจักรี<br /><small>Monday 6 April Chakri Memorial Day</small></li>
+                            <li>จันทร์ 13 เมษายน วันสงกรานต์<br /><small>Monday 13 April Songkran Festival Day</small></li>
+                            <li>ศุกร์ 1 พฤษภาคม วันแรงงานแห่งชาติ<br /><small>Friday 1 May National Labour Day</small></li>
+                        </ol>
+                        @if (!string.IsNullOrWhiteSpace(Settings.PolicyText)) { <p class="policy">@TokenText(Settings.PolicyText)</p> }
+                    </div>
+                    @if (Settings.ShowFooter)
+                    {
+                        <footer>
+                            <section class="preview-footer-language">
+                                @foreach (var line in FooterLines(Settings.FooterThai, true)) { <strong>@line</strong> }
+                            </section>
+                            <section class="preview-footer-language">
+                                @foreach (var line in FooterLines(Settings.FooterEnglish, false)) { <span>@line</span> }
+                            </section>
+                        </footer>
+                    }
+                </article>
+            </aside>
+        </div>
+    }
+</section>
+
+@code {
+    private const string HolidayType = "PUBLIC_HOLIDAY";
+    private const string SaturdayType = "WORKING_SATURDAY";
+    private string TemplateType = HolidayType;
+    private List<WorkCalendarTemplateDto> Versions = [];
+    private WorkCalendarTemplateDto? Selected;
+    private long SelectedId;
+    private string TemplateName = "";
+    private WorkCalendarTemplateSettings Settings = new();
+    private bool IsLoading = true, IsSaving, IsError;
+    private string? Message;
+
+    private string PreviewStyle => $"--band:{Settings.HeaderBandColor};--accent:{Settings.AccentColor};--title:{Settings.TitleColor};--align:{Settings.TitleAlignment.ToLowerInvariant()};--margin:{Settings.PageMarginMm}mm;--font:{Settings.BaseFontSizePt}pt;--spacing:{Settings.ListSpacingMm}mm";
+
+    protected override Task OnInitializedAsync() => LoadVersions();
+
+    private async Task ChangeType(string type) { TemplateType = type; await LoadVersions(); }
+    private async Task LoadVersions(long? selectId = null)
+    {
+        IsLoading = true; Message = null;
+        try
+        {
+            Versions = await Http.GetFromJsonAsync<List<WorkCalendarTemplateDto>>($"api/work-calendar-templates?templateType={TemplateType}") ?? [];
+            Selected = Versions.FirstOrDefault(x => x.Id == selectId) ?? Versions.FirstOrDefault(x => x.IsPublished) ?? Versions.FirstOrDefault();
+            if (Selected is not null) { SelectedId = Selected.Id; ResetFromSelected(); }
+            else { SelectedId = 0; TemplateName = "Template ใหม่"; Settings = Defaults(TemplateType); }
+        }
+        catch (Exception ex) { IsError = true; Message = $"โหลด Template ไม่สำเร็จ: {ex.Message}"; Versions = []; Settings = Defaults(TemplateType); }
+        finally { IsLoading = false; }
+    }
+
+    private void SelectVersion(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var id) && Versions.FirstOrDefault(x => x.Id == id) is { } item)
+        { Selected = item; SelectedId = id; ResetFromSelected(); }
+    }
+
+    private void ResetFromSelected()
+    {
+        if (Selected is null) return;
+        TemplateName = Selected.TemplateName;
+        Settings = Clone(Selected.Settings);
+        Message = null;
+    }
+
+    private async Task SaveDraft()
+    {
+        IsSaving = true; Message = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/work-calendar-templates", new SaveWorkCalendarTemplateRequest(TemplateType, TemplateName, Settings));
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+            var saved = await response.Content.ReadFromJsonAsync<WorkCalendarTemplateDto>();
+            IsError = false; Message = "บันทึกเป็นฉบับร่างใหม่เรียบร้อยแล้ว";
+            await LoadVersions(saved?.Id);
+            Message = "บันทึกเป็นฉบับร่างใหม่เรียบร้อยแล้ว";
+        }
+        catch (Exception ex) { IsError = true; Message = $"บันทึกไม่สำเร็จ: {ex.Message}"; }
+        finally { IsSaving = false; }
+    }
+
+    private async Task Publish()
+    {
+        if (Selected is null) return;
+        IsSaving = true; Message = null;
+        try
+        {
+            var response = await Http.PostAsync($"api/work-calendar-templates/{Selected.Id}/publish", null);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
+            await LoadVersions(Selected.Id); IsError = false; Message = "เผยแพร่ Template เรียบร้อยแล้ว PDF ใหม่จะใช้เวอร์ชันนี้";
+        }
+        catch (Exception ex) { IsError = true; Message = $"เผยแพร่ไม่สำเร็จ: {ex.Message}"; }
+        finally { IsSaving = false; }
+    }
+
+    private static string TokenText(string? value) => (value ?? "").Replace("{{year_th}}", "2569").Replace("{{year_en}}", "2026").Replace("|", "\n");
+    private static IEnumerable<string> FooterLines(string? value, bool isThai)
+    {
+        var text = (value ?? string.Empty)
+            .Replace("{{year_th}}", "2569")
+            .Replace("{{year_en}}", "2026")
+            .Replace("\r", string.Empty);
+        if (!text.Contains('|') && !text.Contains('\n'))
+            text = isThai
+                ? text.Replace(" เลขที่ 9 ", "|เลขที่ 9 ", StringComparison.Ordinal)
+                : text.Replace(" 9 Pakin Building", "|9 Pakin Building", StringComparison.OrdinalIgnoreCase);
+        return text.Split(['|', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+    private static WorkCalendarTemplateSettings Clone(WorkCalendarTemplateSettings s) => new() { HeaderBandColor=s.HeaderBandColor, AccentColor=s.AccentColor, TitleColor=s.TitleColor, ShowLogo=s.ShowLogo, LogoPosition=s.LogoPosition, TitleAlignment=s.TitleAlignment, TitleThai=s.TitleThai, TitleEnglish=s.TitleEnglish, ShowEnglishTitle=s.ShowEnglishTitle, IntroText=s.IntroText, PolicyText=s.PolicyText, FooterThai=s.FooterThai, FooterEnglish=s.FooterEnglish, ShowFooter=s.ShowFooter, PageMarginMm=s.PageMarginMm, BaseFontSizePt=s.BaseFontSizePt, ListSpacingMm=s.ListSpacingMm };
+    private static WorkCalendarTemplateSettings Defaults(string type) => new() { TitleThai = type == HolidayType ? "ประกาศวันหยุดตามประเพณี ประจำปี {{year_th}}" : "ประกาศ|วันเสาร์ทำงานประจำปี พ.ศ. {{year_th}}", TitleEnglish = type == HolidayType ? "Announcement : Public Holidays for year {{year_en}}" : "Working Saturdays for year {{year_en}}", PolicyText = type == SaturdayType ? "เวลาทำงาน 09:00 - 17:00 น. พักกลางวัน 12:00 - 13:00 น.|วันเสาร์ที่ไม่ปรากฏในประกาศนี้ถือเป็นวันหยุดประจำสัปดาห์" : "", FooterThai = "บริษัท เอสไอเอส ดิสทริบิวชั่น (ประเทศไทย) จำกัด (มหาชน)|เลขที่ 9 อาคารภคินท์ ชั้น 9 ห้องเลขที่ 901 ถนนรัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพฯ 10400 โทรศัพท์ 02-020-3000", FooterEnglish = "SIS DISTRIBUTION (THAILAND) PUBLIC COMPANY LIMITED|9 Pakin Building, 9th Floor, Room No.901, Ratchadaphisek Road, Din Daeng, Bangkok 10400 Tel: +662-020-3000" };
+}

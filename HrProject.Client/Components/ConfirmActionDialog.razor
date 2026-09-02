@@ -1,0 +1,37 @@
+@if (IsOpen)
+{
+    <div class="confirm-action-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title">
+        <section class="confirm-action-dialog">
+            <div class="confirm-action-icon @Tone" aria-hidden="true">!</div>
+            <h2 id="confirm-action-title">@Title</h2>
+            <p>@Message</p>
+
+            @if (IsBusy)
+            {
+                <div class="confirm-action-loading" role="status" aria-live="polite">
+                    <span class="confirm-action-spinner" aria-hidden="true"></span>
+                    <strong>@BusyText</strong>
+                </div>
+            }
+
+            <footer>
+                <button class="confirm-cancel" type="button" disabled="@IsBusy" @onclick="OnCancel">ปิด</button>
+                <button class="confirm-submit @Tone" type="button" disabled="@IsBusy" @onclick="OnConfirm">
+                    @(IsBusy ? BusyText : ConfirmText)
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public bool IsBusy { get; set; }
+    [Parameter] public string Title { get; set; } = "ยืนยันการทำรายการ";
+    [Parameter] public string Message { get; set; } = "คุณต้องการดำเนินการต่อหรือไม่";
+    [Parameter] public string ConfirmText { get; set; } = "ยืนยัน";
+    [Parameter] public string BusyText { get; set; } = "กำลังดำเนินการ...";
+    [Parameter] public string Tone { get; set; } = "primary";
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+}

@@ -1,3 +1,6 @@
+@implements IDisposable
+@inject HrProject.Client.Services.PageAvailabilityState PageAvailability
+
 <div class="nav-shell @(IsDesktopCollapsed ? "desktop-collapsed" : null)">
 <div class="top-row navbar navbar-dark">
     <div class="container-fluid">
@@ -17,25 +20,40 @@
 <div class="@NavMenuCssClass nav-scrollable" @onclick="CloseNavMenu">
     <nav class="nav-menu">
         <p class="menu-section">การลา</p>
-        <NavLink class="menu-link" href="leave/documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>เอกสารการลา</NavLink>
-        <NavLink class="menu-link" href="leave/all-documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>เอกสารทั้งหมด</NavLink>
-        <NavLink class="menu-link" href="leave/pending"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 13 3 3 7-8"/></svg>เอกสารรออนุมัติ</NavLink>
-        <NavLink class="menu-link" href="leave/revisions"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขเอกสารการลา</NavLink>
-        <NavLink class="menu-link" href="leave/team"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 3.1a4 4 0 0 1 0 7.8M21 21v-2a6 6 0 0 0-3-5.2"/></svg>หัวหน้าแจ้งลาลูกน้อง</NavLink>
-        <NavLink class="menu-link" href="leave/request-quota"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"/></svg>ขอวันลาเพิ่ม</NavLink>
-        <NavLink class="menu-link" href="leave/manage-quota"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>จัดการโควต้าวันลา</NavLink>
+        <NavLink class="@MenuClass("LEAVE_DOCUMENTS")" href="leave/documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>เอกสารการลา @MaintenanceLabel("LEAVE_DOCUMENTS")</NavLink>
+        <NavLink class="@MenuClass("LEAVE_ALL_DOCUMENTS")" href="leave/all-documents"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>เอกสารทั้งหมด @MaintenanceLabel("LEAVE_ALL_DOCUMENTS")</NavLink>
+        @if (PageAvailability.HasAccess("LEAVE_PENDING"))
+        {
+            <NavLink class="@MenuClass("LEAVE_PENDING")" href="leave/pending"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 13 3 3 7-8"/></svg>เอกสารรออนุมัติ @MaintenanceLabel("LEAVE_PENDING")</NavLink>
+        }
+        <NavLink class="@MenuClass("LEAVE_REVISIONS")" href="leave/revisions"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไข/ยกเลิกเอกสาร @MaintenanceLabel("LEAVE_REVISIONS")</NavLink>
+        <NavLink class="@MenuClass("LEAVE_TEAM")" href="leave/team"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 3.1a4 4 0 0 1 0 7.8M21 21v-2a6 6 0 0 0-3-5.2"/></svg>หัวหน้าแจ้งลาลูกน้อง @MaintenanceLabel("LEAVE_TEAM")</NavLink>
+        <NavLink class="@MenuClass("LEAVE_REQUEST_QUOTA")" href="leave/request-quota"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"/></svg>ขอวันลาเพิ่ม @MaintenanceLabel("LEAVE_REQUEST_QUOTA")</NavLink>
+        <NavLink class="@MenuClass("LEAVE_MANAGE_QUOTA")" href="leave/manage-quota"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>จัดการโควต้าวันลา @MaintenanceLabel("LEAVE_MANAGE_QUOTA")</NavLink>
+        @if (PageAvailability.HasAccess("LEAVE_QUOTA_MOVEMENTS"))
+        {
+            <NavLink class="@MenuClass("LEAVE_QUOTA_MOVEMENTS")" href="leave/quota-movements"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><path d="m15 3 3 3-3 3M9 15l-3 3 3 3"/></svg>Movement โควต้าวันลา @MaintenanceLabel("LEAVE_QUOTA_MOVEMENTS")</NavLink>
+        }
         
         <p class="menu-section">การมาทำงาน</p>
-        <NavLink class="menu-link" href="attendance"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>การมาทำงาน</NavLink>
-        <NavLink class="menu-link" href="attendance/calendar-settings"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>กำหนดปฏิทินการทำงาน</NavLink>
+        <NavLink class="@MenuClass("ATTENDANCE")" href="attendance" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>ปฏิทินการมาทำงาน @MaintenanceLabel("ATTENDANCE")</NavLink>
+        <NavLink class="@MenuClass("ATTENDANCE_RECORDS")" href="attendance/records" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="7" cy="5" r="1"/><circle cx="7" cy="12" r="1"/><circle cx="7" cy="19" r="1"/></svg>การมาทำงาน @MaintenanceLabel("ATTENDANCE_RECORDS")</NavLink>
+        @if (PageAvailability.HasAccess("ATTENDANCE_REVIEWS"))
+        {
+            <NavLink class="@MenuClass("ATTENDANCE_REVIEWS")" href="attendance/reviews"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>ตรวจสอบข้อโต้แย้ง @MaintenanceLabel("ATTENDANCE_REVIEWS")</NavLink>
+        }
+        <NavLink class="@MenuClass("WORK_CALENDAR")" href="attendance/calendar-settings"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>กำหนดปฏิทินการทำงาน @MaintenanceLabel("WORK_CALENDAR")</NavLink>
+
+        <p class="menu-section">การรับเข้าทำงาน</p>
+        <NavLink class="@MenuClass("PRE_EMPLOYEES")" href="recruitment/pre-employees"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M19 8v6M16 11h6"/></svg>Pre-Employee @MaintenanceLabel("PRE_EMPLOYEES")</NavLink>
 
         <p class="menu-section">พนักงาน</p>
-        <NavLink class="menu-link" href="" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>ข้อมูลพนักงาน</NavLink>
-        <NavLink class="menu-link" href="employees/edit-requests"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขข้อมูลพนักงาน</NavLink>
+        <NavLink class="@MenuClass("EMPLOYEES")" href="" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>ข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEES")</NavLink>
+        <NavLink class="@MenuClass("EMPLOYEE_EDIT_REQUESTS")" href="employees/edit-requests"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEE_EDIT_REQUESTS")</NavLink>
         
         <p class="menu-section">การจัดการระบบ</p>
-        <NavLink class="menu-link" href="permissions"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>จัดการสิทธิ์การเข้าถึง</NavLink>
-        <NavLink class="menu-link" href="system/master-data"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>จัดการข้อมูลพื้นฐานระบบ</NavLink>
+        <NavLink class="@MenuClass("PERMISSIONS")" href="permissions"><svg class="menu-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>จัดการสิทธิ์การเข้าถึง</NavLink>
+        <NavLink class="@MenuClass("SYSTEM_MASTER_DATA")" href="system/master-data"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>จัดการข้อมูลพื้นฐานระบบ @MaintenanceLabel("SYSTEM_MASTER_DATA")</NavLink>
     </nav>
     <LoginDisplay />
 </div>
@@ -51,6 +69,24 @@
     private bool collapseNavMenu = true;
     private string NavMenuCssClass => collapseNavMenu ? "is-collapsed" : "is-open";
 
+    protected override async Task OnInitializedAsync()
+    {
+        PageAvailability.Changed += HandleAvailabilityChanged;
+        try { await PageAvailability.EnsureLoadedAsync(); }
+        catch { }
+    }
+
+    private string MenuClass(string pageKey) =>
+        PageAvailability.IsEnabled(pageKey) ? "menu-link" : "menu-link menu-disabled";
+
+    private RenderFragment MaintenanceLabel(string pageKey) => builder =>
+    {
+        if (!PageAvailability.IsEnabled(pageKey))
+            builder.AddMarkupContent(0, "<small class=\"maintenance-label\">ปิดปรับปรุง</small>");
+    };
+
+    private void HandleAvailabilityChanged() => _ = InvokeAsync(StateHasChanged);
+
     private async Task ToggleNavMenu()
     {
         collapseNavMenu = !collapseNavMenu;
@@ -58,4 +94,6 @@
     }
 
     private void CloseNavMenu() => collapseNavMenu = true;
+
+    public void Dispose() => PageAvailability.Changed -= HandleAvailabilityChanged;
 }

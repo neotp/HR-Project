@@ -59,13 +59,16 @@
     {
         isLoading = true;
         loadingMessage = "กำลังเข้าสู่ระบบ...";
-        Navigation.NavigateTo(
-            "authentication/login?returnUrl=" +
-            Uri.EscapeDataString("/login" +
-                (string.IsNullOrWhiteSpace(ReturnUrl)
-                    ? string.Empty
-                    : $"?returnUrl={Uri.EscapeDataString(ReturnUrl)}")),
-            forceLoad: true);
+        var returnUrl = IsSafeLocalUrl(ReturnUrl)
+            ? Navigation.ToAbsoluteUri(ReturnUrl!).ToString()
+            : Navigation.BaseUri;
+        Navigation.NavigateToLogin(
+            "authentication/login",
+            new InteractiveRequestOptions
+            {
+                Interaction = InteractionType.SignIn,
+                ReturnUrl = returnUrl
+            });
     }
 
     private async Task LinkEmployeeAndContinue()

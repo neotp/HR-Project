@@ -58,6 +58,10 @@
 .edit-request-panel { position: fixed; top: 50%; left: calc(50% + 390px); z-index: 2200; width: min(380px, calc(100vw - 2rem)); overflow: hidden; background: #fff; border-radius: .8rem; box-shadow: 0 20px 50px rgba(0,0,0,.3); transform: translateY(-50%); }
 .edit-request-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 1.1rem 1.25rem; color: #fff; background: linear-gradient(135deg, #d97706, #b45309); }
 .edit-request-header h2 { margin: 0; font-size: 1.1rem; }.edit-request-header p { margin: .2rem 0 0; color: rgba(255,255,255,.8); font-size: .82rem; }
+.cancel-request-header { background: linear-gradient(135deg, #dc2626, #991b1b); }
+.cancel-request-reason { display: flex; flex-direction: column; gap: .45rem; color: #334155; font-size: .85rem; font-weight: 700; }
+.cancel-request-reason textarea { width: 100%; padding: .65rem .75rem; color: #1e293b; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; resize: vertical; }
+.cancel-request-reason textarea:focus { outline: 0; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.1); }
 .edit-request-body { padding: 1.25rem; }.edit-request-footer { display: flex; justify-content: flex-end; gap: .75rem; padding: 1rem 1.25rem; border-top: 1px solid #e5e7eb; }.single-column { grid-template-columns: 1fr; }
 .no-results { padding: 2rem !important; color: #64748b !important; text-align: center; }
 .document-modal-overlay { position: fixed; inset: 0; z-index: 2100; display: grid; place-items: center; padding: 1rem; background: rgba(15, 23, 42, .55); }
@@ -68,9 +72,90 @@
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }.form-grid label { display: flex; flex-direction: column; gap: .4rem; color: #334155; font-size: .85rem; font-weight: 600; }.form-grid input, .form-grid select, .form-grid textarea { width: 100%; padding: .55rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }.form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { outline: 0; border-color: #ff6b35; box-shadow: 0 0 0 3px rgba(255,107,53,.12); }.readonly-grid input { color: #64748b; background: #f1f5f9; cursor: not-allowed; }.full-width { grid-column: 1 / -1; }.required { margin-left: .15rem; color: #dc2626; }.attachment-name { margin: .75rem 0 0; color: #047857; font-size: .85rem; }.document-modal-footer { display: flex; justify-content: flex-end; gap: .75rem; padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; }
 .medical-certificate-field { display: flex; align-items: center; gap: 1.25rem; padding: .8rem 1rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: .5rem; }
 .medical-certificate-field legend { width: auto; margin: 0; color: #334155; font-size: .85rem; font-weight: 700; }
+.field-label { display: inline-flex; align-items: baseline; gap: .2rem; }
+.field-label .required { margin-left: 0; }
+.attachment-detail { display: flex; flex-direction: column; gap: .4rem; }
+.attachment-detail-label { color: #334155; font-size: .85rem; font-weight: 600; }
+.attachment-empty { min-height: 2.55rem; display: flex; align-items: center; padding: .55rem .7rem; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: .45rem; }
+.attachment-download { display: grid; grid-template-columns: 1.65rem minmax(0,1fr) auto; align-items: center; gap: .55rem; width: 100%; min-height: 2.7rem; padding: .38rem .55rem; color: #1d4ed8; background: #f8fbff; border: 1px solid #cfe0f7; border-radius: .45rem; cursor: pointer; text-align: left; }
+.attachment-download:hover { background: #dbeafe; border-color: #93c5fd; }
+.attachment-file-icon { width: 1.65rem; height: 1.65rem; display: grid; place-items: center; color: #2563eb; background: #e0ecff; border-radius: .38rem; }
+.attachment-file-icon svg { width: .95rem; height: .95rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.attachment-file-info { min-width: 0; display: flex; align-items: baseline; gap: .45rem; }
+.attachment-file-info strong { min-width: 0; overflow: hidden; color: #1e3a8a; font-size: .82rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-file-info small { flex: 0 0 auto; color: #64748b; font-size: .72rem; white-space: nowrap; }
+.attachment-preview-action { padding: .22rem .42rem; color: #1d4ed8; background: #fff; border: 1px solid #bfdbfe; border-radius: .35rem; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.attachment-preview-overlay { position: fixed; inset: 0; z-index: 2300; display: grid; place-items: center; padding: 1rem; background: rgba(15, 23, 42, .72); }
+.attachment-preview-modal { width: min(1000px, 100%); height: min(850px, calc(100vh - 2rem)); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: .8rem; box-shadow: 0 24px 65px rgba(0,0,0,.4); }
+.attachment-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; color: #fff; background: #13213f; }
+.attachment-preview-header h2 { margin: 0; font-size: 1.15rem; }.attachment-preview-header p { margin: .2rem 0 0; color: #cbd5e1; font-size: .82rem; }
+.attachment-preview-body { min-height: 0; flex: 1; display: grid; place-items: center; overflow: auto; background: #e2e8f0; }
+.attachment-preview-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.attachment-preview-body img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.attachment-preview-state { padding: 1rem 1.25rem; color: #475569; background: #fff; border-radius: .5rem; }.attachment-preview-state.error { color: #b91c1c; }
+.selected-attachments { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .7rem; }
+.selected-attachments > span { display: inline-flex; align-items: center; gap: .45rem; max-width: 100%; padding: .4rem .55rem; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .45rem; font-size: .82rem; }
+.selected-attachments button { width: 1.25rem; height: 1.25rem; padding: 0; color: #b91c1c; background: #fff; border: 1px solid #fecaca; border-radius: 50%; cursor: pointer; line-height: 1; }
+.request-attachment-section { display: grid; gap: .4rem; margin-top: .8rem; padding: .7rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .5rem; }
+.request-attachment-section strong { color: #334155; font-size: .83rem; }.request-attachment-section button { padding: .45rem .55rem; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .4rem; cursor: pointer; text-align: left; }
 .medical-certificate-field .radio-option { display: inline-flex; align-items: center; flex-direction: row; gap: .4rem; margin: 0; cursor: pointer; }
 .medical-certificate-field .radio-option input { width: 1rem; min-height: 1rem; margin: 0; padding: 0; accent-color: #ff6b35; }
-.attachment-help { margin-top: -.15rem; color: #64748b; font-size: .72rem; font-weight: 400; }
+.edit-medical-certificate-field { justify-content: flex-start; width: 100%; }
+.attachment-picker {
+    width: 100%;
+}
+
+.attachment-picker ::deep .attachment-input {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: .3rem;
+    overflow: hidden;
+    color: #52617a;
+    background: #f8fafc;
+    border: 1px dashed #b9c7da;
+    border-radius: .5rem;
+    font-size: .78rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.attachment-picker ::deep .attachment-input:hover {
+    background: #fff7ed;
+    border-color: #ff8a5c;
+}
+
+.attachment-picker ::deep .attachment-input:focus {
+    outline: 0;
+    border-color: #ff6b35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, .12);
+}
+
+.attachment-picker ::deep .attachment-input::file-selector-button {
+    min-height: 2.1rem;
+    margin-right: .7rem;
+    padding: .4rem .8rem;
+    color: #fff;
+    background: #ff6b35;
+    border: 0;
+    border-radius: .4rem;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color .15s ease, transform .15s ease;
+}
+
+.attachment-picker ::deep .attachment-input::file-selector-button:hover {
+    background: #e85a2a;
+}
+
+.attachment-help {
+    display: block;
+    margin-top: .1rem;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 400;
+    line-height: 1.45;
+}
 .batch-note { margin: .75rem 0 0; padding: .65rem .75rem; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .45rem; font-size: .85rem; font-weight: 600; }
 .leave-mode-tabs { display: flex; gap: 1.5rem; margin: 1.25rem 0 0; border-bottom: 1px solid #e2e8f0; }
 .leave-mode-tab { position: relative; padding: .7rem .25rem; color: #64748b; background: transparent; border: 0; font: inherit; font-weight: 700; cursor: pointer; }

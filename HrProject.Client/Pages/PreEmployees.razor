@@ -1,0 +1,149 @@
+@page "/recruitment/pre-employees"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Pre-Employee | HR Project</PageTitle>
+
+<section class="manage-page pre-employee-page">
+    <header class="page-header-card"><div class="page-header-content">
+        <div class="page-header-text"><h1>Pre-Employee</h1><p>ตรวจสอบและเติมข้อมูลก่อนสร้างเป็นพนักงานในระบบ</p></div>
+        @if (canEdit) { <button class="primary-button" type="button" @onclick="OpenCreate">+ เพิ่ม Pre-Employee</button> }
+    </div></header>
+
+    <section class="pre-summary">
+        <article><span>ทั้งหมด</span><strong>@items.Count</strong></article>
+        <article><span>ข้อมูลไม่ครบ</span><strong>@items.Count(x => x.Status is "DRAFT" or "INCOMPLETE")</strong></article>
+        <article><span>พร้อมสร้าง</span><strong>@items.Count(x => x.Status == "READY")</strong></article>
+        <article><span>สร้างพนักงานแล้ว</span><strong>@items.Count(x => x.Status == "CONVERTED")</strong></article>
+    </section>
+
+    <section class="content-card"><div class="content-card-header">ค้นหา Pre-Employee</div><div class="content-card-body criteria-grid">
+        <label>คำค้นหา<input @bind="searchText" @bind:event="oninput" placeholder="รหัส ชื่อ อีเมล แผนก หรือตำแหน่ง" /></label>
+        <label>สถานะ<select @bind="statusFilter"><option value="WAITING">รอตรวจสอบ</option><option value="">ทั้งหมด</option><option value="INCOMPLETE">ข้อมูลไม่ครบ</option><option value="READY">พร้อมสร้าง</option><option value="CONVERTED">สร้างพนักงานแล้ว</option><option value="CANCELLED">ยกเลิก</option></select></label>
+        <button class="secondary-button" type="button" @onclick="ClearFilter">ล้างข้อมูล</button>
+    </div></section>
+
+    <section class="content-card"><div class="content-card-header list-heading"><span>รายการ Pre-Employee</span><span>@FilteredItems.Count รายการ</span></div>
+        <div class="pre-table-scroll"><table class="pre-table"><thead><tr><th>รหัส</th><th>ชื่อ–นามสกุล</th><th>อีเมล</th><th>BU / แผนก</th><th>ตำแหน่ง</th><th>สถานะ</th><th>วันที่สร้าง</th><th></th></tr></thead><tbody>
+        @if (isLoading) { <tr><td colspan="8"><div class="table-state"><span class="loading-spinner"></span>กำลังโหลดข้อมูล...</div></td></tr> }
+        else if (!string.IsNullOrWhiteSpace(loadError)) { <tr><td colspan="8"><div class="table-state error">@loadError</div></td></tr> }
+        else if (PagedItems.Count == 0) { <tr><td colspan="8"><div class="table-state">ยังไม่มีรายการ Pre-Employee</div></td></tr> }
+        else { @foreach (var item in PagedItems) { <tr>
+            <td>@Display(item.EmployeeCode)</td>
+            <td><button class="name-link" type="button" @onclick="() => OpenEdit(item)"><strong>@Display($"{item.FirstNameTh} {item.LastNameTh}".Trim())</strong><small>@Display(item.FullNameEn)</small></button></td>
+            <td>@Display(item.Email)</td><td>@DisplayJoin(item.BusinessUnit, item.Department)</td><td>@Display(item.Position)</td>
+            <td><span class="status-tag @StatusClass(item.Status)">@StatusText(item.Status)</span></td><td>@item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+            <td><button class="view-button" type="button" @onclick="() => OpenEdit(item)">ตรวจสอบ</button></td>
+        </tr> } }
+        </tbody></table></div>
+        @if (FilteredItems.Count > 0) { <Pagination TotalItems="@FilteredItems.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" /> }
+    </section>
+</section>
+
+@if (isModalOpen)
+{
+    <div class="pre-overlay" role="dialog" aria-modal="true" @onclick="CloseModal"><section class="pre-modal" @onclick:stopPropagation="true">
+        <header><div><h2>@(selectedId.HasValue ? "ตรวจสอบ Pre-Employee" : "เพิ่ม Pre-Employee")</h2><p>ข้อมูลนี้ยังไม่ใช่พนักงานจนกว่าจะกด “สร้างพนักงาน”</p></div><button type="button" disabled="@isSaving" @onclick="CloseModal">×</button></header>
+        <div class="pre-modal-body">
+            @if (selectedItem is not null) { <div class="audit-line"><span class="status-tag @StatusClass(selectedItem.Status)">@StatusText(selectedItem.Status)</span><span>สร้างเมื่อ @selectedItem.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span><span>โดย @selectedItem.CreatedByName</span></div> }
+            @if (!string.IsNullOrWhiteSpace(formError)) { <div class="form-error">@formError</div> }
+            <h3>ข้อมูลพื้นฐาน</h3><div class="form-grid">
+                <div class="profile-draft full">
+                    @if (!string.IsNullOrWhiteSpace(form.Employee.ProfileImageDataUrl)) { <img src="@form.Employee.ProfileImageDataUrl" alt="รูปโปรไฟล์" /> } else { <span>ไม่มีรูป</span> }
+                    @if (!IsReadOnly) { <label>เลือกรูปโปรไฟล์<InputFile OnChange="UploadProfileImage" accept="image/jpeg,image/png,image/webp" /></label>@if(!string.IsNullOrWhiteSpace(form.Employee.ProfileImageDataUrl)){<button type="button" @onclick="RemoveProfileImage">ลบรูป</button>} }
+                </div>
+                <label>รหัสพนักงาน <i>*</i><input @bind="form.EmployeeCode" minlength="6" maxlength="6" disabled="@IsReadOnly" /></label><label>คำนำหน้าชื่อ<input @bind="form.Title" disabled="@IsReadOnly" /></label>
+                <label>ชื่อ (ไทย) <i>*</i><input @bind="form.FirstNameTh" disabled="@IsReadOnly" /></label><label>นามสกุล (ไทย) <i>*</i><input @bind="form.LastNameTh" disabled="@IsReadOnly" /></label>
+                <label class="full">ชื่อ–นามสกุล (อังกฤษ)<input @bind="form.FullNameEn" disabled="@IsReadOnly" /></label><label>ชื่อเล่น<input @bind="form.Nickname" disabled="@IsReadOnly" /></label>
+                <label>เบอร์ติดต่อ<input @bind="form.PersonalMobile" disabled="@IsReadOnly" /></label><label>Email <i>*</i><input type="email" @bind="form.Email" disabled="@IsReadOnly" /></label>
+                <label>Email for Lotus Notes<input @bind="form.LotusNotesEmail" disabled="@IsReadOnly" /></label>
+                <label class="full">ชื่อ–นามสกุล (ไทย)<input @bind="form.Employee.ThaiFullName" disabled="@IsReadOnly" /></label>
+                <label>โทรศัพท์บ้าน<input @bind="form.Employee.HomePhone" disabled="@IsReadOnly" /></label>
+            </div>
+            <h3>ข้อมูลภายในบริษัท</h3><div class="form-grid">
+                <label>บริษัท<input @bind="form.Company" disabled="@IsReadOnly" /></label><label>Business Unit<input @bind="form.BusinessUnit" disabled="@IsReadOnly" /></label>
+                <label>แผนก <i>*</i><input @bind="form.Department" disabled="@IsReadOnly" /></label><label>ตำแหน่ง <i>*</i><input @bind="form.Position" disabled="@IsReadOnly" /></label>
+                <label>วันที่เริ่มงาน<DateOnlyPicker @bind-Value="form.StartDate" Disabled="@IsReadOnly" /></label><label>ประเภทการจ้าง<input @bind="form.EmploymentType" disabled="@IsReadOnly" /></label>
+                <label>Boss<input @bind="form.SupervisorName" disabled="@IsReadOnly" /></label><label>Reporting To (Leave Approve)<input @bind="form.LeaveApproverName" disabled="@IsReadOnly" /></label>
+                <label class="full">สถานที่ทำงาน<input @bind="form.WorkLocation" disabled="@IsReadOnly" /></label>
+            </div>
+            <details class="source-section"><summary>ข้อมูลส่วนบุคคล</summary><div class="form-grid">
+                <label>ศาสนา<input @bind="form.Employee.Religion" disabled="@IsReadOnly" /></label><label>หมู่เลือด<input @bind="form.Employee.BloodType" disabled="@IsReadOnly" /></label>
+                <label>จังหวัดที่พักอาศัย<input @bind="form.Employee.ResidenceProvince" disabled="@IsReadOnly" /></label><label>โทรศัพท์บ้าน<input @bind="form.Employee.HomePhone" disabled="@IsReadOnly" /></label>
+                <label class="full">ที่อยู่ปัจจุบัน<textarea @bind="form.Employee.CurrentAddress" disabled="@IsReadOnly"></textarea></label><label class="full">ที่อยู่ตามบัตรประชาชน<textarea @bind="form.Employee.IdCardAddress" disabled="@IsReadOnly"></textarea></label>
+                <label class="full">ที่อยู่ตามทะเบียนบ้าน<textarea @bind="form.Employee.HouseRegistrationAddress" disabled="@IsReadOnly"></textarea></label><label>บุคคลติดต่อฉุกเฉิน<input @bind="form.Employee.EmergencyContactName" disabled="@IsReadOnly" /></label>
+                <label>เบอร์ติดต่อฉุกเฉิน<input @bind="form.Employee.EmergencyContactPhone" disabled="@IsReadOnly" /></label><label class="full">ที่อยู่ผู้ติดต่อฉุกเฉิน<textarea @bind="form.Employee.EmergencyContactAddress" disabled="@IsReadOnly"></textarea></label>
+            </div></details>
+            <details class="source-section"><summary>ข้อมูลภายในบริษัทเพิ่มเติม</summary><div class="form-grid">
+                <label>ฝ่าย<input @bind="form.Employee.Division" disabled="@IsReadOnly" /></label><label>ส่วนงาน<input @bind="form.Employee.Section" disabled="@IsReadOnly" /></label><label>รหัสตำแหน่ง<input @bind="form.Employee.JobCode" disabled="@IsReadOnly" /></label>
+                <label>Functional Boss<input @bind="form.Employee.FunctionalSupervisorName" disabled="@IsReadOnly" /></label><label>Buddy<input @bind="form.Employee.BuddyName" disabled="@IsReadOnly" /></label><label>เวลาทำงาน<input @bind="form.Employee.WorkSchedule" disabled="@IsReadOnly" /></label>
+                <label>สถานะพนักงาน<input @bind="form.Employee.EmployeeStatus" disabled="@IsReadOnly" /></label><label>Ext. ภายใน<input @bind="form.Employee.InternalExtension" disabled="@IsReadOnly" /></label><label>เบอร์โทรสายตรง<input @bind="form.Employee.DirectPhone" disabled="@IsReadOnly" /></label>
+                <label>เบอร์มือถือบริษัท<input @bind="form.Employee.CompanyMobile" disabled="@IsReadOnly" /></label><label>MAC Address<input @bind="form.Employee.MacAddress" disabled="@IsReadOnly" /></label><label>รหัสสาขา<input @bind="form.Employee.BranchCode" disabled="@IsReadOnly" /></label>
+                <label>ชื่อสาขา<input @bind="form.Employee.BranchName" disabled="@IsReadOnly" /></label><label>จังหวัดที่รับผิดชอบ<input @bind="form.Employee.ResponsibilityProvince" disabled="@IsReadOnly" /></label><label>ประเภท Checklist<input @bind="form.Employee.ChecklistType" disabled="@IsReadOnly" /></label>
+                <label class="full">สินค้าที่รับผิดชอบ<input @bind="form.Employee.ProductsResponsible" disabled="@IsReadOnly" /></label><label>วันที่บรรจุ<DateOnlyPicker @bind-Value="form.Employee.AppointmentDate" Disabled="@IsReadOnly" /></label><label>วันที่เปิดกองทุน<DateOnlyPicker @bind-Value="form.Employee.ProvidentFundStartDate" Disabled="@IsReadOnly" /></label>
+                <label>ประเภทประสบการณ์<input @bind="form.Employee.WorkExperienceType" disabled="@IsReadOnly" /></label><label class="checkbox-field"><input type="checkbox" @bind="form.Employee.HasCompanyParking" disabled="@IsReadOnly" /> มีที่จอดรถบริษัท</label><label class="checkbox-field"><input type="checkbox" @bind="form.Employee.CanTravelUpcountry" disabled="@IsReadOnly" /> เดินทางต่างจังหวัดได้</label><label class="checkbox-field"><input type="checkbox" @bind="form.Employee.ExcludeAttendanceCalculation" disabled="@IsReadOnly" /> ไม่คำนวณการมาทำงาน</label>
+            </div></details>
+            <details class="source-section"><summary>ประวัติการทำงาน</summary>
+                @if (!IsReadOnly) { <button class="add-row-button" type="button" @onclick="AddWorkHistory">+ เพิ่มรายการ</button> }
+                <div class="history-scroll"><table class="history-table"><thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง</th><th>บริษัท</th><th></th></tr></thead><tbody>@foreach(var row in form.Employee.WorkHistory){<tr><td><input @bind="row.Period" disabled="@IsReadOnly" /></td><td><input @bind="row.Position" disabled="@IsReadOnly" /></td><td><input @bind="row.Company" disabled="@IsReadOnly" /></td><td>@if(!IsReadOnly){<button type="button" @onclick="() => RemoveWorkHistory(row)">×</button>}</td></tr>}</tbody></table></div>
+            </details>
+            <details class="source-section"><summary>ประวัติการศึกษา</summary>
+                @if (!IsReadOnly) { <button class="add-row-button" type="button" @onclick="AddEducationHistory">+ เพิ่มรายการ</button> }
+                <div class="history-scroll"><table class="history-table"><thead><tr><th>ระดับ</th><th>สถานศึกษา</th><th>สาขา</th><th>ปีที่จบ</th><th></th></tr></thead><tbody>@foreach(var row in form.Employee.EducationHistory){<tr><td><input @bind="row.Level" disabled="@IsReadOnly" /></td><td><input @bind="row.Institution" disabled="@IsReadOnly" /></td><td><input @bind="row.Major" disabled="@IsReadOnly" /></td><td><input @bind="row.GraduationYear" disabled="@IsReadOnly" /></td><td>@if(!IsReadOnly){<button type="button" @onclick="() => RemoveEducationHistory(row)">×</button>}</td></tr>}</tbody></table></div>
+            </details>
+            <details class="source-section"><summary>ประวัติการอบรม &amp; สัมมนา</summary>
+                @if (!IsReadOnly) { <button class="add-row-button" type="button" @onclick="AddTrainingHistory">+ เพิ่มรายการ</button> }
+                <div class="history-scroll"><table class="history-table"><thead><tr><th>หลักสูตร</th><th>ช่วงเวลา</th><th>สถานที่</th><th>ค่าใช้จ่าย</th><th>Certificate</th><th>ค่าสอบ</th><th></th></tr></thead><tbody>@foreach(var row in form.Employee.TrainingHistory){<tr><td><input @bind="row.CourseName" disabled="@IsReadOnly" /></td><td><input @bind="row.TrainingPeriod" disabled="@IsReadOnly" /></td><td><input @bind="row.Location" disabled="@IsReadOnly" /></td><td><input type="number" @bind="row.Expense" disabled="@IsReadOnly" /></td><td><input @bind="row.Certificate" disabled="@IsReadOnly" /></td><td><input type="number" @bind="row.ExamFee" disabled="@IsReadOnly" /></td><td>@if(!IsReadOnly){<button type="button" @onclick="() => RemoveTrainingHistory(row)">×</button>}</td></tr>}</tbody></table></div>
+            </details>
+            <details class="source-section"><summary>ประวัติครอบครัว</summary><div class="form-grid">
+                <label>สถานะสมรส<input @bind="form.Employee.MaritalStatus" disabled="@IsReadOnly" /></label><label class="checkbox-field"><input type="checkbox" @bind="form.Employee.IsMarriageRegistered" disabled="@IsReadOnly" /> จดทะเบียนสมรส</label><label>คำนำหน้าคู่สมรส<input @bind="form.Employee.SpouseTitle" disabled="@IsReadOnly" /></label><label>ชื่อคู่สมรส<input @bind="form.Employee.SpouseName" disabled="@IsReadOnly" /></label>
+                <label>วันที่สมรส<DateOnlyPicker @bind-Value="form.Employee.MarriageDate" Disabled="@IsReadOnly" /></label><label class="checkbox-field"><input type="checkbox" @bind="form.Employee.SpouseHasIncome" disabled="@IsReadOnly" /> คู่สมรสมีรายได้</label><label>เลขบัตรประชาชนคู่สมรส<input @bind="form.Employee.SpouseNationalId" disabled="@IsReadOnly" /></label><label>Passport ID<input @bind="form.Employee.SpousePassportId" disabled="@IsReadOnly" /></label>
+                <label>ชื่อใน Passport<input @bind="form.Employee.SpousePassportName" disabled="@IsReadOnly" /></label><label>จำนวนบุตรไม่ศึกษา<input type="number" @bind="form.Employee.UneducatedChildCount" disabled="@IsReadOnly" /></label><label>จำนวนบุตรศึกษา<input type="number" @bind="form.Employee.StudyingChildCount" disabled="@IsReadOnly" /></label><label>เบี้ยประกันชีวิต<input type="number" @bind="form.Employee.LifeInsuranceAmount" disabled="@IsReadOnly" /></label>
+                <label>ลดหย่อนบิดามารดา<input type="number" @bind="form.Employee.ParentSupportDeductionAmount" disabled="@IsReadOnly" /></label><label>ลดหย่อนบิดามารดาคู่สมรส<input type="number" @bind="form.Employee.SpouseParentSupportDeductionAmount" disabled="@IsReadOnly" /></label><label class="full">URL แผนที่อยู่ปัจจุบัน<input @bind="form.Employee.CurrentAddressMapUrl" disabled="@IsReadOnly" /></label>
+                <label>สมาชิกครอบครัว<input @bind="form.Employee.FamilyMemberName" disabled="@IsReadOnly" /></label><label>ความสัมพันธ์<input @bind="form.Employee.FamilyRelationship" disabled="@IsReadOnly" /></label><label>โทรศัพท์ครอบครัว<input @bind="form.Employee.FamilyPhone" disabled="@IsReadOnly" /></label><label>อาชีพ<input @bind="form.Employee.FamilyOccupation" disabled="@IsReadOnly" /></label>
+            </div></details>
+            <details class="source-section"><summary>ข้อมูลอ้างอิงจากต้นทาง</summary><div class="form-grid"><label>Source System<input @bind="form.SourceSystem" disabled="@IsReadOnly" /></label><label>Source Reference ID<input @bind="form.SourceReferenceId" disabled="@IsReadOnly" /></label></div></details>
+        </div>
+        <footer><button class="secondary-button" type="button" disabled="@isSaving" @onclick="CloseModal">ปิด</button><span></span>
+            @if (!IsReadOnly && canEdit) { <button class="save-button" type="button" disabled="@isSaving" @onclick="SaveDraft">@(isSaving ? "กำลังบันทึก..." : "บันทึก Draft")</button> }
+            @if (selectedItem?.Status == "READY" && canConvert) { <button class="convert-button" type="button" disabled="@isSaving" @onclick="ConfirmConvert">สร้างพนักงาน</button> }
+            @if (selectedItem?.Status == "CONVERTED" && selectedItem.CreatedEmployeeId.HasValue) { <button class="convert-button" type="button" @onclick="OpenCreatedEmployee">ดูข้อมูลพนักงาน</button> }
+        </footer>
+    </section></div>
+}
+
+<ConfirmActionDialog IsOpen="@confirmConvertOpen" IsBusy="@isSaving" Title="ยืนยันการสร้างพนักงาน" Message="ระบบจะนำข้อมูล Pre-Employee ไปสร้างเป็นพนักงานจริงและไม่สามารถแก้ไข Draft รายการนี้ได้" ConfirmText="สร้างพนักงาน" BusyText="กำลังสร้างพนักงาน..." Tone="approve" OnConfirm="ConvertToEmployee" OnCancel="CloseConvertConfirm" />
+
+<style>
+    .form-grid textarea { min-height:72px; padding:.55rem .7rem; border:1px solid #cbd5e1; border-radius:.45rem; font:inherit; resize:vertical; }
+    .checkbox-field { display:flex !important; grid-template-columns:auto 1fr !important; align-items:center; align-self:end; min-height:42px; }
+    .checkbox-field input { width:18px; min-height:18px; }
+    .add-row-button { margin:.7rem 0; padding:.4rem .7rem; color:#fff; background:#2563eb; border:0; border-radius:.4rem; font-weight:700; }
+    .history-scroll { overflow-x:auto; }.history-table { width:100%; min-width:720px; border-collapse:collapse; }
+    .history-table th,.history-table td { padding:.45rem; border:1px solid #e2e8f0; }.history-table input { width:100%; min-height:36px; padding:.35rem; border:1px solid #cbd5e1; border-radius:.35rem; }
+    .profile-draft { display:flex; align-items:center; gap:.75rem; padding:.75rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:.5rem; }.profile-draft img,.profile-draft>span { width:72px; height:72px; display:grid; place-items:center; object-fit:cover; color:#94a3b8; background:#e2e8f0; border-radius:50%; }.profile-draft label { cursor:pointer; }.profile-draft button { color:#b91c1c; background:#fff; border:1px solid #fecaca; border-radius:.4rem; }
+</style>
+
+@code {
+    private List<PreEmployeeDto> items=[]; private string searchText="",statusFilter="WAITING"; private bool isLoading=true,isSaving,isModalOpen,confirmConvertOpen,canEdit,canConvert;
+    private string? loadError,formError; private long? selectedId; private PreEmployeeDto? selectedItem; private DraftForm form=new(); private int currentPage=1,pageSize=10;
+    private bool IsReadOnly=>selectedItem?.Status is "CONVERTED" or "CANCELLED";
+    private List<PreEmployeeDto> FilteredItems { get { var term=searchText.Trim(); return items.Where(x=>string.IsNullOrWhiteSpace(statusFilter)||(statusFilter=="WAITING"&&x.Status is "DRAFT" or "INCOMPLETE" or "READY")||x.Status==statusFilter||(statusFilter=="INCOMPLETE"&&x.Status=="DRAFT")).Where(x=>string.IsNullOrWhiteSpace(term)||x.EmployeeCode.Contains(term,StringComparison.OrdinalIgnoreCase)||x.FirstNameTh.Contains(term,StringComparison.OrdinalIgnoreCase)||x.LastNameTh.Contains(term,StringComparison.OrdinalIgnoreCase)||x.Email.Contains(term,StringComparison.OrdinalIgnoreCase)||x.Department.Contains(term,StringComparison.OrdinalIgnoreCase)||x.Position.Contains(term,StringComparison.OrdinalIgnoreCase)).ToList(); } }
+    private List<PreEmployeeDto> PagedItems=>FilteredItems.Skip((currentPage-1)*pageSize).Take(pageSize).ToList();
+    protected override async Task OnInitializedAsync()=>await Reload();
+    private async Task Reload(){isLoading=true;loadError=null;try{var user=await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");if(string.IsNullOrWhiteSpace(user?.EmployeeId))throw new InvalidOperationException("ไม่พบบัญชีพนักงาน");var permission=await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(user.EmployeeId)}&pageKey=PRE_EMPLOYEES");canEdit=permission?.AllowedActions.Contains("EDIT")==true;canConvert=permission?.AllowedActions.Contains("CONVERT")==true;items=await Http.GetFromJsonAsync<List<PreEmployeeDto>>("api/pre-employees")??[];}catch(Exception ex){loadError=$"โหลดข้อมูล Pre-Employee ไม่สำเร็จ: {ex.Message}";}finally{isLoading=false;}}
+    private void ClearFilter(){searchText="";statusFilter="WAITING";currentPage=1;} private void OpenCreate(){selectedId=null;selectedItem=null;form=new();formError=null;isModalOpen=true;} private void OpenEdit(PreEmployeeDto item)=>Navigation.NavigateTo($"/recruitment/pre-employees/{item.Id}"); private void CloseModal(){if(!isSaving&&!confirmConvertOpen)isModalOpen=false;}
+    private async Task SaveDraft(){if(isSaving)return;formError=null;if(form.EmployeeCode?.Trim().Length!=6){formError="รหัสพนักงานต้องมี 6 ตัว";return;}isSaving=true;try{var request=form.ToRequest();var response=selectedId.HasValue?await Http.PutAsJsonAsync($"api/pre-employees/{selectedId.Value}",request):await Http.PostAsJsonAsync("api/pre-employees",request);if(!response.IsSuccessStatusCode){formError=(await response.Content.ReadAsStringAsync()).Trim().Trim('"');return;}var saved=await response.Content.ReadFromJsonAsync<PreEmployeeDto>();if(saved is not null){selectedId=saved.Id;selectedItem=saved;form=DraftForm.From(saved);}await Reload();}catch(Exception ex){formError=$"บันทึกไม่สำเร็จ: {ex.Message}";}finally{isSaving=false;}}
+    private void ConfirmConvert(){formError=null;confirmConvertOpen=true;} private void CloseConvertConfirm(){if(!isSaving)confirmConvertOpen=false;}
+    private async Task ConvertToEmployee(){if(!selectedId.HasValue||isSaving)return;isSaving=true;formError=null;try{var response=await Http.PostAsync($"api/pre-employees/{selectedId.Value}/convert",null);if(!response.IsSuccessStatusCode){formError=(await response.Content.ReadAsStringAsync()).Trim().Trim('"');return;}var result=await response.Content.ReadFromJsonAsync<ConvertPreEmployeeResult>();confirmConvertOpen=false;isModalOpen=false;await Reload();if(result is not null)Navigation.NavigateTo($"/employees/{result.EmployeeId}");}catch(Exception ex){formError=$"สร้างพนักงานไม่สำเร็จ: {ex.Message}";}finally{isSaving=false;}}
+    private async Task UploadProfileImage(InputFileChangeEventArgs args){var file=args.File;if(file.Size>2*1024*1024){formError="รูปโปรไฟล์ต้องมีขนาดไม่เกิน 2 MB";return;}if(file.ContentType is not ("image/jpeg" or "image/png" or "image/webp")){formError="รองรับเฉพาะไฟล์ JPG, PNG และ WEBP";return;}await using var stream=file.OpenReadStream(2*1024*1024);using var memory=new MemoryStream();await stream.CopyToAsync(memory);form.Employee.ProfileImageDataUrl=$"data:{file.ContentType};base64,{Convert.ToBase64String(memory.ToArray())}";} private void RemoveProfileImage()=>form.Employee.ProfileImageDataUrl="";
+    private void OpenCreatedEmployee(){if(selectedItem?.CreatedEmployeeId is long id)Navigation.NavigateTo($"/employees/{id}");} private static string Display(string? value)=>string.IsNullOrWhiteSpace(value)?"-":value; private static string DisplayJoin(string a,string b){var value=string.Join(" / ",new[]{a,b}.Where(x=>!string.IsNullOrWhiteSpace(x)));return value.Length>0?value:"-";} private static string StatusText(string value)=>value switch{"READY"=>"พร้อมสร้าง","CONVERTED"=>"สร้างพนักงานแล้ว","CANCELLED"=>"ยกเลิก","DRAFT"=>"Draft",_=>"ข้อมูลไม่ครบ"}; private static string StatusClass(string value)=>$"status-{value.ToLowerInvariant()}";
+    private void AddWorkHistory()=>form.Employee.WorkHistory.Add(new()); private void AddEducationHistory()=>form.Employee.EducationHistory.Add(new()); private void AddTrainingHistory()=>form.Employee.TrainingHistory.Add(new()); private void RemoveWorkHistory(EmployeeWorkHistoryItem row)=>form.Employee.WorkHistory.Remove(row); private void RemoveEducationHistory(EmployeeEducationItem row)=>form.Employee.EducationHistory.Remove(row); private void RemoveTrainingHistory(EmployeeTrainingItem row)=>form.Employee.TrainingHistory.Remove(row);
+    private sealed class DraftForm
+    {
+        public string? SourceSystem{get;set;} public string? SourceReferenceId{get;set;} public Employee Employee{get;set;}=new();
+        public string? EmployeeCode{get=>Employee.EmployeeCode;set=>Employee.EmployeeCode=value??"";} public string? Title{get=>Employee.Title;set=>Employee.Title=value??"";} public string? FirstNameTh{get=>Employee.FirstName;set=>Employee.FirstName=value??"";} public string? LastNameTh{get=>Employee.LastName;set=>Employee.LastName=value??"";} public string? FullNameEn{get=>Employee.EnglishFullName;set=>Employee.EnglishFullName=value??"";} public string? Nickname{get=>Employee.Nickname;set=>Employee.Nickname=value??"";} public string? Email{get=>Employee.Email;set=>Employee.Email=value??"";} public string? LotusNotesEmail{get=>Employee.LotusNotesEmail;set=>Employee.LotusNotesEmail=value??"";} public string? PersonalMobile{get=>Employee.PersonalMobile;set=>Employee.PersonalMobile=value??"";} public string? Company{get=>Employee.Company;set=>Employee.Company=value??"";} public string? BusinessUnit{get=>Employee.BusinessUnit;set=>Employee.BusinessUnit=value??"";} public string? Department{get=>Employee.Department;set=>Employee.Department=value??"";} public string? Position{get=>Employee.Position;set=>Employee.Position=value??"";} public DateOnly? StartDate{get=>Employee.StartDate==default?null:Employee.StartDate;set=>Employee.StartDate=value??default;} public string? SupervisorName{get=>Employee.SupervisorName;set=>Employee.SupervisorName=value??"";} public string? LeaveApproverName{get=>Employee.LeaveApproverName;set=>Employee.LeaveApproverName=value??"";} public string? EmploymentType{get=>Employee.EmploymentType;set=>Employee.EmploymentType=value??"";} public string? WorkLocation{get=>Employee.WorkLocation;set=>Employee.WorkLocation=value??"";}
+        public SavePreEmployeeRequest ToRequest()=>new(SourceSystem,SourceReferenceId,EmployeeCode,Title,FirstNameTh,LastNameTh,FullNameEn,Nickname,Email,LotusNotesEmail,PersonalMobile,Company,BusinessUnit,Department,Position,StartDate,SupervisorName,LeaveApproverName,EmploymentType,WorkLocation,Employee);
+        public static DraftForm From(PreEmployeeDto x)=>new(){SourceSystem=x.SourceSystem,SourceReferenceId=x.SourceReferenceId,Employee=x.EmployeeData};
+    }
+}

@@ -64,3 +64,21 @@
     .nav-scrollable.is-open { transform: translateX(0); }
     .nav-menu ::deep .menu-link { min-height: 3rem; }
 }
+.menu-link.menu-disabled {
+    opacity: .5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.maintenance-label {
+    margin-left: auto;
+    padding: .12rem .35rem;
+    color: #fecaca;
+    background: rgba(220, 38, 38, .2);
+    border-radius: 999px;
+    font-size: .58rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.desktop-collapsed .maintenance-label { display: none; }

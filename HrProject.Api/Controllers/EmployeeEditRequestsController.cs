@@ -12,15 +12,27 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
 {
     private static readonly HashSet<string> AllowedFields =
     [
-        "title", "firstName", "lastName", "thaiFullName", "englishFullName", "email",
+        "profileImage", "title", "firstName", "lastName", "thaiFullName", "englishFullName", "nickname",
+        "lotusNotesEmail", "email", "personalMobile", "homePhone",
         "personal.nationalId", "personal.birthDate", "personal.gender",
         "personal.religion", "personal.bloodType", "personal.residenceProvince",
-        "personal.idCardAddress", "personal.houseRegistrationAddress",
+        "personal.currentAddress", "personal.idCardAddress", "personal.houseRegistrationAddress",
+        "personal.emergencyContactName", "personal.emergencyContactPhone", "personal.emergencyContactAddress",
+        "internal.company", "internal.businessUnit", "internal.division", "internal.department", "internal.section",
+        "internal.position", "internal.jobCode", "internal.supervisor", "internal.leaveApprover",
+        "internal.functionalSupervisor", "internal.buddy", "internal.employmentType", "internal.workSchedule",
+        "internal.workLocation", "internal.extension", "internal.directPhone", "internal.companyMobile",
+        "internal.macAddress", "internal.branchCode", "internal.branchName", "internal.responsibilityProvince",
+        "internal.checklistType", "internal.productsResponsible", "internal.startDate", "internal.appointmentDate",
+        "internal.providentFundStartDate", "internal.workExperienceType", "internal.hasCompanyParking",
+        "internal.employeeStatus", "internal.excludeAttendance",
         "work.history",
         "education.history",
         "education.level", "education.institution", "education.major",
         "education.graduationYear",
-        "family.maritalStatus", "family.spouseName", "family.spouseNationalId"
+        "training.history",
+        "family.maritalStatus", "family.spouseName", "family.spouseNationalId", "family.phone",
+        "family.currentAddressMapUrl"
     ];
 
     [HttpGet]
@@ -67,15 +79,18 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
             string.IsNullOrWhiteSpace(request.EmployeeName) ||
             changes.Count == 0 ||
             changes.Count > AllowedFields.Count ||
-            changes.Any(change =>
-                string.IsNullOrWhiteSpace(change.FieldName) ||
-                string.IsNullOrWhiteSpace(change.NewValue)) ||
+            changes.Any(change => string.IsNullOrWhiteSpace(change.FieldName)) ||
             string.IsNullOrWhiteSpace(request.RequestReason) ||
             string.IsNullOrWhiteSpace(request.RequestedBy) ||
             string.IsNullOrWhiteSpace(request.RequestedByName))
         {
             return BadRequest("กรุณาระบุข้อมูลที่ต้องการแก้ไขและเหตุผลให้ครบถ้วน");
         }
+
+        var profileImageChange = changes.FirstOrDefault(change =>
+            string.Equals(change.FieldKey, "profileImage", StringComparison.OrdinalIgnoreCase));
+        if (profileImageChange is not null && !IsValidProfileImage(profileImageChange.NewValue))
+            return BadRequest("รูปโปรไฟล์ไม่ถูกต้องหรือมีขนาดใหญ่เกิน 2 MB");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -122,8 +137,7 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        var details = string.Join("; ", changes.Select(change =>
-            $"{change.FieldName}: {change.OldValue} → {change.NewValue}"));
+        var details = string.Join("; ", changes.Select(DescribeChange));
         await using (var command = new NpgsqlCommand(
             """
             INSERT INTO public.employee_edit_request_history
@@ -147,6 +161,15 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         var created = await FindById(id, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, created);
     }
+
+    private static string DescribeChange(EmployeeFieldChangeDto change) =>
+        string.Equals(change.FieldKey, "profileImage", StringComparison.OrdinalIgnoreCase)
+            ? "รูปโปรไฟล์: เปลี่ยนรูปโปรไฟล์"
+            : $"{change.FieldName}: {change.OldValue} → {change.NewValue}";
+
+    private static bool IsValidProfileImage(string value) =>
+        value.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase) &&
+        value.Length <= 3_000_000;
 
     [HttpPut("{id:long}/approve")]
     public Task<ActionResult<EmployeeEditRequestDto>> Approve(

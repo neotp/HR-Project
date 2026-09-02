@@ -1,0 +1,348 @@
+@page "/attendance/reviews"
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>ตรวจสอบข้อโต้แย้งการมาทำงาน | HR Project</PageTitle>
+
+<section class="manage-page attendance-review-page">
+    <header class="page-header-card"><div class="page-header-content"><div class="page-header-text">
+        <h1>ตรวจสอบข้อโต้แย้งการมาทำงาน</h1>
+        <p>ตรวจสอบรายการขาดงาน มาสาย และรายการรอตรวจสอบของพนักงานทุกคน</p>
+    </div></div></header>
+
+    <section class="review-summary">
+        <article><span>ข้อโต้แย้งรออนุมัติ</span><strong>@PendingResponseCount</strong><small>รายการ</small></article>
+        <article><span>มาสาย</span><strong>@LateCount</strong><small>รายการ</small></article>
+        <article><span>ขาดงาน</span><strong>@AbsentCount</strong><small>รายการ</small></article>
+        <article><span>รอตรวจสอบ</span><strong>@ReviewCount</strong><small>รายการ</small></article>
+    </section>
+
+    <section class="content-card review-criteria">
+        <div class="content-card-header">ค้นหารายการ</div>
+        <div class="content-card-body review-criteria-grid">
+            <label>คำค้นหา<input @bind="searchText" @bind:event="oninput" @bind:after="ApplyFilter" placeholder="รหัส ชื่อพนักงาน หรือแผนก" /></label>
+            <div class="criteria-multiselect-field">
+                <span>สถานะ</span>
+                <details class="status-multiselect">
+                    <summary><span>@StatusFilterSummary</span><span class="status-multiselect-chevron" aria-hidden="true">⌄</span></summary>
+                    <div class="status-multiselect-menu">
+                        <button class="status-filter-clear" type="button" @onclick="ClearStatusSelection">แสดงทั้งหมด</button>
+                        @foreach (var option in StatusFilterOptions)
+                        {
+                            <label class="status-multiselect-option">
+                                <input type="checkbox" checked="@selectedStatuses.Contains(option.Code)" @onchange="args => SetStatusFilter(option.Code, args.Value is true)" />
+                                <span class="@option.CssClass">@option.Label</span>
+                            </label>
+                        }
+                    </div>
+                </details>
+            </div>
+            <label>ปี<select @bind="selectedYear" @bind:after="ChangeYear">
+                @foreach (var year in AvailableYears) { <option value="@year">@year</option> }
+            </select></label>
+            <div class="quarter-filter" role="group" aria-label="เลือกไตรมาส">
+                @for (var quarter = 1; quarter <= 4; quarter++)
+                {
+                    var value = quarter;
+                    <button type="button" class="@(selectedQuarter == value ? "active" : null)" @onclick="() => SelectQuarter(value)">@($"Q{value}")</button>
+                }
+            </div>
+            <button type="button" class="clear-button" @onclick="ClearFilter">ล้างข้อมูล</button>
+        </div>
+    </section>
+
+    @if (!isLoading && PendingEventReviews.Count > 0)
+    {
+        <section class="content-card review-list-card historical-event-review-card">
+            <div class="content-card-header list-heading"><span>Event ย้อนหลังรอตรวจสอบ</span><span>@PendingEventReviews.Count รายการ</span></div>
+            <div class="review-table-scroll"><table class="review-table">
+                <thead><tr><th>วันที่สร้าง</th><th>พนักงาน</th><th>ประเภท</th><th>วันที่ Event</th><th>ช่วงเวลา</th><th>หัวข้อ / รายละเอียด</th><th>ดำเนินการ</th></tr></thead>
+                <tbody>
+                @foreach (var item in PendingEventReviews)
+                {
+                    <tr>
+                        <td>@item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")<small>@(string.IsNullOrWhiteSpace(item.CreatedByName) ? item.CreatedBy : item.CreatedByName)</small></td>
+                        <td><strong>@item.EmployeeName</strong><small>@item.EmployeeId · @item.Department</small></td>
+                        <td>@item.EventTypeName</td>
+                        <td>@item.EventDate.ToString("dd/MM/yyyy")</td>
+                        <td>@item.StartTime.ToString("HH:mm")–@item.EndTime.ToString("HH:mm")</td>
+                        <td><strong>@(string.IsNullOrWhiteSpace(item.Title) ? item.EventTypeName : item.Title)</strong><small>@(string.IsNullOrWhiteSpace(item.Details) ? "-" : item.Details)</small></td>
+                        <td><div class="event-review-actions">
+                            @if (canReject) { <button type="button" class="reject-button" @onclick='() => ConfirmEventDecision(item, "REJECT")'>ไม่อนุมัติ</button> }
+                            @if (canApprove) { <button type="button" class="approve-button" @onclick='() => ConfirmEventDecision(item, "APPROVE")'>อนุมัติ</button> }
+                        </div></td>
+                    </tr>
+                }
+                </tbody>
+            </table></div>
+        </section>
+    }
+
+    <section class="content-card review-list-card">
+        <div class="content-card-header list-heading"><span>รายการตรวจสอบ</span><span>@filteredItems.Count รายการ</span></div>
+        <div class="review-table-scroll"><table class="review-table">
+            <thead><tr><th>วันที่</th><th>พนักงาน</th><th>แผนก</th><th>เวลาเข้า–ออก</th><th>ผลคำนวณ</th><th>การตรวจสอบ</th><th>ดำเนินการ</th></tr></thead>
+            <tbody>
+            @if (isLoading) { <tr><td colspan="7"><div class="table-state loading"><i></i>กำลังโหลดรายการ...</div></td></tr> }
+            else if (!string.IsNullOrWhiteSpace(loadError)) { <tr><td colspan="7"><div class="table-state error">@loadError</div></td></tr> }
+            else if (PagedItems.Count == 0) { <tr><td colspan="7"><div class="table-state">ไม่พบรายการตามเงื่อนไข</div></td></tr> }
+            else
+            {
+                @foreach (var item in PagedItems)
+                {
+                    <tr>
+                        <td>@item.WorkDate.ToString("dd/MM/yyyy")</td>
+                        <td><strong>@item.EmployeeName</strong><small>@item.EmployeeId</small></td>
+                        <td>@(string.IsNullOrWhiteSpace(item.Department) ? "-" : item.Department)</td>
+                        <td>@DisplayTime(item.FirstScanAt) – @DisplayTime(item.LastScanAt)</td>
+                        <td><span class="result-tag @ResultClass(item)">@ResultText(item)</span></td>
+                        <td><div class="review-tags">@if (item.RequiresReview) { <span class="review-tag">รอตรวจสอบ</span> }<span class="response-tag @ResponseClass(item.LatestResponse)">@ResponseText(item.LatestResponse)</span></div></td>
+                        <td><button type="button" class="detail-button" @onclick="() => OpenDetail(item)">ดูรายละเอียด</button></td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table></div>
+        @if (filteredItems.Count > 0) { <Pagination TotalItems="@filteredItems.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" /> }
+    </section>
+</section>
+
+@if (selectedItem is not null)
+{
+    <div class="review-overlay" role="dialog" aria-modal="true" @onclick="CloseDetail">
+        <section class="review-modal" @onclick:stopPropagation="true">
+            <header><div><h2>รายละเอียดการมาทำงาน</h2><p>@selectedItem.EmployeeName (@selectedItem.EmployeeId) · @selectedItem.WorkDate.ToString("dd/MM/yyyy")</p></div><button type="button" disabled="@isSaving" @onclick="CloseDetail">×</button></header>
+            <div class="review-modal-body">
+                <section class="attendance-comparison">
+                    <div><span>เวลาเข้า</span><strong>@DisplayTime(selectedItem.FirstScanAt)</strong></div>
+                    <div><span>เวลาออก</span><strong>@DisplayTime(selectedItem.LastScanAt)</strong></div>
+                    <div><span>ผลที่ระบบคำนวณ</span><strong>@ResultText(selectedItem)</strong></div>
+                    <div><span>สถานะปัจจุบัน</span><strong>@FinalResultText(selectedItem)</strong></div>
+                </section>
+                @if (selectedItem.RequiresReview) { <div class="review-notice"><strong>รอตรวจสอบ</strong><span>@(selectedItem.ReviewReason ?? "รายการนี้ต้องได้รับการตรวจสอบเพิ่มเติม")</span></div> }
+
+                @if (selectedItem.LatestResponse is null)
+                {
+                    <div class="no-response">พนักงานยังไม่ได้ส่งข้อโต้แย้งสำหรับรายการนี้</div>
+                }
+                else
+                {
+                    <section class="response-detail"><div class="section-title"><strong>ข้อโต้แย้งของพนักงาน</strong><span class="response-tag @ResponseClass(selectedItem.LatestResponse)">@ResponseText(selectedItem.LatestResponse)</span></div>
+                        <p>@selectedItem.LatestResponse.ResponseText</p>
+                        <small>ส่งโดย @selectedItem.LatestResponse.SubmittedByName เมื่อ @selectedItem.LatestResponse.SubmittedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                        @if (selectedItem.LatestResponse.Attachments.Count > 0)
+                        {
+                            <div class="response-files">@foreach (var file in selectedItem.LatestResponse.Attachments) { <button type="button" @onclick="() => PreviewAttachment(file)"><strong>@file.FileName</strong><small>@FormatFileSize(file.FileSizeBytes) · ดูตัวอย่าง</small></button> }</div>
+                        }
+                    </section>
+                    @if (selectedItem.LatestResponse.Status == "SUBMITTED")
+                    {
+                        <label class="review-note">หมายเหตุการตรวจสอบ (ไม่บังคับ)<textarea rows="3" maxlength="2000" @bind="reviewNote" placeholder="ระบุเหตุผลหรือรายละเอียดเพิ่มเติม"></textarea></label>
+                    }
+                }
+                @if (!string.IsNullOrWhiteSpace(actionError)) { <div class="action-error">@actionError</div> }
+            </div>
+            <footer><button type="button" class="close-button" disabled="@isSaving" @onclick="CloseDetail">ปิด</button>
+                @if (selectedItem.LatestResponse?.Status == "SUBMITTED")
+                {
+                    @if (canReject) { <button type="button" class="reject-button" disabled="@isSaving" @onclick="ConfirmReject">ไม่อนุมัติ</button> }
+                    @if (canApprove) { <button type="button" class="approve-button" disabled="@isSaving" @onclick="ConfirmApprove">อนุมัติ</button> }
+                }
+            </footer>
+        </section>
+    </div>
+}
+
+@if (previewFile is not null)
+{
+    <div class="preview-overlay" role="dialog" aria-modal="true" @onclick="ClosePreview"><section class="preview-modal" @onclick:stopPropagation="true"><header><div><h2>ตัวอย่างเอกสารแนบ</h2><p>@previewFile.FileName</p></div><button type="button" @onclick="ClosePreview">×</button></header><div class="preview-body">
+        @if (previewLoading) { <div class="preview-state">กำลังโหลดเอกสาร...</div> }
+        else if (!string.IsNullOrWhiteSpace(previewError)) { <div class="preview-state error">@previewError</div> }
+        else if (!string.IsNullOrWhiteSpace(previewUrl)) { @if (previewFile.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { <img src="@previewUrl" alt="@previewFile.FileName" /> } else { <iframe src="@($"{previewUrl}#toolbar=0&navpanes=0")" title="@previewFile.FileName"></iframe> } }
+    </div></section></div>
+}
+
+<ConfirmActionDialog IsOpen="@confirmOpen" Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmText" Tone="@confirmTone" IsBusy="@isSaving" BusyText="กำลังบันทึก..." OnConfirm="ExecuteDecision" OnCancel="CloseConfirmation" />
+<ConfirmActionDialog IsOpen="@eventConfirmOpen" Title="@eventConfirmTitle" Message="@eventConfirmMessage" ConfirmText="@eventConfirmText" Tone="@eventConfirmTone" IsBusy="@isSaving" BusyText="กำลังบันทึก..." OnConfirm="ExecuteEventDecision" OnCancel="CloseEventConfirmation" />
+
+@code {
+    private List<AttendanceReviewItemDto> items = [];
+    private List<AttendanceReviewItemDto> filteredItems = [];
+    private List<AttendanceCalendarEventReviewDto> eventReviews = [];
+    private string searchText = "";
+    private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly (string Code, string Label, string CssClass)[] StatusFilterOptions =
+    [
+        ("LATE", "มาสาย", "result-tag result-late"),
+        ("ABSENT", "ขาดงาน", "result-tag result-absent"),
+        ("REVIEW", "รอตรวจสอบ", "review-tag")
+    ];
+    private string StatusFilterSummary => selectedStatuses.Count switch
+    {
+        0 => "ขาด สาย และรอตรวจสอบ",
+        1 => StatusFilterOptions.First(x => x.Code == selectedStatuses.First()).Label,
+        _ => $"เลือกแล้ว {selectedStatuses.Count} สถานะ"
+    };
+    private int selectedYear = DateTime.Today.Year;
+    private int selectedQuarter = ((DateTime.Today.Month - 1) / 3) + 1;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private bool isLoading = true;
+    private string? loadError;
+    private AttendanceReviewItemDto? selectedItem;
+    private string reviewNote = "";
+    private bool canApprove;
+    private bool canReject;
+    private bool isSaving;
+    private string? actionError;
+    private bool confirmOpen;
+    private string confirmTitle = "";
+    private string confirmMessage = "";
+    private string confirmText = "";
+    private string confirmTone = "approve";
+    private string pendingDecision = "";
+    private AttendanceResponseAttachmentDto? previewFile;
+    private string? previewUrl;
+    private bool previewLoading;
+    private string? previewError;
+    private AttendanceCalendarEventReviewDto? selectedEventReview;
+    private bool eventConfirmOpen;
+    private string eventPendingDecision = "";
+    private string eventConfirmTitle = "";
+    private string eventConfirmMessage = "";
+    private string eventConfirmText = "";
+    private string eventConfirmTone = "approve";
+
+    private List<AttendanceReviewItemDto> PagedItems => filteredItems.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+    private int PendingResponseCount => items.Count(x => x.LatestResponse?.Status == "SUBMITTED");
+    private int LateCount => items.Count(x => x.CalculatedLateMinutes > 0);
+    private int AbsentCount => items.Count(x => x.CalculatedMissingMinutes > 0);
+    private int ReviewCount => items.Count(x => x.RequiresReview);
+    private List<AttendanceCalendarEventReviewDto> PendingEventReviews
+    {
+        get
+        {
+            var start = new DateOnly(selectedYear, ((selectedQuarter - 1) * 3) + 1, 1);
+            var end = start.AddMonths(3).AddDays(-1);
+            var term = searchText.Trim();
+            return eventReviews.Where(x => x.EventDate >= start && x.EventDate <= end)
+                .Where(x => string.IsNullOrWhiteSpace(term) || x.EmployeeId.Contains(term, StringComparison.OrdinalIgnoreCase) || x.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) || x.Department.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToList();
+        }
+    }
+    private IEnumerable<int> AvailableYears => Enumerable.Range(DateTime.Today.Year - 4, 5).Reverse();
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        isLoading = true; loadError = null;
+        try
+        {
+            var user = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (string.IsNullOrWhiteSpace(user?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
+            var permissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(user.EmployeeId)}&pageKey=ATTENDANCE_REVIEWS");
+            canApprove = permissions?.AllowedActions.Contains("APPROVE") == true;
+            canReject = permissions?.AllowedActions.Contains("REJECT") == true;
+            var from = new DateOnly(selectedYear, 1, 1); var to = new DateOnly(selectedYear, 12, 31);
+            items = await Http.GetFromJsonAsync<List<AttendanceReviewItemDto>>($"api/attendance/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}") ?? [];
+            eventReviews = await Http.GetFromJsonAsync<List<AttendanceCalendarEventReviewDto>>($"api/attendance-calendar-events/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}") ?? [];
+            ApplyFilter();
+        }
+        catch (Exception exception) { loadError = $"โหลดรายการตรวจสอบไม่สำเร็จ: {exception.Message}"; }
+        finally { isLoading = false; }
+    }
+
+    private void ApplyFilter()
+    {
+        var term = searchText.Trim();
+        var quarterStartMonth = ((selectedQuarter - 1) * 3) + 1;
+        var quarterStart = new DateOnly(selectedYear, quarterStartMonth, 1);
+        var quarterEnd = quarterStart.AddMonths(3).AddDays(-1);
+        filteredItems = items.Where(x => string.IsNullOrWhiteSpace(term) || x.EmployeeId.Contains(term, StringComparison.OrdinalIgnoreCase) || x.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) || x.Department.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Where(MatchesStatusFilter)
+            .Where(x => x.WorkDate >= quarterStart && x.WorkDate <= quarterEnd)
+            .OrderByDescending(x => x.RequiresReview)
+            .ThenByDescending(x => x.LatestResponse?.Status == "SUBMITTED")
+            .ThenByDescending(x => x.WorkDate)
+            .ThenBy(x => x.EmployeeId)
+            .ToList();
+        currentPage = 1;
+    }
+    private void SelectQuarter(int quarter) { selectedQuarter = quarter; ApplyFilter(); }
+    private async Task ChangeYear() => await Reload();
+    private async Task ClearFilter() { searchText = ""; selectedStatuses.Clear(); selectedYear = DateTime.Today.Year; selectedQuarter = ((DateTime.Today.Month - 1) / 3) + 1; await Reload(); }
+    private void SetStatusFilter(string code, bool selected) { if (selected) selectedStatuses.Add(code); else selectedStatuses.Remove(code); ApplyFilter(); }
+    private void ClearStatusSelection() { selectedStatuses.Clear(); ApplyFilter(); }
+    private bool MatchesStatusFilter(AttendanceReviewItemDto item) => selectedStatuses.Count == 0 ||
+        (selectedStatuses.Contains("LATE") && item.CalculatedLateMinutes > 0) ||
+        (selectedStatuses.Contains("ABSENT") && item.CalculatedMissingMinutes > 0) ||
+        (selectedStatuses.Contains("REVIEW") && item.RequiresReview);
+    private void OpenDetail(AttendanceReviewItemDto item) { selectedItem = item; reviewNote = ""; actionError = null; }
+    private void CloseDetail() { if (!isSaving && !confirmOpen) selectedItem = null; }
+    private void ConfirmApprove() => OpenConfirmation("APPROVE", "ยืนยันการอนุมัติข้อโต้แย้ง", "เมื่ออนุมัติ ผลการมาทำงานของรายการนี้จะเปลี่ยนเป็นมาปกติ", "อนุมัติ", "approve");
+    private void ConfirmReject() => OpenConfirmation("REJECT", "ยืนยันการไม่อนุมัติข้อโต้แย้ง", "ผลขาดงานหรือมาสายเดิมจะยังคงอยู่", "ไม่อนุมัติ", "danger");
+    private void OpenConfirmation(string decision, string title, string message, string text, string tone) { pendingDecision = decision; confirmTitle = title; confirmMessage = message; confirmText = text; confirmTone = tone; confirmOpen = true; }
+    private void CloseConfirmation() { if (!isSaving) { confirmOpen = false; pendingDecision = ""; } }
+
+    private void ConfirmEventDecision(AttendanceCalendarEventReviewDto item, string decision)
+    {
+        selectedEventReview = item;
+        eventPendingDecision = decision;
+        eventConfirmTitle = decision == "APPROVE" ? "ยืนยันการอนุมัติ Event ย้อนหลัง" : "ยืนยันการไม่อนุมัติ Event ย้อนหลัง";
+        eventConfirmMessage = $"{item.EmployeeName} · {item.EventTypeName} วันที่ {item.EventDate:dd/MM/yyyy} เวลา {item.StartTime:HH:mm}–{item.EndTime:HH:mm}\nสร้างเมื่อ {item.CreatedAt.ToLocalTime():dd/MM/yyyy HH:mm}";
+        eventConfirmText = decision == "APPROVE" ? "อนุมัติ" : "ไม่อนุมัติ";
+        eventConfirmTone = decision == "APPROVE" ? "approve" : "danger";
+        eventConfirmOpen = true;
+    }
+    private void CloseEventConfirmation() { if (!isSaving) { eventConfirmOpen = false; selectedEventReview = null; eventPendingDecision = ""; } }
+
+    private async Task ExecuteEventDecision()
+    {
+        if (selectedEventReview is null || isSaving) return;
+        isSaving = true; loadError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"api/attendance-calendar-events/reviews/{selectedEventReview.Id}/decision", new ReviewAttendanceCalendarEventRequest(eventPendingDecision, null));
+            if (!response.IsSuccessStatusCode) { loadError = (await response.Content.ReadAsStringAsync()).Trim().Trim('"'); return; }
+            eventConfirmOpen = false; selectedEventReview = null; eventPendingDecision = ""; await Reload();
+        }
+        catch (Exception exception) { loadError = $"บันทึกผลตรวจสอบ Event ไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task ExecuteDecision()
+    {
+        if (selectedItem?.LatestResponse is null || isSaving) return;
+        isSaving = true; actionError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"api/attendance/reviews/{selectedItem.LatestResponse.Id}/decision", new ReviewAttendanceResponseRequest(pendingDecision, string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim()));
+            if (!response.IsSuccessStatusCode) { actionError = (await response.Content.ReadAsStringAsync()).Trim().Trim('\"'); return; }
+            confirmOpen = false; selectedItem = null; await Reload();
+        }
+        catch (Exception exception) { actionError = $"บันทึกผลตรวจสอบไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task PreviewAttachment(AttendanceResponseAttachmentDto file)
+    {
+        if (selectedItem?.LatestResponse is null) return;
+        await RevokePreview(); previewFile = file; previewLoading = true; previewError = null;
+        try { var bytes = await Http.GetByteArrayAsync($"api/attendance/{selectedItem.AttendanceDailyId}/responses/{selectedItem.LatestResponse.Id}/attachments/{file.Id}/preview"); previewUrl = await JS.InvokeAsync<string>("hrPreview.createObjectUrl", file.ContentType, bytes); }
+        catch (Exception exception) { previewError = $"เปิดเอกสารไม่สำเร็จ: {exception.Message}"; }
+        finally { previewLoading = false; }
+    }
+    private async Task ClosePreview() { await RevokePreview(); previewFile = null; previewError = null; }
+    private async Task RevokePreview() { if (!string.IsNullOrWhiteSpace(previewUrl)) await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl", previewUrl); previewUrl = null; }
+    public async ValueTask DisposeAsync() => await RevokePreview();
+
+    private static string ResultText(AttendanceReviewItemDto item) { var parts = new List<string>(); if (item.CalculatedLateMinutes > 0) parts.Add($"มาสาย {item.CalculatedLateMinutes} นาที"); if (item.CalculatedMissingMinutes > 0) parts.Add($"ขาดงาน {item.CalculatedMissingMinutes} นาที"); return parts.Count == 0 ? "มาปกติ" : string.Join(", ", parts); }
+    private static string FinalResultText(AttendanceReviewItemDto item) => item.FinalStatus == "PRESENT" && item.CalculatedStatus != "PRESENT" ? "มาปกติ (อนุมัติข้อโต้แย้งแล้ว)" : ResultText(item);
+    private static string ResultClass(AttendanceReviewItemDto item) => item.CalculatedMissingMinutes > 0 ? "result-absent" : item.CalculatedLateMinutes > 0 ? "result-late" : "result-present";
+    private static string ResponseText(AttendanceResponseDto? response) => response?.Status switch { "SUBMITTED" => "มีข้อโต้แย้ง", "APPROVED" => "อนุมัติแล้ว", "REJECTED" => "ไม่อนุมัติ", _ => "ยังไม่มีข้อโต้แย้ง" };
+    private static string ResponseClass(AttendanceResponseDto? response) => $"response-{response?.Status?.ToLowerInvariant() ?? "none"}";
+    private static string DisplayTime(DateTime? value) => value?.ToString("HH:mm") ?? "-";
+    private static string FormatFileSize(long bytes) => bytes >= 1048576 ? $"{bytes / 1048576d:0.##} MB" : $"{bytes / 1024d:0.##} KB";
+}

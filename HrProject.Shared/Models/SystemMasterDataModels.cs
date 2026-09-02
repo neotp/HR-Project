@@ -4,7 +4,8 @@ public sealed record MasterDataCategoryDto(
     string Code,
     string Name,
     int DisplayOrder,
-    bool IsLeaveType = false);
+    bool IsLeaveType = false,
+    bool IsAttendanceEventType = false);
 
 public sealed record MasterDataItemDto(
     long Id,
@@ -32,6 +33,8 @@ public sealed record LeaveTypeMasterDto(
     string Code,
     string NameTh,
     decimal DefaultHours,
+    bool DefaultBonusDeductionEnabled,
+    decimal DefaultBonusDeductionPercent,
     bool IsActive,
     DateTimeOffset UpdatedAt);
 
@@ -39,4 +42,24 @@ public sealed record SaveLeaveTypeMasterRequest(
     string Code,
     string NameTh,
     decimal DefaultHours,
+    bool DefaultBonusDeductionEnabled,
+    decimal DefaultBonusDeductionPercent,
+    bool IsActive);
+
+public sealed record AttendanceEventTypeMasterDto(
+    long Id,
+    string Code,
+    string NameTh,
+    string? NameEn,
+    bool CountsAsWorkTime,
+    int DisplayOrder,
+    bool IsActive,
+    DateTimeOffset UpdatedAt);
+
+public sealed record SaveAttendanceEventTypeMasterRequest(
+    string Code,
+    string NameTh,
+    string? NameEn,
+    bool CountsAsWorkTime,
+    int DisplayOrder,
     bool IsActive);

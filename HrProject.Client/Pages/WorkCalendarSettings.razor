@@ -11,6 +11,15 @@
                 <p>จัดการวันหยุดนักขัตฤกษ์และวันเสาร์ที่บริษัทกำหนดให้เป็นวันทำงาน</p>
             </div>
             <div class="header-actions">
+                <a class="btn btn-pdf" href="/attendance/calendar-settings/templates">
+                    จัดการ Template PDF
+                </a>
+                <a class="btn btn-pdf" href="@($"/attendance/calendar-settings/print/saturdays/{SelectedYear}")" target="_blank">
+                    PDF เสาร์ทำงาน
+                </a>
+                <a class="btn btn-pdf" href="@($"/attendance/calendar-settings/print/holidays/{SelectedYear}")" target="_blank">
+                    PDF วันหยุด
+                </a>
                 <button class="btn btn-secondary-action" type="button"
                         @onclick="() => StartCreate(WorkingSaturdayType)">
                     + วันเสาร์ทำงาน
@@ -153,7 +162,7 @@
                         </label>
                         <label>
                             วันที่ <span class="required">*</span>
-                            <input type="date" @bind="EditingDate" disabled />
+                            <DateOnlyPicker Value="@EditingDate" ValueChanged="value => EditingDate = value ?? EditingDate" AriaLabel="วันที่กำหนด" />
                         </label>
                         <label class="full-width">
                             ชื่อวัน / รายการ <span class="required">*</span>
@@ -531,7 +540,7 @@
                     string.IsNullOrWhiteSpace(EditingNote) ? null : EditingNote.Trim(),
                     CurrentUser.EmployeeId,
                     CurrentUser.EmployeeName);
-                response = await Http.PostAsJsonAsync("api/work-calendar", request);
+                response = await Http.PutAsJsonAsync($"api/work-calendar/{EditingId.Value}", request);
             }
             else
             {

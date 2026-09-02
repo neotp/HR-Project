@@ -7,7 +7,9 @@
 .master-list-header { display: flex; align-items: center; }
 .master-count { margin-left: auto; color: #64748b; font-size: .8rem; font-weight: 500; }
 .master-search { display: grid; grid-template-columns: minmax(240px,2fr) minmax(180px,1fr); gap: 1rem; margin-bottom: 1rem; }
+.master-list-card { overflow:visible; }
 .master-search label { display: grid; gap: .4rem; color: #475569; font-size: .8rem; font-weight: 700; }
+.master-search .active-filter { display:grid; gap:.4rem; color:#475569; font-size:.8rem; font-weight:700; }
 .master-search input, .master-search select { width: 100%; min-height: 2.55rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .master-table { min-width: 760px; }
 .master-table td:last-child { text-align: right; }

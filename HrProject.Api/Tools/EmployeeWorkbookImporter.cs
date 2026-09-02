@@ -14,10 +14,12 @@ internal static class EmployeeWorkbookImporter
         long PersonalInfo,
         long FamilyInfo);
 
+    internal sealed record ImportResult(int Inserted, int Skipped);
+
     private static readonly XNamespace SpreadsheetNs =
         "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
-    internal static async Task<int> ImportAsync(
+    internal static async Task<ImportResult> ImportAsync(
         string connectionString,
         string workbookPath,
         string migrationPath,
@@ -45,16 +47,26 @@ internal static class EmployeeWorkbookImporter
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
+            var inserted = 0;
+            var skipped = 0;
             foreach (var row in rows)
             {
-                var employeeId = await UpsertEmployee(connection, transaction, row, cancellationToken);
-                await UpsertBasicInfo(connection, transaction, employeeId, row, cancellationToken);
-                await UpsertCompanyInfo(connection, transaction, employeeId, row, cancellationToken);
-                await EnsureEmptyTabRows(connection, transaction, employeeId, cancellationToken);
+                var employeeId = await InsertEmployeeIfMissing(connection, transaction, row, cancellationToken);
+                if (employeeId is null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                await UpsertBasicInfo(connection, transaction, employeeId.Value, row, cancellationToken);
+                await UpsertPersonalInfo(connection, transaction, employeeId.Value, row, cancellationToken);
+                await UpsertCompanyInfo(connection, transaction, employeeId.Value, row, cancellationToken);
+                await EnsureEmptyFamilyRow(connection, transaction, employeeId.Value, cancellationToken);
+                inserted++;
             }
 
             await transaction.CommitAsync(cancellationToken);
-            return rows.Count;
+            return new ImportResult(inserted, skipped);
         }
         catch
         {
@@ -115,6 +127,7 @@ internal static class EmployeeWorkbookImporter
             var (firstNameEn, lastNameEn) = SplitName(englishName);
             result.Add(new EmployeeImportRow(
                 rowNumber,
+                Path.GetFileName(path),
                 code,
                 Value(cells, "B"),
                 firstNameTh,
@@ -130,7 +143,13 @@ internal static class EmployeeWorkbookImporter
                 Value(cells, "I"),
                 Value(cells, "J"),
                 Value(cells, "K"),
-                Value(cells, "L")));
+                Value(cells, "L"),
+                Value(cells, "M"),
+                Value(cells, "N"),
+                ParseExcelDate(Value(cells, "O")),
+                ParseExcelDate(Value(cells, "P")),
+                Value(cells, "Q"),
+                Value(cells, "R")));
         }
 
         return result;
@@ -176,24 +195,34 @@ internal static class EmployeeWorkbookImporter
         };
     }
 
-    private static async Task<long> UpsertEmployee(
+    private static DateOnly? ParseExcelDate(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var serial))
+            return DateOnly.FromDateTime(DateTime.FromOADate(serial));
+        if (DateOnly.TryParse(value, CultureInfo.GetCultureInfo("en-GB"), DateTimeStyles.None, out var date))
+            return date;
+        return null;
+    }
+
+    private static async Task<long?> InsertEmployeeIfMissing(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
         EmployeeImportRow row, CancellationToken cancellationToken)
     {
         const string sql = """
             INSERT INTO public.employees
                 (employee_code, is_active, source_system, source_row)
-            VALUES (@code, TRUE, 'Emp (1).xlsx', @source_row)
-            ON CONFLICT (employee_code) DO UPDATE SET
-                is_active = TRUE,
-                source_system = EXCLUDED.source_system,
-                source_row = EXCLUDED.source_row
+            VALUES (@code, TRUE, @source_system, @source_row)
+            ON CONFLICT (employee_code) DO NOTHING
             RETURNING id
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("code", row.EmployeeCode);
+        command.Parameters.AddWithValue("source_system", row.SourceSystem);
         command.Parameters.AddWithValue("source_row", row.SourceRow);
-        return (long)(await command.ExecuteScalarAsync(cancellationToken))!;
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is long id ? id : null;
     }
 
     private static async Task UpsertBasicInfo(
@@ -203,10 +232,12 @@ internal static class EmployeeWorkbookImporter
         const string sql = """
             INSERT INTO public.employee_basic_info
                 (employee_id, title, first_name_th, last_name_th, full_name_th,
-                 first_name_en, last_name_en, full_name_en, nickname, email_alias)
+                 first_name_en, last_name_en, full_name_en, nickname, email_alias,
+                 personal_mobile, home_phone)
             VALUES
                 (@id, @title, @first_th, @last_th, @full_th,
-                 @first_en, @last_en, @full_en, @nickname, @email_alias)
+                 @first_en, @last_en, @full_en, @nickname, @email_alias,
+                 @personal_mobile, @home_phone)
             ON CONFLICT (employee_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 first_name_th = EXCLUDED.first_name_th,
@@ -216,7 +247,9 @@ internal static class EmployeeWorkbookImporter
                 last_name_en = EXCLUDED.last_name_en,
                 full_name_en = EXCLUDED.full_name_en,
                 nickname = EXCLUDED.nickname,
-                email_alias = EXCLUDED.email_alias
+                email_alias = EXCLUDED.email_alias,
+                personal_mobile = EXCLUDED.personal_mobile,
+                home_phone = EXCLUDED.home_phone
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("id", employeeId);
@@ -229,6 +262,29 @@ internal static class EmployeeWorkbookImporter
         AddNullable(command, "full_en", row.FullNameEn);
         AddNullable(command, "nickname", row.Nickname);
         AddNullable(command, "email_alias", row.EmailAlias);
+        AddNullable(command, "personal_mobile", row.PersonalMobile);
+        AddNullable(command, "home_phone", row.HomePhone);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task UpsertPersonalInfo(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        long employeeId, EmployeeImportRow row, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO public.employee_personal_info
+                (employee_id, birth_date, current_address, id_card_address)
+            VALUES (@id, @birth_date, @current_address, @id_card_address)
+            ON CONFLICT (employee_id) DO UPDATE SET
+                birth_date = EXCLUDED.birth_date,
+                current_address = EXCLUDED.current_address,
+                id_card_address = EXCLUDED.id_card_address
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("id", employeeId);
+        AddNullable(command, "birth_date", row.BirthDate);
+        AddNullable(command, "current_address", row.CurrentAddress);
+        AddNullable(command, "id_card_address", row.IdCardAddress);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -240,11 +296,11 @@ internal static class EmployeeWorkbookImporter
             INSERT INTO public.employee_company_info
                 (employee_id, company_code, business_unit, department,
                  position_name, supervisor_name, leave_approver_name,
-                 internal_extension, employee_status)
+                 internal_extension, start_date, employee_status)
             VALUES
                 (@id, @company_code, @business_unit, @department,
                  @position, @supervisor, @supervisor,
-                 @extension, 'ปฏิบัติงาน')
+                 @extension, @start_date, 'ปฏิบัติงาน')
             ON CONFLICT (employee_id) DO UPDATE SET
                 company_code = EXCLUDED.company_code,
                 business_unit = EXCLUDED.business_unit,
@@ -253,6 +309,7 @@ internal static class EmployeeWorkbookImporter
                 supervisor_name = EXCLUDED.supervisor_name,
                 leave_approver_name = EXCLUDED.leave_approver_name,
                 internal_extension = EXCLUDED.internal_extension,
+                start_date = EXCLUDED.start_date,
                 employee_status = EXCLUDED.employee_status
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -263,16 +320,15 @@ internal static class EmployeeWorkbookImporter
         AddNullable(command, "position", row.Position);
         AddNullable(command, "supervisor", row.SupervisorName);
         AddNullable(command, "extension", row.InternalExtension);
+        AddNullable(command, "start_date", row.StartDate);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task EnsureEmptyTabRows(
+    private static async Task EnsureEmptyFamilyRow(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
         long employeeId, CancellationToken cancellationToken)
     {
         const string sql = """
-            INSERT INTO public.employee_personal_info (employee_id)
-            VALUES (@id) ON CONFLICT (employee_id) DO NOTHING;
             INSERT INTO public.employee_family_info (employee_id)
             VALUES (@id) ON CONFLICT (employee_id) DO NOTHING;
             """;
@@ -285,8 +341,12 @@ internal static class EmployeeWorkbookImporter
         command.Parameters.Add(new NpgsqlParameter<string?>(name,
             string.IsNullOrWhiteSpace(value) ? null : value.Trim()));
 
+    private static void AddNullable(NpgsqlCommand command, string name, DateOnly? value) =>
+        command.Parameters.Add(new NpgsqlParameter<DateOnly?>(name, value));
+
     private sealed record EmployeeImportRow(
         int SourceRow,
+        string SourceSystem,
         string EmployeeCode,
         string Title,
         string FirstNameTh,
@@ -298,9 +358,15 @@ internal static class EmployeeWorkbookImporter
         string EmailAlias,
         string InternalExtension,
         string Nickname,
+        string CurrentAddress,
+        string IdCardAddress,
+        string HomePhone,
+        string PersonalMobile,
         string Position,
         string SupervisorName,
         string Department,
+        DateOnly? StartDate,
+        DateOnly? BirthDate,
         string CompanyCode,
         string BusinessUnit);
 }

@@ -26,9 +26,9 @@ if (args.Length >= 2 && string.Equals(args[0], "--import-employees", StringCompa
     var migrationPath = Path.GetFullPath(Path.Combine(
         builder.Environment.ContentRootPath,
         "..", "database", "Scripts", "012_create_employee_tables.sql"));
-    var imported = await EmployeeWorkbookImporter.ImportAsync(
+    var result = await EmployeeWorkbookImporter.ImportAsync(
         connectionString, workbookPath, migrationPath);
-    Console.WriteLine($"Imported {imported} employee rows successfully.");
+    Console.WriteLine($"Employee import completed: inserted={result.Inserted}, skipped={result.Skipped}.");
     return;
 }
 
@@ -51,6 +51,132 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-type-default-hou
     await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
     await migrationCommand.ExecuteNonQueryAsync();
     Console.WriteLine("Added leave_types.default_hours successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-bonus-deduction", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "034_add_leave_bonus_deduction.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added leave bonus deduction policy and document snapshots successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-quota-movements", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "035_create_leave_quota_movements.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave quota movement ledger successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-pipeline", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "036_create_attendance_pipeline.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance import and calculation pipeline successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-responses", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "037_create_attendance_responses.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance response and attachment tables successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-reviews", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "038_create_attendance_review_page.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance review page, actions and calculated result columns successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-company-calendar-outlook", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "039_create_company_calendar_outlook_sync.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created company calendar Outlook synchronization queue successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--verify-attendance-pipeline", StringComparison.OrdinalIgnoreCase))
+{
+    await using var verifyDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var verifyCommand = verifyDataSource.CreateCommand("""
+        SELECT
+            (SELECT COUNT(*) FROM public.attendance_raw_scans),
+            (SELECT COUNT(*) FROM public.attendance_daily_records),
+            (SELECT COUNT(*) FROM public.attendance_daily_records WHERE requires_review),
+            (SELECT last_captured_at FROM public.attendance_sync_states WHERE source_system = 'HIKVISION'),
+            (SELECT last_error FROM public.attendance_sync_states WHERE source_system = 'HIKVISION')
+        """);
+    await using var reader = await verifyCommand.ExecuteReaderAsync();
+    await reader.ReadAsync();
+    Console.WriteLine(
+        $"rawScans={reader.GetInt64(0)}, dailyRecords={reader.GetInt64(1)}, " +
+        $"requiresReview={reader.GetInt64(2)}, " +
+        $"lastCapturedAt={(reader.IsDBNull(3) ? "-" : reader.GetDateTime(3).ToString("yyyy-MM-dd HH:mm:ss"))}, " +
+        $"lastError={(reader.IsDBNull(4) ? "-" : reader.GetString(4))}");
+    await reader.DisposeAsync();
+
+    if (args.Length >= 2)
+    {
+        await using var employeeCommand = verifyDataSource.CreateCommand("""
+            SELECT
+                (SELECT COUNT(*) FROM public.attendance_raw_scans
+                  WHERE source_employee_id = @employee_id AND captured_at::date = CURRENT_DATE),
+                (SELECT MIN(captured_at) FROM public.attendance_raw_scans
+                  WHERE source_employee_id = @employee_id AND captured_at::date = CURRENT_DATE),
+                (SELECT MAX(captured_at) FROM public.attendance_raw_scans
+                  WHERE source_employee_id = @employee_id AND captured_at::date = CURRENT_DATE),
+                (SELECT final_status FROM public.attendance_daily_records
+                  WHERE employee_id = @employee_id AND work_date = CURRENT_DATE),
+                (SELECT scan_count FROM public.attendance_daily_records
+                  WHERE employee_id = @employee_id AND work_date = CURRENT_DATE)
+            """);
+        employeeCommand.Parameters.AddWithValue("employee_id", args[1]);
+        await using var employeeReader = await employeeCommand.ExecuteReaderAsync();
+        await employeeReader.ReadAsync();
+        Console.WriteLine(
+            $"employee={args[1]}, todayRawScans={employeeReader.GetInt64(0)}, " +
+            $"firstScan={(employeeReader.IsDBNull(1) ? "-" : employeeReader.GetDateTime(1).ToString("HH:mm:ss"))}, " +
+            $"lastScan={(employeeReader.IsDBNull(2) ? "-" : employeeReader.GetDateTime(2).ToString("HH:mm:ss"))}, " +
+            $"dailyStatus={(employeeReader.IsDBNull(3) ? "-" : employeeReader.GetString(3))}, " +
+            $"dailyScanCount={(employeeReader.IsDBNull(4) ? "-" : employeeReader.GetInt32(4))}");
+    }
     return;
 }
 
@@ -129,6 +255,19 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-page-action-permission
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--disable-direct-employee-edit", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "050_disable_direct_employee_edit.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Disabled direct employee editing successfully.");
+    return;
+}
+
 if (args.Length >= 1 && string.Equals(args[0], "--migrate-app-roles", StringComparison.OrdinalIgnoreCase))
 {
     var migrationPath = Path.GetFullPath(Path.Combine(
@@ -165,6 +304,133 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-medical-certific
     await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
     await migrationCommand.ExecuteNonQueryAsync();
     Console.WriteLine("Added sick-leave medical certificate field successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-edit-request-medical-certificate", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "027_add_edit_request_medical_certificate.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added medical certificate field to leave edit requests successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-cancel-requests", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "028_create_leave_cancel_requests.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave cancellation request workflow successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-cancel-history-actions", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "030_add_leave_cancel_history_actions.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added leave cancellation history actions successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-outlook-calendar", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "031_create_leave_outlook_calendar_sync.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave Outlook calendar synchronization table successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-page-availability", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "032_add_application_page_availability.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added global application page availability switches successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-manager-notification-leave-type", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "033_add_manager_notification_leave_type.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added leave type to manager leave notifications successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--check-leave-outlook-calendar", StringComparison.OrdinalIgnoreCase))
+{
+    const string diagnosticSql = """
+        SELECT d.document_no, d.status, c.sync_status, COALESCE(c.last_action, '-'),
+               c.retry_count, COALESCE(c.last_sync_error, '-'), c.last_attempted_at,
+               c.outlook_event_id IS NOT NULL, COALESCE(c.employee_email, '-'),
+               COALESCE(c.outlook_web_link, '-'), d.leave_date, d.start_time, d.leave_hours
+        FROM public.leave_calendar_events c
+        JOIN public.leave_documents d ON d.id = c.leave_document_id
+        WHERE (@document_no IS NULL OR d.document_no = @document_no)
+        ORDER BY c.updated_at DESC
+        LIMIT 10
+        """;
+    await using var diagnosticDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var diagnosticCommand = diagnosticDataSource.CreateCommand(diagnosticSql);
+    diagnosticCommand.Parameters.Add(new NpgsqlParameter<string?>(
+        "document_no", args.Length >= 2 ? args[1] : null));
+    await using var diagnosticReader = await diagnosticCommand.ExecuteReaderAsync();
+    while (await diagnosticReader.ReadAsync())
+    {
+        Console.WriteLine(
+            $"document={diagnosticReader.GetString(0)}, documentStatus={diagnosticReader.GetString(1)}, " +
+            $"syncStatus={diagnosticReader.GetString(2)}, action={diagnosticReader.GetString(3)}, " +
+            $"retries={diagnosticReader.GetInt32(4)}, hasEventId={diagnosticReader.GetBoolean(7)}, " +
+            $"mailbox={diagnosticReader.GetString(8)}, " +
+            $"attemptedAt={(diagnosticReader.IsDBNull(6) ? "-" : diagnosticReader.GetFieldValue<DateTimeOffset>(6).ToString("O"))}");
+        Console.WriteLine($"error={diagnosticReader.GetString(5)}");
+        Console.WriteLine($"webLink={diagnosticReader.GetString(9)}");
+        Console.WriteLine(
+            $"leaveDate={diagnosticReader.GetFieldValue<DateOnly>(10).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}, " +
+            $"startTime={diagnosticReader.GetFieldValue<TimeOnly>(11):HH\\:mm}, " +
+            $"hours={diagnosticReader.GetDecimal(12):0.##}");
+    }
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-records-page", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "029_add_attendance_records_page.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added attendance records page successfully.");
     return;
 }
 
@@ -236,10 +502,179 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-manager-notification-l
     return;
 }
 
-builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-attachments-to-database", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "025_store_leave_attachments_in_database.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Enabled PostgreSQL BYTEA storage for leave attachments successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-edit-request-attachments", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "026_add_edit_request_attachments.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Enabled additive attachments for leave edit requests successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-attendance-exclusion", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "040_add_employee_attendance_calculation_exclusion.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added employee attendance calculation exclusion flag successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-recalculation-queue", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "041_create_attendance_recalculation_queue.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance recalculation queue successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-calendar-events", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "042_create_attendance_calendar_events.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created personal attendance calendar events successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-work-calendar-attendance-queue", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "043_queue_attendance_from_work_calendar.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Connected company work calendar changes to attendance recalculation successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-work-calendar-document-templates", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "044_create_work_calendar_document_templates.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created versioned work calendar document templates successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-event-types", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "045_create_attendance_event_type_master.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance event type master data successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-event-reviews", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "046_add_attendance_calendar_event_review.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added review workflow and creation audit to attendance calendar events successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-pre-employee-page", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "047_add_pre_employee_page.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added Pre-Employee application page successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-pre-employees", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "048_create_pre_employees.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created Pre-Employee staging workflow successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-pre-employee-full-data", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "049_add_pre_employee_full_data.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added full Employee draft data to Pre-Employee successfully.");
+    return;
+}
+
+// The database is hosted on another server. Keep pooled connections alive so a
+// firewall/NAT idle timeout does not hand a dead connector to background jobs.
+var pooledConnectionSettings = new NpgsqlConnectionStringBuilder(connectionString);
+if (pooledConnectionSettings.KeepAlive == 0)
+    pooledConnectionSettings.KeepAlive = 30;
+builder.Services.AddSingleton(NpgsqlDataSource.Create(pooledConnectionSettings.ConnectionString));
 builder.Services.AddSingleton<PageActionPermissionService>();
+builder.Services.AddSingleton<PageAccessService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<MicrosoftGraphMailService>();
+builder.Services.AddSingleton<LeaveApprovalEmailService>();
+builder.Services.AddSingleton<LeaveDecisionEmailService>();
+builder.Services.AddSingleton<LeaveCancellationEmailService>();
+builder.Services.AddSingleton<OutlookCalendarSyncService>();
+builder.Services.AddHostedService<OutlookCalendarRetryWorker>();
+builder.Services.AddSingleton<CompanyCalendarOutlookSyncService>();
+builder.Services.AddHostedService<CompanyCalendarOutlookRetryWorker>();
 var tenantId = builder.Configuration["AzureAd:TenantId"]
     ?? throw new InvalidOperationException("AzureAd:TenantId is not configured.");
 var clientId = builder.Configuration["AzureAd:ClientId"]
@@ -297,6 +732,73 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
         .AllowAnyMethod()));
 
 var app = builder.Build();
+
+if (args.Length >= 1 && string.Equals(args[0], "--check-company-calendar-outlook", StringComparison.OrdinalIgnoreCase))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var syncDataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+    await using var command = syncDataSource.CreateCommand("""
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE sync_status = 'PENDING'),
+               COUNT(*) FILTER (WHERE sync_status = 'SYNCED'),
+               COUNT(*) FILTER (WHERE sync_status = 'FAILED'),
+               COUNT(*) FILTER (WHERE sync_status = 'DELETED'),
+               COUNT(DISTINCT employee_id), COUNT(DISTINCT calendar_date)
+        FROM public.work_calendar_outlook_events
+        """);
+    await using var reader = await command.ExecuteReaderAsync();
+    await reader.ReadAsync();
+    Console.WriteLine(
+        $"total={reader.GetInt64(0)}, pending={reader.GetInt64(1)}, synced={reader.GetInt64(2)}, " +
+        $"failed={reader.GetInt64(3)}, deleted={reader.GetInt64(4)}, " +
+        $"employees={reader.GetInt64(5)}, dates={reader.GetInt64(6)}");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--sync-company-calendar-outlook-batch", StringComparison.OrdinalIgnoreCase))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var calendarSync = scope.ServiceProvider.GetRequiredService<CompanyCalendarOutlookSyncService>();
+    var limit = args.Length >= 2 && int.TryParse(args[1], out var requestedLimit)
+        ? Math.Clamp(requestedLimit, 1, 500)
+        : 10;
+    var ids = await calendarSync.LoadPendingIds(limit, CancellationToken.None);
+    var succeeded = 0;
+    var failed = 0;
+    await Parallel.ForEachAsync(ids,
+        new ParallelOptions { MaxDegreeOfParallelism = 4 },
+        async (id, token) =>
+        {
+            try
+            {
+                await calendarSync.SyncAsync(id, token);
+                Interlocked.Increment(ref succeeded);
+            }
+            catch
+            {
+                Interlocked.Increment(ref failed);
+            }
+        });
+    Console.WriteLine($"Company calendar Outlook batch completed: succeeded={succeeded}, failed={failed}.");
+    return;
+}
+
+if (args.Length >= 2 && string.Equals(args[0], "--sync-leave-outlook-calendar", StringComparison.OrdinalIgnoreCase))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var syncDataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+    await using var findCommand = syncDataSource.CreateCommand(
+        "SELECT id FROM public.leave_documents WHERE document_no = @document_no");
+    findCommand.Parameters.AddWithValue("document_no", args[1]);
+    var documentId = await findCommand.ExecuteScalarAsync();
+    if (documentId is null)
+        throw new InvalidOperationException($"Leave document '{args[1]}' was not found.");
+
+    var calendarSync = scope.ServiceProvider.GetRequiredService<OutlookCalendarSyncService>();
+    await calendarSync.SyncAsync(Convert.ToInt64(documentId), CancellationToken.None);
+    Console.WriteLine($"Synchronized Outlook Calendar for {args[1]} successfully.");
+    return;
+}
 
 // Configure the HTTP request pipeline.
 app.UseHttpsRedirection();

@@ -1,7 +1,8 @@
 .employee-request-page { display: grid; gap: 1.25rem; }
-.criteria-card { margin: 0; }
+.criteria-card { margin: 0; overflow: visible; }
 .request-criteria { display: grid; grid-template-columns: minmax(260px,2fr) minmax(180px,1fr) auto; align-items: end; gap: 1rem; }
 .request-criteria label { display: grid; gap: .4rem; color: #334155; font-size: .84rem; font-weight: 600; }
+.request-criteria .criteria-filter { display:grid; gap:.4rem; color:#334155; font-size:.84rem; font-weight:600; }
 .request-criteria input, .request-criteria select { min-height: 2.5rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .reset-filter { min-height: 2.5rem; padding: .5rem .8rem; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; }
 .result-count { margin-left: auto; color: #64748b; font-size: .8rem; font-weight: 500; }
@@ -48,6 +49,10 @@
 .employee-comparison-card.requested .field-changed > span { color: #c2410c; }
 .employee-comparison-card.requested .field-changed small { padding: .12rem .4rem; color: #fff; background: #f97316; border-radius: 999px; font-size: .62rem; white-space: nowrap; }
 .employee-comparison-card.requested input:disabled { color: #9a3412; background: #ffedd5; border-color: #fb923c; font-weight: 700; }
+.profile-change-preview { display:grid; min-height:9rem; place-items:center; overflow:hidden; color:#64748b; background:#e2e8f0; border:1px dashed #94a3b8; border-radius:.55rem; font-size:.78rem; }
+.profile-change-preview img { width:8rem; height:8rem; margin:.6rem; object-fit:cover; border-radius:50%; box-shadow:0 0 0 3px #fff,0 0 0 4px #cbd5e1; }
+.employee-comparison-card.requested .profile-change-preview { background:#fff7ed; border-color:#fb923c; }
+.employee-comparison-card.requested .profile-change-preview img { box-shadow:0 0 0 3px #fff,0 0 0 4px #fb923c; }
 .review-remark { display: grid; gap: .4rem; margin-top: 1rem; color: #334155; font-size: .84rem; font-weight: 600; }
 .review-remark textarea { width: 100%; padding: .55rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .review-message { margin-top: .8rem; padding: .65rem .75rem; border-radius: .45rem; }

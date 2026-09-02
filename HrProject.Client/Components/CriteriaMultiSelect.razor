@@ -1,0 +1,39 @@
+<div class="criteria-multi-select">
+    <details>
+        <summary><span>@Summary</span><span class="chevron" aria-hidden="true">⌄</span></summary>
+        <div class="menu">
+            <button class="clear" type="button" @onclick="Clear">@AllText</button>
+            @foreach (var option in Options)
+            {
+                <label class="option">
+                    <input type="checkbox" checked="@Values.Contains(option.Value, StringComparer.OrdinalIgnoreCase)"
+                           @onchange="args => Toggle(option.Value, args.Value is true)" />
+                    <span class="option-label">@option.Label</span>
+                </label>
+            }
+        </div>
+    </details>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<CriteriaFilterOption> Options { get; set; } = [];
+    [Parameter] public IReadOnlyCollection<string> Values { get; set; } = [];
+    [Parameter] public EventCallback<IReadOnlyCollection<string>> ValuesChanged { get; set; }
+    [Parameter] public string AllText { get; set; } = "ทั้งหมด";
+
+    private string Summary => Values.Count switch
+    {
+        0 => AllText,
+        1 => Options.FirstOrDefault(x => Values.Contains(x.Value, StringComparer.OrdinalIgnoreCase))?.Label ?? AllText,
+        _ => $"เลือกแล้ว {Values.Count} รายการ"
+    };
+
+    private Task Toggle(string value, bool selected)
+    {
+        var updated = new HashSet<string>(Values, StringComparer.OrdinalIgnoreCase);
+        if (selected) updated.Add(value); else updated.Remove(value);
+        return ValuesChanged.InvokeAsync(updated);
+    }
+
+    private Task Clear() => ValuesChanged.InvokeAsync(Array.Empty<string>());
+}

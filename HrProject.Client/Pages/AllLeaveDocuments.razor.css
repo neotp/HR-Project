@@ -27,8 +27,20 @@
 .readonly-notice { margin-bottom: 1rem; padding: .7rem .85rem; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .5rem; font-size: .85rem; font-weight: 600; }
 .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }.full-width { grid-column: 1 / -1; }
 .form-grid input:disabled, .form-grid textarea:disabled { color: #64748b; background: #e2e8f0; opacity: 1; cursor: not-allowed; }
+.bonus-deduction-card { margin-top: 1.25rem; padding: 1rem; border: 1px solid #fdba74; border-radius: .65rem; background: #fff7ed; }
+.bonus-deduction-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1rem; }
+.bonus-deduction-heading h3 { margin: 0; color: #9a3412; font-size: 1rem; }
+.bonus-deduction-heading p { margin: .2rem 0 0; color: #9a3412; font-size: .78rem; }
+.bonus-override-badge { padding: .3rem .55rem; border-radius: 999px; color: #7c2d12; background: #fed7aa; font-size: .72rem; font-weight: 700; }
+.bonus-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem 1rem; }
+.bonus-form-grid label { display: flex; flex-direction: column; gap: .35rem; color: #7c2d12; font-size: .82rem; font-weight: 700; }
+.bonus-form-grid input[type="number"], .bonus-form-grid textarea { width: 100%; padding: .55rem .65rem; border: 1px solid #fdba74; border-radius: .4rem; background: #fff; font: inherit; }
+.bonus-form-grid input:disabled, .bonus-form-grid textarea:disabled { color: #64748b; background: #f1f5f9; }
+.bonus-form-grid .bonus-check { flex-direction: row; align-items: center; padding: .65rem; border: 1px solid #fed7aa; border-radius: .4rem; background: #fff; }
+.bonus-reason { grid-column: 1 / -1; }
+.bonus-actions { display: flex; justify-content: flex-end; margin-top: .85rem; }
 .document-modal-footer { display: flex; justify-content: flex-end; gap:.75rem; padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; }
 .btn-history { margin-right:auto; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; }.btn-history:hover { color:#1e40af; background:#dbeafe; }
 @media (max-width: 1100px) { .criteria-grid { grid-template-columns: repeat(3,minmax(135px,1fr)); } }
-@media (max-width: 720px) { .criteria-grid, .form-grid { grid-template-columns: 1fr; }.full-width { grid-column: auto; }.page-header-content { align-items: flex-start; flex-direction: column; }.readonly-badge { align-self: flex-start; } }
+@media (max-width: 720px) { .criteria-grid, .form-grid, .bonus-form-grid { grid-template-columns: 1fr; }.full-width, .bonus-reason { grid-column: auto; }.page-header-content { align-items: flex-start; flex-direction: column; }.readonly-badge { align-self: flex-start; } }
 @media (max-width:720px) { .document-modal-footer { flex-wrap:wrap; }.btn-history { width:100%; margin-right:0; } }

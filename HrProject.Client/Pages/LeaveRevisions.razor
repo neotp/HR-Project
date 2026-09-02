@@ -1,14 +1,14 @@
 @page "/leave/revisions"
 @inject HttpClient Http
 
-<PageTitle>ขอแก้ไขเอกสารการลา | HR Project</PageTitle>
+<PageTitle>คำขอแก้ไขและยกเลิกเอกสารการลา | HR Project</PageTitle>
 
 <section class="manage-page revisions-page">
     <header class="page-header-card">
         <div class="page-header-content">
             <div class="page-header-text">
-                <h1>ขอแก้ไขเอกสารการลา</h1>
-                <p>รายการเอกสารที่อยู่ระหว่างรอพิจารณาคำขอแก้ไข</p>
+                <h1>คำขอแก้ไขและยกเลิกเอกสารการลา</h1>
+                <p>รายการเอกสารที่อยู่ระหว่างรอพิจารณาคำขอแก้ไขหรือคำขอยกเลิก</p>
             </div>
             <span class="revision-summary">@filteredDocuments.Count รายการ</span>
         </div>
@@ -21,17 +21,11 @@
                 <label>คำค้นหา
                     <input @bind="searchText" placeholder="เลขที่เอกสาร ชื่อพนักงาน หรือแผนก" />
                 </label>
-                <label>ประเภทการลา
-                    <select @bind="leaveType">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var type in leaveTypes)
-                        {
-                            <option value="@type.NameTh">@type.NameTh</option>
-                        }
-                    </select>
-                </label>
-                <label>วันที่ลาเริ่มต้น<input type="date" @bind="startDate" /></label>
-                <label>วันที่ลาสิ้นสุด<input type="date" @bind="endDate" /></label>
+                <div class="criteria-field"><span class="criteria-field-label">ประเภทการลา</span>
+                    <CriteriaMultiSelect Options="@LeaveTypeFilterOptions" Values="@selectedLeaveTypes" ValuesChanged="SetLeaveTypeFilters" />
+                </div>
+                <label>วันที่ลาเริ่มต้น<DateTimePicker @bind-Value="startDate" AriaLabel="วันที่ลาเริ่มต้น" /></label>
+                <label>วันที่ลาสิ้นสุด<DateTimePicker @bind-Value="endDate" AriaLabel="วันที่ลาสิ้นสุด" /></label>
             </div>
             <div class="criteria-actions">
                 <button class="btn btn-primary" type="button" @onclick="Search">ค้นหา</button>
@@ -42,7 +36,7 @@
 
     <section class="content-card result-card">
         <div class="content-card-header">
-            รายการขอแก้ไขเอกสาร
+            รายการคำขอแก้ไขและยกเลิกเอกสาร
             <span class="result-count">@filteredDocuments.Count รายการ</span>
         </div>
         <div class="content-card-body">
@@ -62,10 +56,10 @@
                         <span class="bulk-message @(bulkSucceeded ? "success" : "error")">@bulkMessage</span>
                     }
                     <button class="btn btn-approve" type="button"
-                            disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="BulkApprove">
+                            disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="ConfirmBulkApprove">
                         @(isBulkSaving ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({selectedIds.Count})")
                     </button>
-                    <button class="btn btn-reject" type="button" disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="BulkReject">
+                    <button class="btn btn-reject" type="button" disabled="@(selectedIds.Count == 0 || isBulkSaving)" @onclick="ConfirmBulkReject">
                         @(isBulkSaving ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({selectedIds.Count})")
                     </button>
                     <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)" />
@@ -81,14 +75,14 @@
                                 <th>ประเภทการลาเดิม</th>
                                 <th>วันที่ลาเดิม</th>
                                 <th>จำนวนชั่วโมงเดิม</th>
-                                <th>วันที่ขอแก้ไข</th>
+                                <th>วันที่ส่งคำขอ</th>
                                 <th>สถานะ</th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (filteredDocuments.Count == 0)
                             {
-                                <tr><td colspan="9" class="no-results">ไม่มีเอกสารที่อยู่ในสถานะขอแก้ไข</td></tr>
+                                <tr><td colspan="9" class="no-results">ไม่มีคำขอแก้ไขหรือคำขอยกเลิกที่รอพิจารณา</td></tr>
                             }
                             else
                             {
@@ -102,8 +96,8 @@
                                         <td>@document.LeaveTypeName</td>
                                         <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
                                         <td>@document.LeaveHours.ToString("0.##")</td>
-                                        <td>@document.PendingEditRequest?.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
-                                        <td><span class="status-pill editing" data-status="EDIT_REQUESTED">ขอแก้ไข</span></td>
+                                        <td>@RequestedAtText(document)</td>
+                                        <td><span class="status-pill @(IsCancelRequest(document) ? "cancelled" : "editing")">@RequestTypeText(document)</span></td>
                                     </tr>
                                 }
                             }
@@ -122,7 +116,7 @@
         <section class="document-modal">
             <header class="document-modal-header">
                 <div>
-                    <h2 id="revision-detail-title">รายละเอียดคำขอแก้ไข</h2>
+                    <h2 id="revision-detail-title">@RequestDetailTitle(selectedDocument)</h2>
                     <p>@selectedDocument.DocumentNo</p>
                 </div>
                 <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
@@ -134,7 +128,23 @@
                     <span><strong>ผู้อนุมัติ:</strong> @selectedDocument.ApproverName</span>
                 </div>
 
-                @if (selectedDocument.PendingEditRequest is { } request)
+                @if (selectedDocument.PendingCancelRequest is { } cancelRequest)
+                {
+                    <section class="cancel-request-detail">
+                        <h3>คำขอยกเลิกเอกสาร</h3>
+                        <div class="document-info">
+                            <span><strong>วันที่ลา:</strong> @selectedDocument.LeaveDate.ToString("dd/MM/yyyy")</span>
+                            <span><strong>เวลาเริ่มต้น:</strong> @selectedDocument.StartTime.ToString("HH:mm")</span>
+                            <span><strong>จำนวนชั่วโมง:</strong> @selectedDocument.LeaveHours.ToString("0.##") ชั่วโมง</span>
+                            <span><strong>วันที่ส่งคำขอ:</strong> @cancelRequest.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
+                        </div>
+                        <label class="request-reason">
+                            เหตุผลในการขอยกเลิก
+                            <textarea rows="3" disabled>@cancelRequest.RequestReason</textarea>
+                        </label>
+                    </section>
+                }
+                else if (selectedDocument.PendingEditRequest is { } request)
                 {
                     <div class="comparison-grid">
                         <section class="comparison-card current">
@@ -144,6 +154,10 @@
                             <label>วันที่ลา<input value="@selectedDocument.LeaveDate.ToString("dd/MM/yyyy")" disabled /></label>
                             <label>เวลาเริ่มต้น<input value="@selectedDocument.StartTime.ToString("HH:mm")" disabled /></label>
                             <label>จำนวนชั่วโมง<input value="@selectedDocument.LeaveHours.ToString("0.##")" disabled /></label>
+                            @if (IsSickType(selectedDocument.LeaveTypeId) || IsSickType(request.RequestedLeaveTypeId))
+                            {
+                                <label>ใบรับรองแพทย์<input value="@MedicalCertificateText(selectedDocument.HasMedicalCertificate, IsSickType(selectedDocument.LeaveTypeId))" disabled /></label>
+                            }
                         </section>
                         <section class="comparison-card requested">
                             <h3>ข้อมูลที่ขอแก้ไข</h3>
@@ -167,12 +181,21 @@
                                 <span>จำนวนชั่วโมง @ChangeBadge(selectedDocument.LeaveHours != request.RequestedLeaveHours)</span>
                                 <input value="@request.RequestedLeaveHours.ToString("0.##")" disabled />
                             </label>
+                            @if (IsSickType(selectedDocument.LeaveTypeId) || IsSickType(request.RequestedLeaveTypeId))
+                            {
+                                <label class="@ChangedClass(selectedDocument.HasMedicalCertificate != request.RequestedHasMedicalCertificate)">
+                                    <span>ใบรับรองแพทย์ @ChangeBadge(selectedDocument.HasMedicalCertificate != request.RequestedHasMedicalCertificate)</span>
+                                    <input value="@MedicalCertificateText(request.RequestedHasMedicalCertificate, IsSickType(request.RequestedLeaveTypeId))" disabled />
+                                </label>
+                            }
                         </section>
                     </div>
                     <label class="request-reason">
                         เหตุผลในการขอแก้ไข
                         <textarea rows="3" disabled>@request.RequestReason</textarea>
                     </label>
+                    <LeaveAttachmentViewer DocumentId="@selectedDocument.Id"
+                                           PendingEditRequest="true" />
                 }
                 else
                 {
@@ -189,25 +212,44 @@
                     <span class="action-error" role="alert">@actionError</span>
                 }
                 <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
-                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectRequest">
+                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="ConfirmRejectRequest">
                     @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
                 </button>
-                <button class="btn btn-approve" type="button" disabled="@(isSaving || selectedDocument.PendingEditRequest is null)" @onclick="ApproveRequest">
-                    @(isSaving ? "กำลังดำเนินการ..." : "อนุมัติขอแก้ไข")
+                <button class="btn btn-approve" type="button" disabled="@(isSaving || !HasPendingRequest(selectedDocument))" @onclick="ConfirmApproveRequest">
+                    @(isSaving ? "กำลังดำเนินการ..." : (IsCancelRequest(selectedDocument) ? "อนุมัติขอยกเลิก" : "อนุมัติขอแก้ไข"))
                 </button>
             </footer>
         </section>
     </div>
 }
 
+<ConfirmActionDialog IsOpen="@confirmOpen"
+                     IsBusy="@confirmBusy"
+                     Title="@confirmTitle"
+                     Message="@confirmMessage"
+                     ConfirmText="@confirmText"
+                     BusyText="@confirmBusyText"
+                     Tone="@confirmTone"
+                     OnConfirm="ExecuteConfirmedAction"
+                     OnCancel="CloseConfirmation" />
+
 @code {
     private string searchText = string.Empty;
-    private string leaveType = string.Empty;
+    private readonly HashSet<string> selectedLeaveTypes = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CriteriaFilterOption> LeaveTypeFilterOptions => leaveTypes.Select(x => new CriteriaFilterOption(x.NameTh, x.NameTh)).ToList();
     private DateTime? startDate;
     private DateTime? endDate;
     private bool isLoading = true;
     private bool isSaving;
     private bool isBulkSaving;
+    private bool confirmOpen;
+    private bool confirmBusy;
+    private string confirmTitle = string.Empty;
+    private string confirmMessage = string.Empty;
+    private string confirmText = "ยืนยัน";
+    private string confirmBusyText = "กำลังดำเนินการ...";
+    private string confirmTone = "primary";
+    private Func<Task>? confirmedAction;
     private bool bulkSucceeded;
     private string? bulkMessage;
     private string bulkRejectRemark = string.Empty;
@@ -250,16 +292,27 @@
 
     private async Task ReloadDocuments()
     {
-        var items = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
-            "api/leave-documents?status=EDIT_REQUESTED") ?? [];
+        var editItems = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+            $"api/leave-documents?status=EDIT_REQUESTED&actingEmployeeId={Uri.EscapeDataString(currentUser!.EmployeeId)}") ?? [];
+        var cancelItems = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+            $"api/leave-documents/cancel-requests/pending?actingEmployeeId={Uri.EscapeDataString(currentUser!.EmployeeId)}") ?? [];
 
         documents = [];
-        foreach (var item in items.Where(item => item.Status == "EDIT_REQUESTED"))
+        foreach (var item in editItems.Where(item => item.Status == "EDIT_REQUESTED"))
         {
             var detail = await Http.GetFromJsonAsync<LeaveDocumentDto>(
                 $"api/leave-documents/{item.Id}") ?? item;
             documents.Add(detail);
         }
+        foreach (var item in cancelItems.Where(item => item.PendingCancelRequest is not null))
+        {
+            if (documents.All(document => document.Id != item.Id))
+                documents.Add(item);
+        }
+        documents = documents
+            .OrderByDescending(document => document.PendingCancelRequest?.RequestedAt ??
+                document.PendingEditRequest?.RequestedAt ?? document.CreatedAt)
+            .ToList();
         Search();
     }
 
@@ -267,12 +320,12 @@
     {
         currentPage = 1;
         filteredDocuments = documents.Where(document =>
-            document.Status == "EDIT_REQUESTED" &&
+            HasPendingRequest(document) &&
             (string.IsNullOrWhiteSpace(searchText) ||
              document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.CreatorName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.CreatorDepartment.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
+            (selectedLeaveTypes.Count == 0 || selectedLeaveTypes.Contains(document.LeaveTypeName)) &&
             (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
             (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
             .ToList();
@@ -281,9 +334,16 @@
 
     private void Reset()
     {
-        searchText = leaveType = string.Empty;
+        searchText = string.Empty;
+        selectedLeaveTypes.Clear();
         startDate = endDate = null;
         Search();
+    }
+
+    private Task SetLeaveTypeFilters(IReadOnlyCollection<string> values)
+    {
+        selectedLeaveTypes.Clear(); selectedLeaveTypes.UnionWith(values); Search();
+        return Task.CompletedTask;
     }
 
     private async Task OpenDocument(LeaveDocumentDto document)
@@ -304,14 +364,68 @@
     }
 
     private async Task ApproveRequest() =>
-        await ReviewRequest("approve", "อนุมัติคำขอแก้ไข");
+        await ReviewRequest("approve", IsCancelRequest(selectedDocument) ? "อนุมัติคำขอยกเลิก" : "อนุมัติคำขอแก้ไข");
 
     private async Task RejectRequest() =>
-        await ReviewRequest("reject", "ไม่อนุมัติคำขอแก้ไข");
+        await ReviewRequest("reject", IsCancelRequest(selectedDocument) ? "ไม่อนุมัติคำขอยกเลิก" : "ไม่อนุมัติคำขอแก้ไข");
+
+    private void ConfirmApproveRequest() => OpenConfirmation(
+        IsCancelRequest(selectedDocument) ? "ยืนยันการอนุมัติคำขอยกเลิก" : "ยืนยันการอนุมัติคำขอแก้ไข",
+        $"ต้องการอนุมัติคำขอของเอกสาร {selectedDocument?.DocumentNo} ใช่หรือไม่",
+        "อนุมัติ", "กำลังอนุมัติ...", "success", ApproveRequest);
+
+    private void ConfirmRejectRequest() => OpenConfirmation(
+        IsCancelRequest(selectedDocument) ? "ยืนยันการไม่อนุมัติคำขอยกเลิก" : "ยืนยันการไม่อนุมัติคำขอแก้ไข",
+        $"ต้องการไม่อนุมัติคำขอของเอกสาร {selectedDocument?.DocumentNo} ใช่หรือไม่",
+        "ไม่อนุมัติ", "กำลังดำเนินการ...", "danger", RejectRequest);
+
+    private void ConfirmBulkApprove() => OpenConfirmation(
+        "ยืนยันการอนุมัติหลายรายการ",
+        $"ต้องการอนุมัติคำขอที่เลือก {selectedIds.Count} รายการใช่หรือไม่",
+        "อนุมัติทั้งหมด", "กำลังอนุมัติ...", "success", BulkApprove);
+
+    private void ConfirmBulkReject() => OpenConfirmation(
+        "ยืนยันการไม่อนุมัติหลายรายการ",
+        $"ต้องการไม่อนุมัติคำขอที่เลือก {selectedIds.Count} รายการใช่หรือไม่",
+        "ไม่อนุมัติทั้งหมด", "กำลังดำเนินการ...", "danger", BulkReject);
+
+    private void OpenConfirmation(
+        string title, string message, string confirmTextValue,
+        string busyText, string tone, Func<Task> action)
+    {
+        if (confirmBusy) return;
+        confirmTitle = title;
+        confirmMessage = message;
+        confirmText = confirmTextValue;
+        confirmBusyText = busyText;
+        confirmTone = tone;
+        confirmedAction = action;
+        confirmOpen = true;
+    }
+
+    private async Task ExecuteConfirmedAction()
+    {
+        if (confirmBusy || confirmedAction is null) return;
+        confirmBusy = true;
+        try { await confirmedAction(); }
+        finally
+        {
+            confirmBusy = false;
+            confirmOpen = false;
+            confirmedAction = null;
+        }
+    }
+
+    private void CloseConfirmation()
+    {
+        if (confirmBusy) return;
+        confirmOpen = false;
+        confirmedAction = null;
+    }
 
     private async Task ReviewRequest(string action, string actionText)
     {
-        if (selectedDocument?.PendingEditRequest is null || isSaving)
+        if (selectedDocument is null || !HasPendingRequest(selectedDocument) || isSaving)
             return;
 
         actionError = null;
@@ -322,8 +436,9 @@
                 currentUser!.EmployeeId,
                 currentUser.EmployeeName,
                 string.IsNullOrWhiteSpace(reviewRemark) ? null : reviewRemark.Trim());
+            var requestPath = IsCancelRequest(selectedDocument) ? "cancel-requests" : "edit-requests";
             var response = await Http.PostAsJsonAsync(
-                $"api/leave-documents/{selectedDocument.Id}/edit-requests/pending/{action}",
+                $"api/leave-documents/{selectedDocument.Id}/{requestPath}/pending/{action}",
                 review);
 
             if (!response.IsSuccessStatusCode)
@@ -376,8 +491,9 @@
         {
             try
             {
+                var requestPath = IsCancelRequest(document) ? "cancel-requests" : "edit-requests";
                 var response = await Http.PostAsJsonAsync(
-                    $"api/leave-documents/{document.Id}/edit-requests/pending/approve",
+                    $"api/leave-documents/{document.Id}/{requestPath}/pending/approve",
                     new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName));
                 if (response.IsSuccessStatusCode) succeeded.Add(document.Id); else failed.Add(document.DocumentNo);
             }
@@ -404,8 +520,9 @@
         {
             try
             {
+                var requestPath = IsCancelRequest(document) ? "cancel-requests" : "edit-requests";
                 var response = await Http.PostAsJsonAsync(
-                    $"api/leave-documents/{document.Id}/edit-requests/pending/reject",
+                    $"api/leave-documents/{document.Id}/{requestPath}/pending/reject",
                     new ReviewLeaveDocumentRequest(
                         currentUser.EmployeeId,
                         currentUser.EmployeeName,
@@ -425,6 +542,37 @@
 
     private static string KindText(string kind) =>
         kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
+
+    private static bool IsCancelRequest(LeaveDocumentDto? document) =>
+        document?.PendingCancelRequest is not null;
+
+    private static bool HasPendingRequest(LeaveDocumentDto document) =>
+        document.PendingEditRequest is not null || document.PendingCancelRequest is not null;
+
+    private static string RequestTypeText(LeaveDocumentDto document) =>
+        IsCancelRequest(document) ? "ขอยกเลิก" : "ขอแก้ไข";
+
+    private static string RequestDetailTitle(LeaveDocumentDto document) =>
+        IsCancelRequest(document) ? "รายละเอียดคำขอยกเลิก" : "รายละเอียดคำขอแก้ไข";
+
+    private static string RequestedAtText(LeaveDocumentDto document) =>
+        (document.PendingCancelRequest?.RequestedAt ?? document.PendingEditRequest?.RequestedAt)?
+            .LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "-";
+
+    private bool IsSickType(long leaveTypeId) =>
+        string.Equals(
+            leaveTypes.FirstOrDefault(type => type.Id == leaveTypeId)?.Code,
+            "SICK",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static string MedicalCertificateText(bool? value, bool isSickLeave) => !isSickLeave
+        ? "ไม่ใช้กับประเภทการลานี้"
+        : value switch
+        {
+            true => "มีใบรับรองแพทย์",
+            false => "ไม่มีใบรับรองแพทย์",
+            _ => "ไม่ระบุ"
+        };
 
     private static string ChangedClass(bool changed) =>
         changed ? "field-changed" : string.Empty;

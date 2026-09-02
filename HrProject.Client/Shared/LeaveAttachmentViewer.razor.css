@@ -1,0 +1,32 @@
+.leave-attachments { display: grid; gap: .5rem; margin-top: 1rem; padding: .8rem; background: #f8fafc; border: 1px solid #dbe4f0; border-radius: .6rem; }
+.leave-attachments-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: #334155; font-size: .88rem; font-weight: 700; }
+.leave-attachments-heading small { color: #64748b; font-size: .73rem; font-weight: 600; }
+.leave-attachment-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: .45rem; }
+.leave-attachment-item { min-width: 0; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .48rem .55rem; color: #1d4ed8; background: #fff; border: 1px solid #cfe0f7; border-radius: .5rem; cursor: pointer; text-align: left; }
+.leave-attachment-item:hover, .leave-attachment-item:focus-visible { background: #eff6ff; border-color: #60a5fa; outline: none; }
+.leave-attachment-icon { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; color: #2563eb; background: #e0ecff; border-radius: .4rem; }
+.leave-attachment-icon svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.leave-attachment-info { min-width: 0; display: flex; flex-direction: column; gap: .08rem; }
+.leave-attachment-info strong { overflow: hidden; color: #1e3a8a; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.leave-attachment-info small { color: #64748b; font-size: .7rem; }
+.leave-attachment-action { padding: .22rem .4rem; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .35rem; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+.leave-attachments-state { padding: .65rem .7rem; color: #64748b; background: #fff; border: 1px dashed #cbd5e1; border-radius: .45rem; font-size: .82rem; text-align: center; }
+.leave-attachments-state.error, .leave-preview-state.error { color: #b91c1c; }
+.leave-preview-overlay { position: fixed; inset: 0; z-index: 2800; display: grid; place-items: center; padding: 1rem; background: rgba(15, 23, 42, .76); }
+.leave-preview-modal { width: min(1000px, 100%); height: min(850px, calc(100dvh - 2rem)); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: .8rem; box-shadow: 0 24px 65px rgba(0, 0, 0, .42); }
+.leave-preview-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; color: #fff; background: #13213f; }
+.leave-preview-header h2 { margin: 0; font-size: 1.12rem; }
+.leave-preview-header p { margin: .2rem 0 0; color: #cbd5e1; font-size: .8rem; }
+.leave-preview-header button { width: 2rem; height: 2rem; padding: 0; color: #fff; background: transparent; border: 0; border-radius: 50%; cursor: pointer; font-size: 1.45rem; line-height: 1; }
+.leave-preview-header button:hover { background: rgba(255,255,255,.12); }
+.leave-preview-body { min-height: 0; flex: 1; display: grid; place-items: center; overflow: auto; background: #e2e8f0; }
+.leave-preview-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.leave-preview-body img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.leave-preview-state { padding: 1rem 1.25rem; color: #475569; background: #fff; border-radius: .5rem; }
+
+@media (max-width: 600px) {
+    .leave-attachment-action { display: none; }
+    .leave-attachment-item { grid-template-columns: 1.75rem minmax(0, 1fr); }
+    .leave-preview-overlay { padding: .4rem; }
+    .leave-preview-modal { height: calc(100dvh - .8rem); border-radius: .55rem; }
+}

@@ -2,13 +2,13 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 
-<PageTitle>การมาทำงาน | HR Project</PageTitle>
+<PageTitle>ปฏิทินการมาทำงาน | HR Project</PageTitle>
 
 <section class="manage-page attendance-page">
     <header class="page-header-card">
         <div class="page-header-content">
             <div class="page-header-text">
-                <h1><span class="header-icon" aria-hidden="true">◷</span> การมาทำงาน</h1>
+                <h1><span class="header-icon" aria-hidden="true">◷</span> ปฏิทินการมาทำงาน</h1>
                 <p>ตรวจสอบเวลาเข้า-ออกงานและสถานะการทำงานในรูปแบบปฏิทิน</p>
             </div>
         </div>
@@ -54,22 +54,25 @@
         <div class="calendar-toolbar">
             <div>
                 <h2>ปฏิทินการมาทำงาน</h2>
-                <p>เลือกวันที่เพื่อดูรายละเอียดเวลาเข้าและออกงาน</p>
+                <p>เลือกวันที่เพื่อดูรายละเอียดเวลาเข้า-ออกงาน ใบลา และ Event ของคุณ</p>
             </div>
 
-            <div class="month-navigation">
-                <button type="button"
-                        class="month-button month-arrow"
-                        aria-label="เดือนก่อนหน้า"
-                        @onclick="ShowPreviousMonth">‹</button>
-                <div class="month-title" aria-live="polite">@MonthTitle</div>
-                <button type="button"
-                        class="month-button month-arrow"
-                        aria-label="เดือนถัดไป"
-                        @onclick="ShowNextMonth">›</button>
-                <button type="button" class="month-button today-button" @onclick="ShowCurrentMonth">
-                    เดือนปัจจุบัน
-                </button>
+            <div class="calendar-toolbar-actions">
+                <button type="button" class="create-event-button" @onclick="OpenCreateEvent">+ สร้าง Event</button>
+                <div class="month-navigation">
+                    <button type="button"
+                            class="month-button month-arrow"
+                            aria-label="เดือนก่อนหน้า"
+                            @onclick="ShowPreviousMonth">‹</button>
+                    <div class="month-title" aria-live="polite">@MonthTitle</div>
+                    <button type="button"
+                            class="month-button month-arrow"
+                            aria-label="เดือนถัดไป"
+                            @onclick="ShowNextMonth">›</button>
+                    <button type="button" class="month-button today-button" @onclick="ShowCurrentMonth">
+                        เดือนปัจจุบัน
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -86,12 +89,12 @@
                     @foreach (var day in CalendarDays)
                     {
                         var dayLeaveDocuments = GetLeaveDocuments(day.Date);
-                        <div class="@GetDayCssClass(day)">
-                            <div class="day-layout @(dayLeaveDocuments.Count > 0 ? "has-leave-document" : null)">
+                        var dayEvents = GetCalendarEvents(day.Date);
+                        var companyEvent = GetCompanyCalendarEvent(day.Date);
+                        <div class="@GetDayCssClass(day)" @onclick="() => HandleDayClick(day)">
+                            <div class="day-layout @(dayLeaveDocuments.Count > 0 || dayEvents.Count > 0 || companyEvent is not null ? "has-calendar-items" : null)">
                                 <button type="button" class="day-main-column"
-                                        aria-label="@GetDayAriaLabel(day)"
-                                        disabled="@(!day.IsCurrentMonth)"
-                                        @onclick="() => SelectDay(day)">
+                                        aria-label="@GetDayAriaLabel(day)">
                                     <span class="day-heading">
                                         <span class="day-number">@day.Date.Day</span>
                                         @if (day.Date == Today)
@@ -117,15 +120,24 @@
                                     }
                                 </button>
 
-                                @if (dayLeaveDocuments.Count > 0)
+                                @if (dayLeaveDocuments.Count > 0 || dayEvents.Count > 0 || companyEvent is not null)
                                 {
-                                    <div class="leave-slot-list">
+                                    <div class="calendar-item-list">
+                                        @if (companyEvent is not null)
+                                        {
+                                            <article class="company-calendar-slot @GetCompanyEventCssClass(companyEvent.DayType)">
+                                                <span class="company-event-heading"><span aria-hidden="true">@(companyEvent.DayType == "PUBLIC_HOLIDAY" ? "★" : "▣")</span><strong>@companyEvent.Name</strong></span>
+                                                <span class="company-event-time">@(companyEvent.DayType == "WORKING_SATURDAY" ? "09:00 → 17:00" : "ตลอดทั้งวัน")</span>
+                                                <small>@(companyEvent.DayType == "WORKING_SATURDAY" ? "วันเสาร์ทำงาน · พัก 12:00–13:00" : "วันหยุดนักขัตฤกษ์")</small>
+                                            </article>
+                                        }
                                         @foreach (var leaveDocument in dayLeaveDocuments)
                                         {
                                             var leaveEndTime = CalculateLeaveEndTime(leaveDocument.StartTime, leaveDocument.LeaveHours);
                                             <button type="button"
                                                     class="leave-document-slot @GetLeaveSlotCssClass(leaveDocument.Status)"
                                                     aria-label="เปิดเอกสาร @leaveDocument.DocumentNo"
+                                                    @onclick:stopPropagation="true"
                                                     @onclick="() => OpenLeaveDocument(leaveDocument.Id)">
                                                 <span class="leave-slot-heading">
                                                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" /></svg>
@@ -133,6 +145,18 @@
                                                 </span>
                                                 <span class="leave-slot-time">@leaveDocument.StartTime.ToString("HH:mm") <i aria-hidden="true">→</i> @leaveEndTime.ToString("HH:mm")</span>
                                                 <small><i aria-hidden="true"></i>@GetLeaveDocumentStatusText(leaveDocument.Status)</small>
+                                            </button>
+                                        }
+                                        @foreach (var calendarEvent in dayEvents)
+                                        {
+                                            <button type="button"
+                                                    class="calendar-event-slot @GetEventTypeCssClass(calendarEvent.EventType)"
+                                                    aria-label="@($"เปิด Event {GetEventDisplayTitle(calendarEvent)}")"
+                                                    @onclick:stopPropagation="true"
+                                                    @onclick="() => OpenEditEvent(calendarEvent)">
+                                                <span class="event-slot-heading"><span aria-hidden="true">@GetEventIcon(calendarEvent.EventType)</span><strong>@GetEventDisplayTitle(calendarEvent)</strong></span>
+                                                <span class="event-slot-time">@calendarEvent.StartTime.ToString("HH:mm") <i aria-hidden="true">→</i> @calendarEvent.EndTime.ToString("HH:mm")</span>
+                                                <small>@GetEventStatusText(calendarEvent.Status)</small>
                                             </button>
                                         }
                                     </div>
@@ -149,6 +173,7 @@
                 <span><i class="legend-dot present"></i>มาปกติ</span>
                 <span><i class="legend-dot late"></i>มาสาย</span>
                 <span><i class="legend-dot leave"></i>ลา</span>
+                <span><i class="legend-dot event"></i>Event ส่วนตัว</span>
                 <span><i class="legend-dot absent"></i>ขาดงาน</span>
                 <span><i class="legend-dot holiday"></i>วันหยุดนักขัตฤกษ์</span>
                 <span><i class="legend-dot working-saturday"></i>วันเสาร์ทำงาน</span>
@@ -200,6 +225,24 @@
                 }
             </section>
 
+            @{ var selectedCompanyEvent = GetCompanyCalendarEvent(SelectedDay.Date); }
+            @if (selectedCompanyEvent is not null)
+            {
+                <section class="selected-detail-section selected-company-event-section">
+                    <h3>ปฏิทินบริษัท</h3>
+                    <div class="selected-company-event @GetCompanyEventCssClass(selectedCompanyEvent.DayType)">
+                        <span class="selected-company-icon" aria-hidden="true">@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "★" : "▣")</span>
+                        <div><small>รายการ</small><strong>@selectedCompanyEvent.Name</strong></div>
+                        <div><small>ประเภท</small><strong>@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "วันหยุดนักขัตฤกษ์" : "วันเสาร์ทำงาน")</strong></div>
+                        <div><small>เวลาทำงาน</small><strong>@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "ไม่มีการตรวจ Attendance" : "09:00–17:00 · พัก 12:00–13:00")</strong></div>
+                        @if (!string.IsNullOrWhiteSpace(selectedCompanyEvent.Note))
+                        {
+                            <div class="selected-company-note"><small>หมายเหตุ</small><strong>@selectedCompanyEvent.Note</strong></div>
+                        }
+                    </div>
+                </section>
+            }
+
             @{ var selectedLeaveDocuments = GetLeaveDocuments(SelectedDay.Date); }
             @if (selectedLeaveDocuments.Count > 0)
             {
@@ -223,9 +266,89 @@
                     </div>
                 </section>
             }
+
+            @{ var selectedEvents = GetCalendarEvents(SelectedDay.Date); }
+            @if (selectedEvents.Count > 0)
+            {
+                <section class="selected-detail-section selected-event-section">
+                    <h3>Event ของฉัน <span>@selectedEvents.Count รายการ</span></h3>
+                    <div class="selected-event-list">
+                        @foreach (var calendarEvent in selectedEvents)
+                        {
+                            <button type="button" class="selected-event-item @GetEventTypeCssClass(calendarEvent.EventType)" @onclick="() => OpenEditEvent(calendarEvent)">
+                                <span class="selected-event-icon" aria-hidden="true">@GetEventIcon(calendarEvent.EventType)</span>
+                                <span><small>ประเภท</small><strong>@GetEventTypeText(calendarEvent.EventType)</strong></span>
+                                <span><small>หัวข้อ</small><strong>@GetEventDisplayTitle(calendarEvent)</strong></span>
+                                <span><small>ช่วงเวลา</small><strong>@calendarEvent.StartTime.ToString("HH:mm")–@calendarEvent.EndTime.ToString("HH:mm")</strong></span>
+                                <span class="selected-event-details"><small>รายละเอียด</small><strong>@(string.IsNullOrWhiteSpace(calendarEvent.Details) ? "-" : calendarEvent.Details)</strong></span>
+                            </button>
+                        }
+                    </div>
+                </section>
+            }
         </section>
     }
 </section>
+
+@if (IsEventModalOpen)
+{
+    <div class="event-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
+        <section class="event-modal">
+            <header>
+                <div><h2 id="event-modal-title">@(EditingEventId.HasValue ? "แก้ไข Event" : "สร้าง Event")</h2><p>รายการจะแสดงเป็นกล่องในปฏิทินการมาทำงานของคุณ</p></div>
+                <button type="button" aria-label="ปิด" disabled="@IsSavingEvent" @onclick="CloseEventModal">×</button>
+            </header>
+            <div class="event-modal-body">
+                @if (!string.IsNullOrWhiteSpace(EventErrorMessage))
+                {
+                    <div class="event-form-error">@EventErrorMessage</div>
+                }
+                @if (EditingEventId.HasValue)
+                {
+                    <div class="event-audit-line">
+                        <span class="event-review-status @GetEventStatusCssClass(EventStatus)">@GetEventStatusText(EventStatus)</span>
+                        <span>สร้างเมื่อ @EventCreatedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                        @if (!string.IsNullOrWhiteSpace(EventCreatedByName)) { <span>โดย @EventCreatedByName</span> }
+                    </div>
+                }
+                <div class="event-form-grid">
+                    <label class="event-form-field"><span>ประเภท Event <i>*</i></span>
+                        <select @bind="EventType" disabled="@IsSavingEvent">
+                            @foreach (var eventType in SelectableEventTypes)
+                            {
+                                <option value="@eventType.Code">@eventType.NameTh</option>
+                            }
+                        </select>
+                    </label>
+                    <label class="event-form-field"><span>วันที่ <i>*</i></span><DateOnlyPicker @bind-Value="EventDate" Disabled="@IsSavingEvent" /></label>
+                    <label class="event-form-field"><span>เวลาเริ่มต้น <i>*</i></span><TimeMinutePicker @bind-Value="EventStartTime" Disabled="@IsSavingEvent" /></label>
+                    <label class="event-form-field"><span>เวลาสิ้นสุด <i>*</i></span><TimeMinutePicker @bind-Value="EventEndTime" Disabled="@IsSavingEvent" /></label>
+                    <label class="event-form-field event-form-full"><span>หัวข้อ @(EventType == "OTHER" ? "*" : "")</span><input maxlength="200" @bind="EventTitle" disabled="@IsSavingEvent" placeholder="เช่น ประชุมลูกค้าโครงการ ABC" /></label>
+                    <label class="event-form-field event-form-full"><span>รายละเอียด</span><textarea maxlength="2000" @bind="EventDetails" disabled="@IsSavingEvent" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea></label>
+                </div>
+            </div>
+            <footer>
+                @if (EditingEventId.HasValue)
+                {
+                    <button type="button" class="delete-event-button" disabled="@IsSavingEvent" @onclick="RequestDeleteEvent">ลบ Event</button>
+                }
+                <span></span>
+                <button type="button" class="cancel-event-button" disabled="@IsSavingEvent" @onclick="CloseEventModal">ปิด</button>
+                <button type="button" class="save-event-button" disabled="@IsSavingEvent" @onclick="SaveEventAsync">@(IsSavingEvent ? "กำลังบันทึก..." : "บันทึก Event")</button>
+            </footer>
+        </section>
+    </div>
+}
+
+<ConfirmActionDialog IsOpen="@IsConfirmingEventDelete"
+                     IsBusy="@IsSavingEvent"
+                     Title="ยืนยันการลบ Event"
+                     Message="@DeleteEventConfirmMessage"
+                     ConfirmText="ยืนยันลบ"
+                     BusyText="กำลังลบ Event..."
+                     Tone="danger"
+                     OnConfirm="DeleteEventAsync"
+                     OnCancel="CancelDeleteEvent" />
 
 @code {
     private static readonly string[] WeekdayNames = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
@@ -240,9 +363,34 @@
     private List<CalendarDay> CalendarDays = [];
     private List<LeaveDocumentDto> LeaveDocuments = [];
     private List<WorkCalendarDayDto> WorkCalendarDays = [];
+    private List<AttendanceDailyDto> AttendanceDailyRecords = [];
+    private List<AttendanceCalendarEventDto> CalendarEvents = [];
+    private List<AttendanceEventTypeMasterDto> AttendanceEventTypes = [];
+    private string CurrentEmployeeId = string.Empty;
     private CalendarDay? SelectedDay;
     private bool IsLoadingCalendarData = true;
     private string? LoadErrorMessage;
+    private bool IsEventModalOpen;
+    private bool IsSavingEvent;
+    private bool IsConfirmingEventDelete;
+    private long? EditingEventId;
+    private DateOnly? EventDate;
+    private string EventType = "WORK_FROM_HOME";
+    private TimeOnly EventStartTime = new(9, 0);
+    private TimeOnly EventEndTime = new(18, 0);
+    private string? EventTitle;
+    private string? EventDetails;
+    private string? EventErrorMessage;
+    private string EventStatus = "APPROVED";
+    private string? EventCreatedByName;
+    private DateTimeOffset? EventCreatedAt;
+    private IEnumerable<AttendanceEventTypeMasterDto> SelectableEventTypes => AttendanceEventTypes
+        .Where(item => item.IsActive || string.Equals(item.Code, EventType, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.DisplayOrder)
+        .ThenBy(item => item.NameTh);
+
+    private string DeleteEventConfirmMessage =>
+        $"คุณต้องการลบ Event ‘{(string.IsNullOrWhiteSpace(EventTitle) ? GetEventTypeText(EventType) : EventTitle)}’ วันที่ {EventDate:dd/MM/yyyy} ใช่หรือไม่?\nเมื่อลบแล้ว Attendance ของวันดังกล่าวจะถูกคำนวณใหม่";
 
     private string MonthTitle => $"{ThaiMonthNames[DisplayedMonth.Month - 1]} {DisplayedMonth.Year}";
 
@@ -275,6 +423,8 @@
         {
             WorkCalendarDays = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
                 "api/work-calendar") ?? [];
+            AttendanceEventTypes = await Http.GetFromJsonAsync<List<AttendanceEventTypeMasterDto>>(
+                "api/system-master-data/attendance-event-types?includeInactive=true") ?? [];
         }
         catch (Exception)
         {
@@ -290,11 +440,13 @@
                 return;
             }
 
+            CurrentEmployeeId = currentUser.EmployeeId;
             LeaveDocuments = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
                 $"api/leave-documents?creatorEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
             LeaveDocuments = LeaveDocuments
-                .Where(document => !string.Equals(document.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                .Where(IsVisibleLeaveDocument)
                 .ToList();
+            await LoadAttendanceForMonth();
         }
         catch (HttpRequestException)
         {
@@ -311,25 +463,39 @@
         }
     }
 
-    private void ShowPreviousMonth()
+    private async Task ShowPreviousMonth()
     {
         DisplayedMonth = DisplayedMonth.AddMonths(-1);
         SelectedDay = null;
+        await LoadAttendanceForMonth();
         BuildCalendar();
     }
 
-    private void ShowNextMonth()
+    private async Task ShowNextMonth()
     {
         DisplayedMonth = DisplayedMonth.AddMonths(1);
         SelectedDay = null;
+        await LoadAttendanceForMonth();
         BuildCalendar();
     }
 
-    private void ShowCurrentMonth()
+    private async Task ShowCurrentMonth()
     {
         DisplayedMonth = new DateOnly(Today.Year, Today.Month, 1);
         SelectedDay = null;
+        await LoadAttendanceForMonth();
         BuildCalendar();
+    }
+
+    private async Task LoadAttendanceForMonth()
+    {
+        if (string.IsNullOrWhiteSpace(CurrentEmployeeId)) return;
+        var start = new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, 1);
+        var end = start.AddMonths(1).AddDays(-1);
+        AttendanceDailyRecords = await Http.GetFromJsonAsync<List<AttendanceDailyDto>>(
+            $"api/attendance?employeeId={Uri.EscapeDataString(CurrentEmployeeId)}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}") ?? [];
+        CalendarEvents = await Http.GetFromJsonAsync<List<AttendanceCalendarEventDto>>(
+            $"api/attendance-calendar-events?startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}") ?? [];
     }
 
     private void BuildCalendar()
@@ -363,9 +529,25 @@
                 companyCalendarDay);
         }
 
+        if (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday &&
+            companyCalendarDay?.DayType != "WORKING_SATURDAY")
+        {
+            return new AttendanceRecord(
+                AttendanceStatus.Weekend,
+                null,
+                null,
+                "วันหยุดประจำสัปดาห์",
+                null,
+                null);
+        }
+
+        var importedRecord = AttendanceDailyRecords.FirstOrDefault(item => item.WorkDate == date);
+        if (importedRecord is not null)
+            return FromDailyRecord(importedRecord, companyCalendarDay);
+
         if (companyCalendarDay?.DayType == "WORKING_SATURDAY")
         {
-            if (date > Today)
+            if (AttendanceDailyRecords.All(item => item.WorkDate != date))
             {
                 return new AttendanceRecord(
                     AttendanceStatus.ScheduledWork,
@@ -386,18 +568,7 @@
                 companyCalendarDay);
         }
 
-        if (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-        {
-            return new AttendanceRecord(
-                AttendanceStatus.Weekend,
-                null,
-                null,
-                "วันหยุดประจำสัปดาห์",
-                null,
-                null);
-        }
-
-        if (date > Today)
+        if (AttendanceDailyRecords.All(item => item.WorkDate != date))
         {
             return null;
         }
@@ -434,20 +605,263 @@
             null);
     }
 
+    private static AttendanceRecord FromDailyRecord(
+        AttendanceDailyDto daily, WorkCalendarDayDto? calendarDay) =>
+        new(ParseAttendanceStatus(daily),
+            daily.FirstScanAt?.ToString("HH:mm"), daily.LastScanAt?.ToString("HH:mm"),
+            daily.OverrideReason ?? AttendanceStatusNote(daily),
+            null, calendarDay, daily.LateMinutes, daily.MissingMinutes,
+            daily.RequiresReview || daily.FinalStatus == "REVIEW_REQUIRED");
+
+    private static AttendanceStatus ParseAttendanceStatus(AttendanceDailyDto daily)
+    {
+        if (daily.MissingMinutes > 0 || daily.FinalStatus is "ABSENT" or "INCOMPLETE") return AttendanceStatus.Absent;
+        if (daily.LateMinutes > 0 || daily.FinalStatus == "LATE") return AttendanceStatus.Late;
+        if (daily.FinalStatus == "IN_PROGRESS") return AttendanceStatus.InProgress;
+        return AttendanceStatus.Present;
+    }
+
+    private static string AttendanceStatusNote(AttendanceDailyDto daily)
+    {
+        var parts = new List<string>();
+        if (daily.LateMinutes > 0) parts.Add($"มาสาย {daily.LateMinutes} นาที");
+        if (daily.MissingMinutes > 0) parts.Add($"ขาดงาน {daily.MissingMinutes} นาที");
+        if (parts.Count == 0) parts.Add(daily.FinalStatus == "IN_PROGRESS" ? "อยู่ในช่วงเวลาทำงาน" : "มาปกติ");
+        if (daily.RequiresReview || daily.FinalStatus == "REVIEW_REQUIRED") parts.Add("รอตรวจสอบ");
+        return string.Join(" · ", parts);
+    }
+
     private List<LeaveDocumentDto> GetLeaveDocuments(DateOnly date) => LeaveDocuments
         .Where(document => document.LeaveDate == date &&
-            !string.Equals(document.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            IsVisibleLeaveDocument(document))
         .OrderBy(document => document.StartTime)
         .ThenBy(document => LeaveDocumentStatusPriority(document.Status))
         .ThenByDescending(document => document.CreatedAt)
         .ToList();
 
-    private int CountStatus(AttendanceStatus status) =>
-        CalendarDays.Count(day =>
-            day.IsCurrentMonth &&
-            day.Record?.Status == status &&
-            (status != AttendanceStatus.Leave ||
-             IsActiveLeaveDocument(day.Record.LeaveDocument)));
+    private List<AttendanceCalendarEventDto> GetCalendarEvents(DateOnly date) => CalendarEvents
+        .Where(item => item.EventDate == date)
+        .OrderBy(item => item.StartTime)
+        .ThenBy(item => item.Id)
+        .ToList();
+
+    private WorkCalendarDayDto? GetCompanyCalendarEvent(DateOnly date) =>
+        WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
+
+    private static string GetCompanyEventCssClass(string dayType) =>
+        dayType == "PUBLIC_HOLIDAY" ? "company-event-holiday" : "company-event-working-saturday";
+
+    private void OpenCreateEvent()
+    {
+        EditingEventId = null;
+        EventDate = SelectedDay?.Date ??
+            (Today.Year == DisplayedMonth.Year && Today.Month == DisplayedMonth.Month
+                ? Today
+                : DisplayedMonth);
+        EventType = GetDefaultEventType();
+        EventStartTime = new TimeOnly(9, 0);
+        EventEndTime = new TimeOnly(18, 0);
+        EventTitle = null;
+        EventDetails = null;
+        EventErrorMessage = null;
+        EventStatus = "APPROVED";
+        EventCreatedByName = null;
+        EventCreatedAt = null;
+        IsConfirmingEventDelete = false;
+        IsEventModalOpen = true;
+    }
+
+    private void OpenCreateEventForDay(CalendarDay day)
+    {
+        SelectedDay = day;
+        OpenCreateEvent();
+    }
+
+    private DateOnly? LastClickedCalendarDate;
+    private DateTimeOffset LastCalendarClickAt;
+
+    private void HandleDayClick(CalendarDay day)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (LastClickedCalendarDate == day.Date &&
+            (now - LastCalendarClickAt).TotalMilliseconds <= 700)
+        {
+            LastClickedCalendarDate = null;
+            OpenCreateEventForDay(day);
+            return;
+        }
+
+        LastClickedCalendarDate = day.Date;
+        LastCalendarClickAt = now;
+        SelectDay(day);
+    }
+
+    private void OpenEditEvent(AttendanceCalendarEventDto calendarEvent)
+    {
+        EditingEventId = calendarEvent.Id;
+        EventDate = calendarEvent.EventDate;
+        EventType = calendarEvent.EventType;
+        EventStartTime = calendarEvent.StartTime;
+        EventEndTime = calendarEvent.EndTime;
+        EventTitle = calendarEvent.Title;
+        EventDetails = calendarEvent.Details;
+        EventStatus = calendarEvent.Status;
+        EventCreatedByName = calendarEvent.CreatedByName;
+        EventCreatedAt = calendarEvent.CreatedAt;
+        EventErrorMessage = null;
+        IsConfirmingEventDelete = false;
+        IsEventModalOpen = true;
+    }
+
+    private void CloseEventModal()
+    {
+        if (IsSavingEvent) return;
+        IsEventModalOpen = false;
+        IsConfirmingEventDelete = false;
+        EventErrorMessage = null;
+    }
+
+    private async Task SaveEventAsync()
+    {
+        EventErrorMessage = ValidateEventForm();
+        if (EventErrorMessage is not null) return;
+
+        IsSavingEvent = true;
+        try
+        {
+            var request = new SaveAttendanceCalendarEventRequest(
+                EventDate!.Value, EventType, EventStartTime, EventEndTime,
+                string.IsNullOrWhiteSpace(EventTitle) ? null : EventTitle.Trim(),
+                string.IsNullOrWhiteSpace(EventDetails) ? null : EventDetails.Trim());
+            var response = EditingEventId.HasValue
+                ? await Http.PutAsJsonAsync($"api/attendance-calendar-events/{EditingEventId.Value}", request)
+                : await Http.PostAsJsonAsync("api/attendance-calendar-events", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                EventErrorMessage = await ReadEventError(response, "บันทึก Event ไม่สำเร็จ");
+                return;
+            }
+
+            IsEventModalOpen = false;
+            await LoadAttendanceForMonth();
+            BuildCalendar();
+            if (SelectedDay is not null)
+                SelectedDay = CalendarDays.FirstOrDefault(day => day.Date == SelectedDay.Date);
+        }
+        catch (Exception)
+        {
+            EventErrorMessage = "บันทึก Event ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ API";
+        }
+        finally
+        {
+            IsSavingEvent = false;
+        }
+    }
+
+    private void RequestDeleteEvent()
+    {
+        EventErrorMessage = null;
+        IsConfirmingEventDelete = true;
+    }
+
+    private void CancelDeleteEvent()
+    {
+        if (!IsSavingEvent) IsConfirmingEventDelete = false;
+    }
+
+    private async Task DeleteEventAsync()
+    {
+        if (!EditingEventId.HasValue) return;
+        IsSavingEvent = true;
+        try
+        {
+            var response = await Http.DeleteAsync($"api/attendance-calendar-events/{EditingEventId.Value}");
+            if (!response.IsSuccessStatusCode)
+            {
+                EventErrorMessage = await ReadEventError(response, "ลบ Event ไม่สำเร็จ");
+                return;
+            }
+            IsEventModalOpen = false;
+            await LoadAttendanceForMonth();
+            BuildCalendar();
+            if (SelectedDay is not null)
+                SelectedDay = CalendarDays.FirstOrDefault(day => day.Date == SelectedDay.Date);
+        }
+        catch (Exception)
+        {
+            EventErrorMessage = "ลบ Event ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ API";
+        }
+        finally
+        {
+            IsSavingEvent = false;
+            IsConfirmingEventDelete = false;
+        }
+    }
+
+    private string? ValidateEventForm()
+    {
+        if (!EventDate.HasValue) return "กรุณาระบุวันที่";
+        if (EventEndTime <= EventStartTime) return "เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น";
+        if (EventType == "OTHER" && string.IsNullOrWhiteSpace(EventTitle)) return "กรุณาระบุหัวข้อสำหรับประเภทอื่น ๆ";
+        return null;
+    }
+
+    private static async Task<string> ReadEventError(HttpResponseMessage response, string fallback)
+    {
+        var content = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(content) ? fallback : content.Replace("\\u0022", "\"");
+    }
+
+    private string GetEventTypeText(string eventType) =>
+        AttendanceEventTypes.FirstOrDefault(item =>
+            string.Equals(item.Code, eventType, StringComparison.OrdinalIgnoreCase))?.NameTh ?? eventType;
+
+    private string GetDefaultEventType() =>
+        AttendanceEventTypes.FirstOrDefault(item => item.IsActive && item.Code == "WORK_FROM_HOME")?.Code ??
+        AttendanceEventTypes.Where(item => item.IsActive).OrderBy(item => item.DisplayOrder).Select(item => item.Code).FirstOrDefault() ??
+        string.Empty;
+
+    private static string GetEventIcon(string eventType) => eventType switch
+    {
+        "WORK_FROM_HOME" => "⌂",
+        "CUSTOMER_VISIT" => "◎",
+        _ => "◆"
+    };
+
+    private string GetEventDisplayTitle(AttendanceCalendarEventDto calendarEvent) =>
+        string.IsNullOrWhiteSpace(calendarEvent.Title)
+            ? GetEventTypeText(calendarEvent.EventType)
+            : calendarEvent.Title;
+
+    private static string GetEventStatusText(string status) => status switch
+    {
+        "PENDING_REVIEW" => "รอตรวจสอบ",
+        "REJECTED" => "ไม่อนุมัติ",
+        _ => "อนุมัติแล้ว"
+    };
+
+    private static string GetEventStatusCssClass(string status) => status switch
+    {
+        "PENDING_REVIEW" => "event-status-pending",
+        "REJECTED" => "event-status-rejected",
+        _ => "event-status-approved"
+    };
+
+    private static string GetEventTypeCssClass(string eventType) => eventType switch
+    {
+        "WORK_FROM_HOME" => "event-work-from-home",
+        "CUSTOMER_VISIT" => "event-customer-visit",
+        _ => "event-other"
+    };
+
+    private int CountStatus(AttendanceStatus status) => CalendarDays.Count(day =>
+        day.IsCurrentMonth && day.Record is not null && status switch
+        {
+            AttendanceStatus.Late => day.Record.LateMinutes > 0 || day.Record.Status == AttendanceStatus.Late,
+            AttendanceStatus.Absent => day.Record.MissingMinutes > 0 || day.Record.Status == AttendanceStatus.Absent,
+            AttendanceStatus.Present => day.Record.Status == AttendanceStatus.Present,
+            _ => day.Record.Status == status
+        });
 
     private void SelectDay(CalendarDay day)
     {
@@ -536,7 +950,12 @@
                 : "วันเสาร์ทำงาน";
         }
 
-        return GetStatusText(record.Status);
+        var parts = new List<string>();
+        if (record.LateMinutes > 0) parts.Add($"มาสาย {record.LateMinutes} นาที");
+        if (record.MissingMinutes > 0) parts.Add($"ขาดงาน {record.MissingMinutes} นาที");
+        if (parts.Count == 0) parts.Add(GetStatusText(record.Status));
+        if (record.RequiresReview) parts.Add("รอตรวจสอบ");
+        return string.Join(", ", parts);
     }
 
     private static string GetStatusText(AttendanceStatus status) => status switch
@@ -545,6 +964,10 @@
         AttendanceStatus.Late => "มาสาย",
         AttendanceStatus.Leave => "ลา",
         AttendanceStatus.Absent => "ขาดงาน",
+        AttendanceStatus.Incomplete => "ทำงานไม่ครบเวลา",
+        AttendanceStatus.ReviewRequired => "รอตรวจสอบ",
+        AttendanceStatus.InProgress => "อยู่ระหว่างวันทำงาน",
+        AttendanceStatus.NoData => "ข้อมูลไม่เพียงพอ",
         AttendanceStatus.Weekend => "วันหยุด",
         AttendanceStatus.PublicHoliday => "วันหยุดนักขัตฤกษ์",
         AttendanceStatus.ScheduledWork => "วันทำงาน",
@@ -589,6 +1012,10 @@
 
     private static bool IsActiveLeaveDocument(LeaveDocumentDto? document) =>
         document is not null && document.Status is not ("REJECTED" or "CANCELLED");
+
+    private static bool IsVisibleLeaveDocument(LeaveDocumentDto document) =>
+        !string.Equals(document.Status, "REJECTED", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(document.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase);
 
     private static string GetLeaveDocumentStatusText(string status) => status switch
     {
@@ -642,7 +1069,10 @@
         string? ClockOut,
         string Note,
         LeaveDocumentDto? LeaveDocument,
-        WorkCalendarDayDto? WorkCalendarDay);
+        WorkCalendarDayDto? WorkCalendarDay,
+        int LateMinutes = 0,
+        int MissingMinutes = 0,
+        bool RequiresReview = false);
 
     private enum AttendanceStatus
     {
@@ -652,6 +1082,10 @@
         Absent,
         Weekend,
         PublicHoliday,
-        ScheduledWork
+        ScheduledWork,
+        Incomplete,
+        ReviewRequired,
+        InProgress,
+        NoData
     }
 }

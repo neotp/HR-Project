@@ -56,17 +56,19 @@ CREATE TABLE IF NOT EXISTS public.leave_documents
         ))
 );
 
--- File metadata only. Store the binary file in object/file storage and keep
--- its storage key here.
+-- Attachment metadata and binary content. Legacy path columns remain nullable
+-- so databases migrated from file-system storage can retain old records.
 CREATE TABLE IF NOT EXISTS public.leave_document_attachments
 (
     id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     leave_document_id   BIGINT        NOT NULL,
     original_file_name  VARCHAR(255)  NOT NULL,
-    stored_file_name    VARCHAR(255)  NOT NULL,
-    storage_path        TEXT          NOT NULL,
+    stored_file_name    VARCHAR(255),
+    storage_path        TEXT,
     content_type        VARCHAR(150),
     file_size_bytes     BIGINT        NOT NULL,
+    file_content        BYTEA,
+    leave_edit_request_id BIGINT,
     uploaded_by         VARCHAR(50)   NOT NULL,
     uploaded_at         TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -74,7 +76,9 @@ CREATE TABLE IF NOT EXISTS public.leave_document_attachments
         FOREIGN KEY (leave_document_id)
         REFERENCES public.leave_documents(id) ON DELETE CASCADE,
     CONSTRAINT ck_leave_attachments_file_size
-        CHECK (file_size_bytes >= 0)
+        CHECK (file_size_bytes > 0 AND file_size_bytes <= 10485760),
+    CONSTRAINT ck_leave_attachments_content_size
+        CHECK (file_content IS NULL OR OCTET_LENGTH(file_content) = file_size_bytes)
 );
 
 -- Requested values are kept separately. The main leave document must not be
@@ -88,6 +92,7 @@ CREATE TABLE IF NOT EXISTS public.leave_edit_requests
     requested_leave_date    DATE         NOT NULL,
     requested_start_time    TIME         NOT NULL,
     requested_leave_hours   NUMERIC(5,2) NOT NULL,
+    requested_has_medical_certificate BOOLEAN,
     request_reason          TEXT         NOT NULL,
     status                  VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
     requested_by            VARCHAR(50)  NOT NULL,
@@ -112,6 +117,13 @@ CREATE TABLE IF NOT EXISTS public.leave_edit_requests
     CONSTRAINT ck_leave_edit_requests_status
         CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'))
 );
+
+ALTER TABLE public.leave_document_attachments
+    DROP CONSTRAINT IF EXISTS fk_leave_attachments_edit_request;
+ALTER TABLE public.leave_document_attachments
+    ADD CONSTRAINT fk_leave_attachments_edit_request
+        FOREIGN KEY (leave_edit_request_id)
+        REFERENCES public.leave_edit_requests(id) ON DELETE CASCADE;
 
 -- Only one pending edit request may exist for a document at a time.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_leave_edit_requests_pending
@@ -144,7 +156,11 @@ CREATE TABLE IF NOT EXISTS public.leave_document_history
             'CANCEL',
             'REQUEST_EDIT',
             'CANCEL_EDIT_REQUEST',
-            'APPROVE_EDIT_REQUEST'
+            'APPROVE_EDIT_REQUEST',
+            'REQUEST_CANCEL',
+            'CANCEL_CANCEL_REQUEST',
+            'APPROVE_CANCEL_REQUEST',
+            'REJECT_CANCEL_REQUEST'
         ))
 );
 

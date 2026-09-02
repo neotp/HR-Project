@@ -1,0 +1,79 @@
+.formatted-date-picker {
+    position: relative;
+    width: 100%;
+}
+
+.formatted-date-text {
+    width: 100%;
+    min-height: 40px;
+    padding: .55rem 2.75rem .55rem .7rem;
+    color: #1e293b;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: .45rem;
+    font: inherit;
+}
+
+.formatted-date-text:focus {
+    outline: 0;
+    border-color: #ff6b35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, .12);
+}
+
+.calendar-trigger {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    z-index: 2;
+    width: 2.65rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: #334155;
+    background: transparent;
+    border: 0;
+    border-radius: 0 .4rem .4rem 0;
+    cursor: pointer;
+}
+
+.calendar-trigger:hover:not(:disabled) {
+    color: #e85a2a;
+    background: #fff7ed;
+}
+
+.calendar-trigger:focus-visible {
+    outline: 2px solid #ff6b35;
+    outline-offset: -2px;
+}
+
+.calendar-trigger svg {
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.native-date-trigger {
+    position: absolute;
+    right: 1.3rem;
+    bottom: 1px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.disabled .formatted-date-text {
+    color: #64748b;
+    background: #e2e8f0;
+    cursor: not-allowed;
+}
+
+.disabled .calendar-trigger {
+    color: #94a3b8;
+    cursor: not-allowed;
+}

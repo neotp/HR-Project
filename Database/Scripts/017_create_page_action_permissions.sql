@@ -68,7 +68,6 @@ WITH action_seed(page_key, action_key, action_name, description, display_order) 
     ('EMPLOYEES', 'VIEW_PERSONAL', 'ดูข้อมูลส่วนบุคคล', 'ดูข้อมูลส่วนบุคคลของพนักงาน', 10),
     ('EMPLOYEES', 'VIEW_COMPANY', 'ดูข้อมูลภายในบริษัท', 'ดูข้อมูลภายในบริษัทของพนักงาน', 20),
     ('EMPLOYEES', 'CREATE', 'เพิ่มพนักงาน', 'สร้างข้อมูลพนักงานใหม่', 30),
-    ('EMPLOYEES', 'EDIT', 'แก้ไขข้อมูลโดยตรง', 'แก้ไขข้อมูลพนักงานโดยไม่ผ่านคำขอ', 40),
     ('EMPLOYEE_EDIT_REQUESTS', 'VIEW_ALL', 'ดูคำขอแก้ไขทั้งหมด', 'ดูคำขอแก้ไขข้อมูลพนักงานทุกคน', 10),
     ('EMPLOYEE_EDIT_REQUESTS', 'APPROVE', 'อนุมัติคำขอแก้ไข', 'อนุมัติการแก้ไขข้อมูลพนักงาน', 20),
     ('EMPLOYEE_EDIT_REQUESTS', 'REJECT', 'ไม่อนุมัติคำขอแก้ไข', 'ไม่อนุมัติการแก้ไขข้อมูลพนักงาน', 30),
@@ -90,5 +89,12 @@ ON CONFLICT (application_page_id, action_key) DO UPDATE SET
     description = EXCLUDED.description,
     display_order = EXCLUDED.display_order,
     is_active = TRUE;
+
+UPDATE public.application_page_actions action
+SET is_active = FALSE
+FROM public.application_pages page
+WHERE action.application_page_id = page.id
+  AND page.page_key = 'EMPLOYEES'
+  AND action.action_key = 'EDIT';
 
 COMMIT;

@@ -88,12 +88,16 @@ CREATE TABLE IF NOT EXISTS public.employee_company_info
     work_experience_type            VARCHAR(100),
     has_company_parking             BOOLEAN,
     can_travel_upcountry            BOOLEAN,
+    exclude_attendance_calculation  BOOLEAN NOT NULL DEFAULT FALSE,
     employee_status                 VARCHAR(50),
     updated_at                      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE public.employee_company_info
     ADD COLUMN IF NOT EXISTS can_travel_upcountry BOOLEAN;
+
+ALTER TABLE public.employee_company_info
+    ADD COLUMN IF NOT EXISTS exclude_attendance_calculation BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Tab: ประวัติการทำงาน (1:N)
 CREATE TABLE IF NOT EXISTS public.employee_work_history

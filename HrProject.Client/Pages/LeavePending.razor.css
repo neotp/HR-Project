@@ -2,6 +2,7 @@
 .result-card {
     margin-bottom: 1.5rem;
 }
+.criteria-card { overflow: visible; }
 
 .pending-summary {
     padding: .45rem .8rem;
@@ -20,6 +21,7 @@
 }
 
 .criteria-grid label,
+.criteria-grid .criteria-field,
 .form-grid label {
     display: flex;
     flex-direction: column;
@@ -159,6 +161,56 @@
     overflow-y: auto;
 }
 
+.email-action-notice {
+    margin-bottom: 1rem;
+    padding: .75rem 1rem;
+    color: #166534;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: .5rem;
+    font-size: .85rem;
+}
+
+.email-action-notice.reject {
+    color: #991b1b;
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.processed-document-notice {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    margin-bottom: 1rem;
+    padding: .8rem 1rem;
+    border: 1px solid;
+    border-radius: .5rem;
+}
+
+.processed-document-notice.approved {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #86efac;
+}
+
+.processed-document-notice.rejected {
+    color: #991b1b;
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.processed-document-notice.cancelled {
+    color: #475569;
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.processed-document-notice.changed {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #fde68a;
+}
+
 .form-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -221,6 +273,40 @@
     margin-right: auto;
     color: #b91c1c;
     font-size: .82rem;
+}
+
+.review-remark {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    margin-top: 1rem;
+    color: #334155;
+    font-size: .85rem;
+    font-weight: 600;
+}
+
+.review-remark > span {
+    color: #64748b;
+    font-size: .75rem;
+    font-weight: 400;
+}
+
+.review-remark textarea {
+    width: 100%;
+    min-height: 4.5rem;
+    padding: .5rem .7rem;
+    color: #1e293b;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: .45rem;
+    font: inherit;
+    font-weight: 400;
+}
+
+.review-remark textarea:focus {
+    outline: 0;
+    border-color: #ff6b35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, .12);
 }
 
 @media (max-width: 900px) {

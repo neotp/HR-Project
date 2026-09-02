@@ -84,6 +84,75 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
         return Ok(saved);
     }
 
+    [HttpPut("{id:long}")]
+    public async Task<ActionResult<WorkCalendarDayDto>> Update(
+        long id,
+        SaveWorkCalendarDayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dayType = request.DayType.Trim().ToUpperInvariant();
+        var validationError = Validate(
+            request.CalendarDate,
+            dayType,
+            request.Name,
+            request.ActionBy,
+            request.ActionByName);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var duplicateCommand = new NpgsqlCommand("""
+            SELECT EXISTS
+            (
+                SELECT 1 FROM public.work_calendar_days
+                WHERE calendar_date = @calendar_date AND id <> @id
+            )
+            """, connection, transaction))
+        {
+            duplicateCommand.Parameters.AddWithValue("calendar_date", request.CalendarDate);
+            duplicateCommand.Parameters.AddWithValue("id", id);
+            if ((bool)(await duplicateCommand.ExecuteScalarAsync(cancellationToken))!)
+                return Conflict($"วันที่ {request.CalendarDate:dd/MM/yyyy} มีรายการปฏิทินอยู่แล้ว");
+        }
+
+        const string sql = """
+            UPDATE public.work_calendar_days
+            SET calendar_date = @calendar_date,
+                day_type = @day_type,
+                name = @name,
+                note = @note,
+                updated_by = @action_by,
+                updated_by_name = @action_by_name,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = @id
+            RETURNING id
+            """;
+        try
+        {
+            await using var command = new NpgsqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("calendar_date", request.CalendarDate);
+            command.Parameters.AddWithValue("day_type", dayType);
+            command.Parameters.AddWithValue("name", request.Name.Trim());
+            command.Parameters.Add(new NpgsqlParameter<string?>(
+                "note", string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim()));
+            command.Parameters.AddWithValue("action_by", request.ActionBy.Trim());
+            command.Parameters.AddWithValue("action_by_name", request.ActionByName.Trim());
+            command.Parameters.AddWithValue("id", id);
+            if (await command.ExecuteScalarAsync(cancellationToken) is null)
+                return NotFound();
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Conflict($"วันที่ {request.CalendarDate:dd/MM/yyyy} มีรายการปฏิทินอยู่แล้ว");
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        var saved = await FindById(id, cancellationToken);
+        return Ok(saved);
+    }
+
     [HttpPost("batch")]
     public async Task<ActionResult> SaveBatch(
         SaveWorkCalendarDaysBatchRequest request,

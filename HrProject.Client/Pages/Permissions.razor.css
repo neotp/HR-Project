@@ -8,13 +8,15 @@
 .save-permission-button { padding: .65rem 1rem; color: #fff; background: #ff6b35; border: 0; }
 .save-permission-button:hover:not(:disabled) { color: #fff; background: #e85a2a; }
 .save-permission-button:disabled { opacity: .55; cursor: not-allowed; }
-.permission-criteria-body { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.permission-criteria { position: relative; z-index: 30; overflow: visible; }
+.permission-criteria-body { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; overflow: visible; }
 .permission-criteria-body label { display: grid; gap: .4rem; color: #334155; font-size: .85rem; font-weight: 600; }
 .permission-criteria-body select, .permission-criteria-body input { min-height: 2.55rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .role-toolbar { display: flex; align-items: center; gap: .75rem; padding: 0 1rem 1rem; color: #64748b; font-size: .82rem; }
 .role-toolbar strong { margin-left: auto; color: #334155; }
 .role-link-button { color: #2563eb; background: transparent; border: 0; font: inherit; font-weight: 700; cursor: pointer; }
-.role-create-panel, .role-members-panel { display: flex; align-items: end; gap: .75rem; margin: 0 1rem 1rem; padding: .85rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .55rem; }
+.role-create-panel, .role-members-panel { position: relative; display: flex; align-items: end; gap: .75rem; margin: 0 1rem 1rem; padding: .85rem; overflow: visible; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .55rem; }
+.role-members-panel { z-index: 31; }
 .role-create-panel label, .role-members-panel label { display: grid; flex: 1; gap: .35rem; color: #334155; font-size: .82rem; font-weight: 600; }
 .role-create-panel input, .role-members-panel select { min-height: 2.4rem; padding: .45rem .65rem; border: 1px solid #cbd5e1; border-radius: .4rem; font: inherit; }
 .role-create-panel > button, .role-members-panel > button { min-height: 2.4rem; padding: .45rem .8rem; color: #fff; background: #2563eb; border: 0; border-radius: .4rem; font: inherit; font-weight: 700; }
@@ -48,6 +50,13 @@
 .access-switch input:checked + .switch-track span { transform: translateX(1.1rem); }
 .access-switch input:focus-visible + .switch-track { outline: 3px solid rgba(37,99,235,.25); }
 .access-switch strong { min-width: 4.5rem; color: #475569; font-size: .78rem; }
+.availability-criteria { grid-template-columns: minmax(0, 1fr); }
+.availability-note { color: #9a3412; background: #fff7ed; border-color: #fed7aa; }
+.availability-table { min-width: 960px; }
+.availability-closed-row { background: #fff7f7; }
+.availability-closed-row:hover { background: #fff1f2 !important; }
+.protected-switch { cursor: help; opacity: .75; }
+.access-switch input:disabled + .switch-track { cursor: not-allowed; }
 .permission-state { padding: 2.5rem !important; color: #64748b; text-align: center; }
 .permission-state.error, .save-message.error { color: #b91c1c; }
 .save-message { margin-top: 1rem; padding: .7rem .85rem; border-radius: .45rem; }

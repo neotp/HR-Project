@@ -1,5 +1,6 @@
 @page "/leave/pending"
 @inject HttpClient Http
+@using Microsoft.AspNetCore.Components
 
 <PageTitle>เอกสารรออนุมัติ | HR Project</PageTitle>
 
@@ -22,23 +23,16 @@
                     คำค้นหา
                     <input @bind="searchText" placeholder="เลขที่เอกสาร ชื่อพนักงาน หรือแผนก" />
                 </label>
-                <label>
-                    ประเภทการลา
-                    <select @bind="leaveType">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var type in leaveTypes)
-                        {
-                            <option value="@type.NameTh">@type.NameTh</option>
-                        }
-                    </select>
-                </label>
+                <div class="criteria-field"><span class="criteria-field-label">ประเภทการลา</span>
+                    <CriteriaMultiSelect Options="@LeaveTypeFilterOptions" Values="@selectedLeaveTypes" ValuesChanged="SetLeaveTypeFilters" />
+                </div>
                 <label>
                     วันที่ลาเริ่มต้น
-                    <input type="date" @bind="startDate" />
+                    <DateTimePicker @bind-Value="startDate" AriaLabel="วันที่ลาเริ่มต้น" />
                 </label>
                 <label>
                     วันที่ลาสิ้นสุด
-                    <input type="date" @bind="endDate" />
+                    <DateTimePicker @bind-Value="endDate" AriaLabel="วันที่ลาสิ้นสุด" />
                 </label>
             </div>
             <div class="criteria-actions">
@@ -71,15 +65,15 @@
                     }
                     <button class="btn btn-approve" type="button"
                             disabled="@(SelectedCanApproveCount == 0 || isBulkSaving)"
-                            @onclick="BulkApprove">
+                            @onclick="ConfirmBulkApprove">
                         @(isBulkSaving ? "กำลังอนุมัติ..." : $"อนุมัติที่เลือก ({SelectedCanApproveCount})")
                     </button>
                     <button class="btn btn-reject" type="button"
-                            disabled="@(SelectedCanRejectCount == 0 || isBulkSaving || string.IsNullOrWhiteSpace(bulkRejectRemark))"
-                            @onclick="BulkReject">
+                            disabled="@(SelectedCanRejectCount == 0 || isBulkSaving)"
+                            @onclick="ConfirmBulkReject">
                         @(isBulkSaving ? "กำลังดำเนินการ..." : $"ไม่อนุมัติที่เลือก ({SelectedCanRejectCount})")
                     </button>
-                    <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลที่ไม่อนุมัติรายการที่เลือก" />
+                    <input class="bulk-reason" @bind="bulkRejectRemark" placeholder="เหตุผลหรือหมายเหตุรายการที่เลือก (ไม่บังคับ)" />
                 </div>
                 <div class="table-responsive">
                     <table class="table employee-table pending-table">
@@ -149,6 +143,19 @@
                 <button class="modal-close" type="button" aria-label="ปิด" @onclick="CloseDocument">×</button>
             </header>
             <div class="document-modal-body">
+                @if (!string.IsNullOrWhiteSpace(deepLinkAction))
+                {
+                    <div class="email-action-notice @deepLinkAction">
+                        คุณเปิดเอกสารนี้จากปุ่ม <strong>@(deepLinkAction == "approve" ? "อนุมัติ" : "ไม่อนุมัติ")</strong> ในอีเมล กรุณาตรวจสอบรายละเอียดและกดยืนยันด้านล่าง
+                    </div>
+                }
+                @if (selectedDocument.Status != "PENDING_APPROVAL")
+                {
+                    <div class="processed-document-notice @ProcessedStatusClass(selectedDocument.Status)" role="status">
+                        <strong>@ProcessedStatusTitle(selectedDocument.Status)</strong>
+                        <span>@ProcessedStatusMessage(selectedDocument.Status)</span>
+                    </div>
+                }
                 <div class="form-grid">
                     <label>ผู้ขอลา<input value="@selectedDocument.CreatorName" disabled /></label>
                     <label>แผนก<input value="@selectedDocument.CreatorDepartment" disabled /></label>
@@ -161,6 +168,14 @@
                     <label>จำนวนชั่วโมง<input value="@selectedDocument.LeaveHours.ToString("0.##")" disabled /></label>
                     <label class="full-width">เหตุผลการลา<textarea rows="3" disabled>@selectedDocument.LeaveReason</textarea></label>
                 </div>
+                <LeaveAttachmentViewer DocumentId="@selectedDocument.Id" />
+                @if (selectedDocument.Status == "PENDING_APPROVAL")
+                {
+                    <label class="review-remark">
+                        เหตุผลหรือหมายเหตุการพิจารณา <span>(ไม่บังคับ)</span>
+                        <textarea rows="3" @bind="reviewRemark" placeholder="ระบุเหตุผลหรือหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                    </label>
+                }
             </div>
             <footer class="document-modal-footer">
                 @if (!string.IsNullOrWhiteSpace(actionError))
@@ -170,13 +185,13 @@
                 <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
                 @if (CanReject(selectedDocument))
                 {
-                    <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="RejectDocument">
+                    <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="ConfirmRejectDocument">
                         @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
                     </button>
                 }
                 @if (CanApprove(selectedDocument))
                 {
-                    <button class="btn btn-approve" type="button" disabled="@isSaving" @onclick="ApproveDocument">
+                    <button class="btn btn-approve" type="button" disabled="@isSaving" @onclick="ConfirmApproveDocument">
                         @(isSaving ? "กำลังอนุมัติ..." : "อนุมัติ")
                     </button>
                 }
@@ -185,9 +200,26 @@
     </div>
 }
 
+<ConfirmActionDialog IsOpen="@confirmOpen"
+                     IsBusy="@confirmBusy"
+                     Title="@confirmTitle"
+                     Message="@confirmMessage"
+                     ConfirmText="@confirmText"
+                     BusyText="@confirmBusyText"
+                     Tone="@confirmTone"
+                     OnConfirm="ExecuteConfirmedAction"
+                     OnCancel="CloseConfirmation" />
+
 @code {
+    [SupplyParameterFromQuery(Name = "documentId")]
+    public long? DeepLinkDocumentId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "action")]
+    public string? DeepLinkRequestedAction { get; set; }
+
     private string searchText = string.Empty;
-    private string leaveType = string.Empty;
+    private readonly HashSet<string> selectedLeaveTypes = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CriteriaFilterOption> LeaveTypeFilterOptions => leaveTypes.Select(x => new CriteriaFilterOption(x.NameTh, x.NameTh)).ToList();
     private DateTime? startDate;
     private DateTime? endDate;
     private bool isLoading = true;
@@ -195,9 +227,18 @@
     private string? actionError;
     private bool isSaving;
     private bool isBulkSaving;
+    private bool confirmOpen;
+    private bool confirmBusy;
+    private string confirmTitle = string.Empty;
+    private string confirmMessage = string.Empty;
+    private string confirmText = "ยืนยัน";
+    private string confirmBusyText = "กำลังดำเนินการ...";
+    private string confirmTone = "primary";
+    private Func<Task>? confirmedAction;
     private bool bulkSucceeded;
     private string? bulkMessage;
     private string bulkRejectRemark = string.Empty;
+    private string reviewRemark = string.Empty;
     private readonly HashSet<long> selectedIds = [];
     private List<LeaveTypeDto> leaveTypes = [];
     private CurrentMicrosoftUserDto? currentUser;
@@ -210,6 +251,7 @@
         .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
         .Take(pageSize);
     private LeaveDocumentDto? selectedDocument;
+    private string? deepLinkAction;
     private List<LeaveDocumentDto> PageSelectableDocuments => PagedDocuments.Where(item => CanApprove(item) || CanReject(item)).ToList();
     private int SelectedCanApproveCount => documents.Count(item => selectedIds.Contains(item.Id) && CanApprove(item));
     private int SelectedCanRejectCount => documents.Count(item => selectedIds.Contains(item.Id) && CanReject(item));
@@ -235,6 +277,38 @@
                 .Where(document => document.Status == "PENDING_APPROVAL")
                 .ToList();
             Search();
+            if (DeepLinkDocumentId.HasValue)
+            {
+                var targetDocument = documents.FirstOrDefault(document => document.Id == DeepLinkDocumentId.Value);
+                if (targetDocument is null)
+                {
+                    // The email can be opened after another reviewer has already acted.
+                    // Keep the deep link useful by opening the document read-only instead
+                    // of limiting lookup to the current pending-only list.
+                    try
+                    {
+                        targetDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>(
+                            $"api/leave-documents/{DeepLinkDocumentId.Value}");
+                    }
+                    catch (HttpRequestException)
+                    {
+                        targetDocument = null;
+                    }
+                }
+
+                if (targetDocument is not null)
+                {
+                    deepLinkAction = targetDocument.Status == "PENDING_APPROVAL" &&
+                                     DeepLinkRequestedAction?.ToLowerInvariant() is "approve" or "reject"
+                        ? DeepLinkRequestedAction.ToLowerInvariant()
+                        : null;
+                    await OpenDocument(targetDocument);
+                }
+                else
+                {
+                    loadError = "ไม่พบเอกสารที่เปิดจากอีเมล เอกสารอาจถูกพิจารณาแล้วหรือคุณไม่มีสิทธิ์เข้าถึง";
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -255,7 +329,7 @@
              document.DocumentNo.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.CreatorName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
              document.CreatorDepartment.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(leaveType) || document.LeaveTypeName == leaveType) &&
+            (selectedLeaveTypes.Count == 0 || selectedLeaveTypes.Contains(document.LeaveTypeName)) &&
             (!startDate.HasValue || document.LeaveDate >= DateOnly.FromDateTime(startDate.Value)) &&
             (!endDate.HasValue || document.LeaveDate <= DateOnly.FromDateTime(endDate.Value)))
             .ToList();
@@ -264,26 +338,93 @@
 
     private void Reset()
     {
-        searchText = leaveType = string.Empty;
+        searchText = string.Empty;
+        selectedLeaveTypes.Clear();
         startDate = endDate = null;
         Search();
+    }
+
+    private Task SetLeaveTypeFilters(IReadOnlyCollection<string> values)
+    {
+        selectedLeaveTypes.Clear(); selectedLeaveTypes.UnionWith(values); Search();
+        return Task.CompletedTask;
     }
 
     private async Task OpenDocument(LeaveDocumentDto document)
     {
         actionError = null;
+        reviewRemark = string.Empty;
         var detail = await Http.GetFromJsonAsync<LeaveDocumentDto>(
             $"api/leave-documents/{document.Id}") ?? document;
         selectedDocument = detail with { CanCurrentUserReview = document.CanCurrentUserReview };
     }
 
-    private void CloseDocument() => selectedDocument = null;
+    private void CloseDocument()
+    {
+        selectedDocument = null;
+        deepLinkAction = null;
+        reviewRemark = string.Empty;
+    }
 
     private async Task ApproveDocument()
         => await ReviewDocument("approve", "อนุมัติ");
 
     private async Task RejectDocument()
         => await ReviewDocument("reject", "ไม่อนุมัติ");
+
+    private void ConfirmApproveDocument() => OpenConfirmation(
+        "ยืนยันการอนุมัติเอกสาร",
+        $"ต้องการอนุมัติเอกสาร {selectedDocument?.DocumentNo} ใช่หรือไม่",
+        "อนุมัติ", "กำลังอนุมัติ...", "success", ApproveDocument);
+
+    private void ConfirmRejectDocument() => OpenConfirmation(
+        "ยืนยันการไม่อนุมัติเอกสาร",
+        $"ต้องการไม่อนุมัติเอกสาร {selectedDocument?.DocumentNo} ใช่หรือไม่",
+        "ไม่อนุมัติ", "กำลังดำเนินการ...", "danger", RejectDocument);
+
+    private void ConfirmBulkApprove() => OpenConfirmation(
+        "ยืนยันการอนุมัติหลายรายการ",
+        $"ต้องการอนุมัติเอกสารที่เลือก {SelectedCanApproveCount} รายการใช่หรือไม่",
+        "อนุมัติทั้งหมด", "กำลังอนุมัติ...", "success", BulkApprove);
+
+    private void ConfirmBulkReject() => OpenConfirmation(
+        "ยืนยันการไม่อนุมัติหลายรายการ",
+        $"ต้องการไม่อนุมัติเอกสารที่เลือก {SelectedCanRejectCount} รายการใช่หรือไม่",
+        "ไม่อนุมัติทั้งหมด", "กำลังดำเนินการ...", "danger", BulkReject);
+
+    private void OpenConfirmation(
+        string title, string message, string confirmTextValue,
+        string busyText, string tone, Func<Task> action)
+    {
+        if (confirmBusy) return;
+        confirmTitle = title;
+        confirmMessage = message;
+        confirmText = confirmTextValue;
+        confirmBusyText = busyText;
+        confirmTone = tone;
+        confirmedAction = action;
+        confirmOpen = true;
+    }
+
+    private async Task ExecuteConfirmedAction()
+    {
+        if (confirmBusy || confirmedAction is null) return;
+        confirmBusy = true;
+        try { await confirmedAction(); }
+        finally
+        {
+            confirmBusy = false;
+            confirmOpen = false;
+            confirmedAction = null;
+        }
+    }
+
+    private void CloseConfirmation()
+    {
+        if (confirmBusy) return;
+        confirmOpen = false;
+        confirmedAction = null;
+    }
 
     private void ToggleItem(long id, bool selected)
     {
@@ -314,7 +455,10 @@
             {
                 var response = await Http.PostAsJsonAsync(
                     $"api/leave-documents/{document.Id}/approve",
-                    new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName));
+                    new ReviewLeaveDocumentRequest(
+                        currentUser.EmployeeId,
+                        currentUser.EmployeeName,
+                        string.IsNullOrWhiteSpace(bulkRejectRemark) ? null : bulkRejectRemark.Trim()));
                 if (response.IsSuccessStatusCode) succeeded.Add(document.Id);
                 else failed.Add(document.DocumentNo);
             }
@@ -332,7 +476,7 @@
 
     private async Task BulkReject()
     {
-        if (SelectedCanRejectCount == 0 || isBulkSaving || currentUser is null || string.IsNullOrWhiteSpace(bulkRejectRemark)) return;
+        if (SelectedCanRejectCount == 0 || isBulkSaving || currentUser is null) return;
         isBulkSaving = true;
         bulkMessage = null;
         var succeeded = new List<long>();
@@ -342,7 +486,10 @@
             try
             {
                 var response = await Http.PostAsJsonAsync($"api/leave-documents/{document.Id}/reject",
-                    new ReviewLeaveDocumentRequest(currentUser.EmployeeId, currentUser.EmployeeName, bulkRejectRemark.Trim()));
+                    new ReviewLeaveDocumentRequest(
+                        currentUser.EmployeeId,
+                        currentUser.EmployeeName,
+                        string.IsNullOrWhiteSpace(bulkRejectRemark) ? null : bulkRejectRemark.Trim()));
                 if (response.IsSuccessStatusCode) succeeded.Add(document.Id); else failed.Add(document.DocumentNo);
             }
             catch { failed.Add(document.DocumentNo); }
@@ -367,7 +514,8 @@
         {
             var request = new ReviewLeaveDocumentRequest(
                 currentUser!.EmployeeId,
-                currentUser.EmployeeName);
+                currentUser.EmployeeName,
+                string.IsNullOrWhiteSpace(reviewRemark) ? null : reviewRemark.Trim());
             var response = await Http.PostAsJsonAsync(
                 $"api/leave-documents/{selectedDocument.Id}/{action}",
                 request);
@@ -399,10 +547,34 @@
         kind == "ADVANCE" ? "ลาล่วงหน้า" : "ลาย้อนหลัง";
 
     private bool CanApprove(LeaveDocumentDto document) =>
-        document.CanCurrentUserReview ||
-        allowedActions.Contains("APPROVE");
+        document.Status == "PENDING_APPROVAL" &&
+        (document.CanCurrentUserReview || allowedActions.Contains("APPROVE"));
 
     private bool CanReject(LeaveDocumentDto document) =>
-        document.CanCurrentUserReview ||
-        allowedActions.Contains("REJECT");
+        document.Status == "PENDING_APPROVAL" &&
+        (document.CanCurrentUserReview || allowedActions.Contains("REJECT"));
+
+    private static string ProcessedStatusTitle(string status) => status switch
+    {
+        "APPROVED" => "เอกสารนี้ถูกอนุมัติแล้ว",
+        "REJECTED" => "เอกสารนี้ไม่อนุมัติ",
+        "CANCELLED" => "เอกสารนี้ถูกยกเลิกแล้ว",
+        "EDIT_REQUESTED" => "เอกสารนี้อยู่ระหว่างขอแก้ไข",
+        "CANCEL_REQUESTED" => "เอกสารนี้อยู่ระหว่างขอยกเลิก",
+        _ => $"เอกสารอยู่ในสถานะ {status}"
+    };
+
+    private static string ProcessedStatusMessage(string status) => status switch
+    {
+        "APPROVED" or "REJECTED" or "CANCELLED" => "ไม่สามารถอนุมัติหรือไม่อนุมัติเอกสารซ้ำได้",
+        _ => "สถานะเอกสารมีการเปลี่ยนแปลงแล้ว กรุณาตรวจสอบรายละเอียดล่าสุด"
+    };
+
+    private static string ProcessedStatusClass(string status) => status switch
+    {
+        "APPROVED" => "approved",
+        "REJECTED" => "rejected",
+        "CANCELLED" => "cancelled",
+        _ => "changed"
+    };
 }

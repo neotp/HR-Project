@@ -1,0 +1,11 @@
+<label class="pre-field @(Full ? "full" : null)">
+    <span>@Label @if (Required) { <i>*</i> }</span>
+    @ChildContent
+</label>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Full { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

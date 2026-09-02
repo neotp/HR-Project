@@ -1,0 +1,111 @@
+@using HrProject.Shared.Models
+
+<div class="employee-combobox">
+    <input type="text"
+           value="@searchText"
+           placeholder="@Placeholder"
+           autocomplete="off"
+           disabled="@Disabled"
+           role="combobox"
+           aria-expanded="@isOpen"
+           aria-autocomplete="list"
+           @onfocus="Open"
+           @onblur="CloseAfterSelection"
+           @oninput="Search" />
+
+    @if (isOpen && !Disabled)
+    {
+        <div class="employee-options" role="listbox">
+            @if (!FilteredEmployees.Any())
+            {
+                <div class="employee-option-empty">ไม่พบพนักงานที่ค้นหา</div>
+            }
+            else
+            {
+                @foreach (var employee in FilteredEmployees)
+                {
+                    <button type="button"
+                            class="employee-option"
+                            role="option"
+                            @onmousedown:preventDefault="true"
+                            @onclick="() => SelectEmployee(employee)">
+                        <strong>@employee.FullName</strong>
+                        <span>@employee.EmployeeCode@EmployeeDetails(employee)</span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<Employee> Items { get; set; } = [];
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "พิมพ์ชื่อ รหัส หรืออีเมลพนักงาน";
+
+    private string searchText = string.Empty;
+    private string synchronizedValue = string.Empty;
+    private bool isOpen;
+
+    private IEnumerable<Employee> FilteredEmployees
+    {
+        get
+        {
+            var term = searchText.Trim();
+            return Items
+                .Where(employee => term.Length == 0 ||
+                    employee.EmployeeCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    employee.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    employee.Email.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    employee.LotusNotesEmail.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Take(50);
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Value, synchronizedValue, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        synchronizedValue = Value ?? string.Empty;
+        var selected = Items.FirstOrDefault(employee =>
+            string.Equals(employee.EmployeeCode, synchronizedValue, StringComparison.OrdinalIgnoreCase));
+        searchText = selected is null
+            ? string.Empty
+            : $"{selected.FullName} ({selected.EmployeeCode})";
+    }
+
+    private void Open() => isOpen = true;
+
+    private async Task Search(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        isOpen = true;
+        synchronizedValue = string.Empty;
+        await ValueChanged.InvokeAsync(string.Empty);
+    }
+
+    private async Task SelectEmployee(Employee employee)
+    {
+        searchText = $"{employee.FullName} ({employee.EmployeeCode})";
+        synchronizedValue = employee.EmployeeCode;
+        isOpen = false;
+        await ValueChanged.InvokeAsync(employee.EmployeeCode);
+    }
+
+    private async Task CloseAfterSelection()
+    {
+        await Task.Delay(150);
+        isOpen = false;
+    }
+
+    private static string EmployeeDetails(Employee employee)
+    {
+        var details = new[] { employee.Department, employee.Email }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        var text = string.Join(" · ", details);
+        return text.Length == 0 ? string.Empty : $" · {text}";
+    }
+}

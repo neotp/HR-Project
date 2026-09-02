@@ -45,6 +45,32 @@ public sealed record CurrentPageActionPermissionsDto(
     string PageKey,
     IReadOnlyList<string> AllowedActions);
 
+public sealed record CurrentPageAccessDto(
+    string PageKey,
+    bool CanAccess,
+    bool GrantedByBusinessRule,
+    bool GrantedByExplicitPermission);
+
+public sealed record ApplicationPageAvailabilityDto(
+    long PageId,
+    string PageKey,
+    string PageName,
+    string RoutePath,
+    string CategoryName,
+    int DisplayOrder,
+    bool IsEnabled,
+    DateTimeOffset? UpdatedAt,
+    string? UpdatedByName);
+
+public sealed record SaveApplicationPageAvailabilityItem(
+    long PageId,
+    bool IsEnabled);
+
+public sealed record SaveApplicationPageAvailabilityRequest(
+    IReadOnlyList<SaveApplicationPageAvailabilityItem> Pages,
+    string UpdatedBy,
+    string UpdatedByName);
+
 public sealed record AppRoleDto(
     long Id,
     string RoleKey,

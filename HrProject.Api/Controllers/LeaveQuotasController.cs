@@ -29,7 +29,7 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
                 WHERE d.creator_employee_id = q.employee_id
                   AND d.leave_type_id = q.leave_type_id
                   AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('APPROVED', 'EDIT_REQUESTED')
+                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
             ) usage ON TRUE
             WHERE (@year IS NULL OR q.quota_year = @year)
               AND (@employee_id IS NULL OR q.employee_id = @employee_id)
@@ -87,7 +87,7 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
                 WHERE d.creator_employee_id = q.employee_id
                   AND d.leave_type_id = q.leave_type_id
                   AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('APPROVED', 'EDIT_REQUESTED')
+                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
             ) usage ON TRUE
             WHERE q.employee_id = @employee_id
               AND q.leave_type_id = @leave_type_id
@@ -183,12 +183,29 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
     }
 
     [HttpDelete("{id:long}")]
-    public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Delete(
+        long id,
+        [FromQuery] string actionBy,
+        [FromQuery] string actionByName,
+        CancellationToken cancellationToken)
     {
-        const string sql = "DELETE FROM public.leave_quotas WHERE id = @id";
-        await using var command = dataSource.CreateCommand(sql);
+        if (string.IsNullOrWhiteSpace(actionBy) || string.IsNullOrWhiteSpace(actionByName))
+            return BadRequest("กรุณาระบุผู้ดำเนินการลบโควต้า");
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        const string sql = """
+            UPDATE public.leave_quotas
+               SET updated_by = @action_by, updated_by_name = @action_by_name
+             WHERE id = @id;
+            DELETE FROM public.leave_quotas WHERE id = @id;
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("action_by", actionBy.Trim());
+        command.Parameters.AddWithValue("action_by_name", actionByName.Trim());
         var deletedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return deletedRows == 0 ? NotFound() : NoContent();
     }
 
@@ -208,7 +225,7 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
                 WHERE d.creator_employee_id = q.employee_id
                   AND d.leave_type_id = q.leave_type_id
                   AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('APPROVED', 'EDIT_REQUESTED')
+                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
             ) usage ON TRUE
             WHERE q.id = @id
             """;

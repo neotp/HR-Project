@@ -63,6 +63,18 @@
 .employee-edit-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
 .employee-edit-grid label { display: grid; gap: .4rem; color: #334155; font-size: .84rem; font-weight: 600; }
 .employee-edit-grid input, .employee-edit-grid select, .employee-edit-grid textarea, .edit-reason textarea { width: 100%; min-height: 2.5rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
+.employee-edit-grid .attendance-exclusion-option { display: flex; align-items: center; align-self: end; min-height: 2.5rem; padding: .65rem .8rem; border: 1px solid #fdba74; border-radius: .45rem; background: #fff7ed; }
+.employee-edit-grid .attendance-exclusion-option input { width: 1rem; min-height: 1rem; margin: 0; padding: 0; accent-color: #ff6b35; }
+.profile-image-request-editor { display:flex; align-items:center; gap:1rem; padding:1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:.6rem; }
+.profile-image-request-preview { display:grid; width:6rem; height:6rem; flex:0 0 6rem; place-items:center; overflow:hidden; color:#fff; background:#ff6b35; border-radius:50%; font-size:1.45rem; font-weight:800; box-shadow:0 0 0 4px #fff,0 0 0 5px #e2e8f0; }
+.profile-image-request-preview img { width:100%; height:100%; object-fit:cover; }
+.profile-image-request-actions { display:flex; align-items:flex-start; flex-direction:column; gap:.35rem; }
+.profile-image-request-actions strong { color:#1e293b; font-size:.9rem; }
+.profile-image-request-actions small { color:#64748b; font-size:.75rem; }
+.select-profile-image-button,.reset-profile-image-button { margin-top:.2rem; padding:.45rem .75rem; border-radius:.45rem; font:inherit; font-size:.78rem; font-weight:700; cursor:pointer; }
+.select-profile-image-button { position:relative; color:#fff !important; background:#2563eb; }
+.select-profile-image-button input { position:absolute; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; }
+.reset-profile-image-button { color:#475569; background:#fff; border:1px solid #cbd5e1; }
 .wide-field { grid-column: 1 / -1; }
 .edit-reason { display: grid; gap: .4rem; margin-top: 1rem; color: #334155; font-size: .84rem; font-weight: 600; }
 .edit-error { margin-top: .9rem; padding: .65rem .75rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: .45rem; }
@@ -71,4 +83,4 @@
 .cancel-edit-button { color: #475569; background: #fff; border: 1px solid #cbd5e1; }
 .submit-edit-button { color: #fff; background: #ff6b35; border: 0; }
 .submit-edit-button:disabled, .cancel-edit-button:disabled { opacity: .6; cursor: not-allowed; }
-@media (max-width: 720px) { .detail-grid, .employee-edit-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; }.employee-profile-header { padding: 1.1rem; }.tab-content { padding: 1rem; }.profile-summary { align-items: flex-start; flex-wrap: wrap; }.profile-summary h1 { font-size: 1.25rem; }.request-edit-button { width: 100%; margin-left: 0; }.history-summary { align-items: flex-start; flex-direction: column; }.employee-history-table th, .employee-history-table td { padding: .7rem; }.tab-edit-actions { align-items: stretch; flex-direction: column; padding: .75rem 1rem; }.tab-edit-actions > div { display: grid; grid-template-columns: 1fr; }.direct-edit-button, .tab-edit-actions .request-edit-button { width: 100%; }.modal-table-toolbar { align-items: stretch; flex-direction: column; }.modal-table-toolbar button { width: 100%; } }
+@media (max-width: 720px) { .detail-grid, .employee-edit-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; }.employee-profile-header { padding: 1.1rem; }.tab-content { padding: 1rem; }.profile-summary { align-items: flex-start; flex-wrap: wrap; }.profile-summary h1 { font-size: 1.25rem; }.request-edit-button { width: 100%; margin-left: 0; }.history-summary { align-items: flex-start; flex-direction: column; }.employee-history-table th, .employee-history-table td { padding: .7rem; }.tab-edit-actions { align-items: stretch; flex-direction: column; padding: .75rem 1rem; }.tab-edit-actions > div { display: grid; grid-template-columns: 1fr; }.direct-edit-button, .tab-edit-actions .request-edit-button { width: 100%; }.modal-table-toolbar { align-items: stretch; flex-direction: column; }.modal-table-toolbar button { width: 100%; }.profile-image-request-editor { align-items:flex-start; flex-direction:column; }.profile-image-request-preview { align-self:center; } }

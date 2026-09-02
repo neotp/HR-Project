@@ -1,0 +1,303 @@
+@page "/leave/quota-movements"
+@inject HttpClient Http
+
+<PageTitle>Movement โควต้าวันลา | HR Project</PageTitle>
+
+<section class="manage-page quota-movement-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>Movement โควต้าวันลา</h1>
+                <p>ตรวจสอบรายการเพิ่ม ลด ปรับ และคืนโควต้าวันลาแบบ Ledger</p>
+            </div>
+        </div>
+    </header>
+
+    @if (selectedEmployee is null)
+    {
+        <section class="content-card movement-criteria-card">
+            <div class="content-card-header">ค้นหาพนักงาน</div>
+            <div class="content-card-body movement-criteria-grid">
+                <label>รหัสหรือชื่อพนักงาน
+                    <input type="search" placeholder="ค้นหารหัสหรือชื่อ" @bind="employeeSearch" @bind:event="oninput" @bind:after="ApplyEmployeeFilter" />
+                </label>
+                <label>แผนก
+                    <input type="search" placeholder="ค้นหาแผนก" @bind="departmentSearch" @bind:event="oninput" @bind:after="ApplyEmployeeFilter" />
+                </label>
+                <label>ปีโควต้า
+                    <select @bind="selectedYear" @bind:after="ReloadEmployees">
+                        @foreach (var year in Years)
+                        {
+                            <option value="@year">@year</option>
+                        }
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        <section class="content-card">
+            <div class="content-card-header">รายชื่อพนักงาน <span class="result-count">@filteredEmployees.Count รายการ</span></div>
+            <div class="content-card-body">
+                @if (isLoading)
+                {
+                    <div class="movement-loading"><span class="movement-spinner"></span><span>กำลังโหลด Movement โควต้า...</span></div>
+                }
+                else if (!string.IsNullOrWhiteSpace(loadError))
+                {
+                    <div class="state-message error">@loadError</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table employee-table movement-employee-table">
+                            <thead><tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ประเภทลา</th><th>โควต้ารวม (ชั่วโมง)</th><th>ใช้ไป (ชั่วโมง)</th><th>คงเหลือ (ชั่วโมง)</th><th>Movement ล่าสุด</th><th></th></tr></thead>
+                            <tbody>
+                                @if (filteredEmployees.Count == 0)
+                                {
+                                    <tr><td colspan="9" class="no-results">ไม่พบข้อมูลพนักงานตามเงื่อนไข</td></tr>
+                                }
+                                @foreach (var employee in PagedEmployees)
+                                {
+                                    <tr class="movement-employee-row"
+                                        tabindex="0"
+                                        title="เปิด Movement โควต้าวันลาของพนักงาน"
+                                        @onclick="() => OpenEmployee(employee)"
+                                        @onkeydown="args => HandleEmployeeRowKey(args, employee)">
+                                        <td>@employee.EmployeeId</td><td><strong>@employee.EmployeeName</strong></td><td>@Display(employee.Department)</td>
+                                        <td>@employee.LeaveTypeCount</td>
+                                        <td>@HoursAndDays(employee.QuotaHours)</td>
+                                        <td class="movement-out">@HoursAndDays(employee.UsedHours)</td>
+                                        <td class="movement-balance">@HoursAndDays(employee.RemainingHours)</td>
+                                        <td>@(employee.LastMovementAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "-")</td>
+                                        <td><span class="movement-view-button">ดู Movement ›</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@filteredEmployees.Count" @bind-CurrentPage="employeePage" @bind-PageSize="pageSize" />
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="movement-employee-banner">
+            <button class="movement-back-link" type="button" @onclick="BackToEmployees">‹ กลับหน้ารายชื่อพนักงาน</button>
+            <div class="movement-profile-summary">
+                <div class="movement-avatar">@EmployeeInitial</div>
+                <div><span>@selectedEmployee.EmployeeId</span><h2>@selectedEmployee.EmployeeName</h2><p>@Display(selectedEmployee.Department) · ปีโควต้า @selectedYear</p></div>
+            </div>
+        </section>
+
+        <section class="movement-summary-grid">
+            @foreach (var summary in typeSummaries)
+            {
+                <article class="movement-summary-card">
+                    <h3>@summary.LeaveTypeName</h3>
+                    <div><span>โควต้า</span><strong>@HoursAndDays(summary.QuotaHours)</strong></div>
+                    <div><span>ใช้ไป</span><strong class="movement-out">@HoursAndDays(summary.UsedHours)</strong></div>
+                    <div><span>คงเหลือ</span><strong class="movement-balance">@HoursAndDays(summary.RemainingHours)</strong></div>
+                </article>
+            }
+        </section>
+
+        <section class="content-card movement-criteria-card">
+            <div class="content-card-header">ค้นหา Movement</div>
+            <div class="content-card-body movement-detail-criteria">
+                <div class="movement-filter-field"><span>ประเภทการลา</span><CriteriaMultiSelect Options="@LeaveTypeFilterOptions" Values="@selectedLeaveTypeIds" ValuesChanged="SetLeaveTypeFilters" /></div>
+                <div class="movement-filter-field"><span>ประเภทรายการ</span><CriteriaMultiSelect Options="@MovementTypeFilterOptions" Values="@selectedMovementTypes" ValuesChanged="SetMovementTypeFilters" /></div>
+                <label>เลขที่อ้างอิง<input type="search" @bind="referenceFilter" @bind:event="oninput" @bind:after="ApplyMovementFilter" placeholder="เลขที่เอกสารลา" /></label>
+                <label>วันที่เริ่มต้น<DateTimePicker @bind-Value="startDate" @bind-Value:after="ApplyMovementFilter" AriaLabel="วันที่เริ่มต้น" /></label>
+                <label>วันที่สิ้นสุด<DateTimePicker @bind-Value="endDate" @bind-Value:after="ApplyMovementFilter" AriaLabel="วันที่สิ้นสุด" /></label>
+                <button class="btn btn-reset" type="button" @onclick="ResetMovementFilter">ล้างข้อมูล</button>
+            </div>
+        </section>
+
+        <section class="content-card">
+            <div class="content-card-header">รายการ Movement <span class="result-count">@filteredMovements.Count รายการ</span></div>
+            <div class="content-card-body">
+                @if (isDetailLoading)
+                {
+                    <div class="movement-loading"><span class="movement-spinner"></span><span>กำลังโหลด Movement...</span></div>
+                }
+                else if (!string.IsNullOrWhiteSpace(detailError))
+                {
+                    <div class="state-message error">@detailError</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table employee-table movement-ledger-table">
+                            <thead><tr><th>วันเวลา</th><th>ประเภทการลา</th><th>รายการ</th><th>เลขที่อ้างอิง</th><th>ยอดก่อน (ชั่วโมง)</th><th>เข้า (ชั่วโมง)</th><th>ออก (ชั่วโมง)</th><th>คงเหลือ (ชั่วโมง)</th><th>ผู้ดำเนินการ</th><th>หมายเหตุ</th></tr></thead>
+                            <tbody>
+                                @if (filteredMovements.Count == 0) { <tr><td colspan="10" class="no-results">ไม่พบ Movement ตามเงื่อนไข</td></tr> }
+                                @foreach (var movement in PagedMovements)
+                                {
+                                    <tr>
+                                        <td>@movement.OccurredAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td><td>@movement.LeaveTypeName</td>
+                                        <td><span class="movement-type-pill @MovementClass(movement)">@MovementText(movement)</span></td>
+                                        <td>@if (movement.SourceType == "LEAVE_DOCUMENT" && movement.SourceId.HasValue) { <button class="movement-reference" type="button" @onclick="() => OpenLeaveDocument(movement)">@Display(movement.ReferenceNo)</button> } else { @Display(movement.ReferenceNo) }</td>
+                                        <td>@movement.BalanceBefore.ToString("0.##")</td>
+                                        <td class="movement-in">@(movement.HoursIn > 0 ? $"+{movement.HoursIn:0.##}" : "-")</td>
+                                        <td class="movement-out">@(movement.HoursOut > 0 ? $"-{movement.HoursOut:0.##}" : "-")</td>
+                                        <td><strong class="movement-balance">@movement.BalanceAfter.ToString("0.##")</strong></td>
+                                        <td>@movement.ActionByName</td><td><span class="movement-note" title="@movement.Notes">@Display(movement.Notes)</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@filteredMovements.Count" @bind-CurrentPage="movementPage" @bind-PageSize="pageSize" />
+                }
+            </div>
+        </section>
+    }
+</section>
+
+@if (selectedLeaveDocument is not null)
+{
+    <div class="movement-document-overlay" role="dialog" aria-modal="true" aria-labelledby="movement-document-title">
+        <section class="movement-document-modal">
+            <header><div><h2 id="movement-document-title">รายละเอียดเอกสารการลา</h2><p>@selectedLeaveDocument.DocumentNo</p></div><button type="button" @onclick="CloseLeaveDocument">×</button></header>
+            <div class="movement-document-body">
+                <div class="movement-document-grid">
+                    <label>ผู้สร้างเอกสาร<input value="@selectedLeaveDocument.CreatorName" disabled /></label>
+                    <label>แผนก<input value="@selectedLeaveDocument.CreatorDepartment" disabled /></label>
+                    <label>ประเภทการลา<input value="@selectedLeaveDocument.LeaveTypeName" disabled /></label>
+                    <label>สถานะ<input value="@LeaveStatusText(selectedLeaveDocument.Status)" disabled /></label>
+                    <label>วันที่ลา<input value="@selectedLeaveDocument.LeaveDate.ToString("dd/MM/yyyy")" disabled /></label>
+                    <label>เวลาเริ่มต้น<input value="@selectedLeaveDocument.StartTime.ToString("HH:mm")" disabled /></label>
+                    <label>จำนวนชั่วโมง<input value="@selectedLeaveDocument.LeaveHours.ToString("0.##") ชั่วโมง" disabled /></label>
+                    <label>ผู้อนุมัติ<input value="@selectedLeaveDocument.ApproverName" disabled /></label>
+                    <label class="movement-document-full">เหตุผล<textarea rows="3" disabled>@selectedLeaveDocument.LeaveReason</textarea></label>
+                </div>
+            </div>
+            <footer><button class="btn btn-reset" type="button" @onclick="CloseLeaveDocument">ปิด</button></footer>
+        </section>
+    </div>
+}
+
+@code {
+    private CurrentMicrosoftUserDto? currentUser;
+    private int selectedYear = DateTime.Today.Year;
+    private List<LeaveQuotaMovementEmployeeSummaryDto> employees = [];
+    private List<LeaveQuotaMovementEmployeeSummaryDto> filteredEmployees = [];
+    private LeaveQuotaMovementEmployeeSummaryDto? selectedEmployee;
+    private List<LeaveQuotaMovementTypeSummaryDto> typeSummaries = [];
+    private List<LeaveQuotaMovementDto> movements = [];
+    private List<LeaveQuotaMovementDto> filteredMovements = [];
+    private LeaveDocumentDto? selectedLeaveDocument;
+    private bool isLoading = true, isDetailLoading;
+    private string? loadError, detailError;
+    private string employeeSearch = "", departmentSearch = "", referenceFilter = "";
+    private readonly HashSet<string> selectedLeaveTypeIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedMovementTypes = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime? startDate, endDate;
+    private int employeePage = 1, movementPage = 1, pageSize = 10;
+    private IEnumerable<int> Years => Enumerable.Range(DateTime.Today.Year - 2, 5).Reverse();
+    private IEnumerable<LeaveQuotaMovementEmployeeSummaryDto> PagedEmployees => filteredEmployees.Skip((employeePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<LeaveQuotaMovementDto> PagedMovements => filteredMovements.Skip((movementPage - 1) * pageSize).Take(pageSize);
+    private string EmployeeInitial => string.IsNullOrWhiteSpace(selectedEmployee?.EmployeeName) ? "?" : selectedEmployee.EmployeeName.Trim()[0].ToString();
+    private static readonly (string Code, string Label)[] MovementTypes =
+    [
+        ("OPENING_QUOTA", "ยกยอดมา"), ("QUOTA_CREATED", "ได้วันลาเพิ่ม"),
+        ("QUOTA_ADJUSTED", "ปรับโควต้า"), ("QUOTA_REMOVED", "ลบโควต้า"),
+        ("LEAVE_RESERVED", "ใช้ไป"), ("LEAVE_RETURNED", "ได้วันลาคืน"),
+        ("LEAVE_ADJUSTED", "ปรับจากเอกสารลา")
+    ];
+    private IReadOnlyList<CriteriaFilterOption> LeaveTypeFilterOptions => typeSummaries.Select(x => new CriteriaFilterOption(x.LeaveTypeId.ToString(), x.LeaveTypeName)).ToList();
+    private static readonly IReadOnlyList<CriteriaFilterOption> MovementTypeFilterOptions = MovementTypes.Select(x => new CriteriaFilterOption(x.Code, x.Label)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (string.IsNullOrWhiteSpace(currentUser?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
+            await ReloadEmployees();
+        }
+        catch (Exception ex) { loadError = $"โหลดข้อมูลไม่สำเร็จ: {ex.Message}"; }
+        finally { isLoading = false; }
+    }
+
+    private async Task ReloadEmployees()
+    {
+        if (currentUser is null) return;
+        isLoading = true; loadError = null;
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<LeaveQuotaMovementEmployeeSummaryDto>>($"api/leave-quota-movements/employees?year={selectedYear}&actingEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
+            ApplyEmployeeFilter();
+        }
+        catch (Exception ex) { loadError = $"โหลดรายชื่อ Movement ไม่สำเร็จ: {ex.Message}"; }
+        finally { isLoading = false; }
+    }
+
+    private void ApplyEmployeeFilter()
+    {
+        filteredEmployees = employees.Where(x =>
+            (string.IsNullOrWhiteSpace(employeeSearch) || x.EmployeeId.Contains(employeeSearch, StringComparison.OrdinalIgnoreCase) || x.EmployeeName.Contains(employeeSearch, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(departmentSearch) || x.Department.Contains(departmentSearch, StringComparison.OrdinalIgnoreCase))).ToList();
+        employeePage = 1;
+    }
+
+    private async Task OpenEmployee(LeaveQuotaMovementEmployeeSummaryDto employee)
+    {
+        selectedEmployee = employee; isDetailLoading = true; detailError = null;
+        try
+        {
+            var actor = Uri.EscapeDataString(currentUser!.EmployeeId); var emp = Uri.EscapeDataString(employee.EmployeeId);
+            typeSummaries = await Http.GetFromJsonAsync<List<LeaveQuotaMovementTypeSummaryDto>>($"api/leave-quota-movements/employees/{emp}/summary?year={selectedYear}&actingEmployeeId={actor}") ?? [];
+            movements = await Http.GetFromJsonAsync<List<LeaveQuotaMovementDto>>($"api/leave-quota-movements/employees/{emp}?year={selectedYear}&actingEmployeeId={actor}") ?? [];
+            ResetMovementFilter();
+        }
+        catch (Exception ex) { detailError = $"โหลด Movement ไม่สำเร็จ: {ex.Message}"; }
+        finally { isDetailLoading = false; }
+    }
+
+    private void ApplyMovementFilter()
+    {
+        filteredMovements = movements.Where(x =>
+            (selectedLeaveTypeIds.Count == 0 || selectedLeaveTypeIds.Contains(x.LeaveTypeId.ToString())) &&
+            (selectedMovementTypes.Count == 0 || selectedMovementTypes.Contains(x.MovementType)) &&
+            (string.IsNullOrWhiteSpace(referenceFilter) || (x.ReferenceNo?.Contains(referenceFilter, StringComparison.OrdinalIgnoreCase) ?? false)) &&
+            (!startDate.HasValue || x.OccurredAt.LocalDateTime.Date >= startDate.Value.Date) &&
+            (!endDate.HasValue || x.OccurredAt.LocalDateTime.Date <= endDate.Value.Date)).ToList();
+        movementPage = 1;
+    }
+
+    private void ResetMovementFilter() { selectedLeaveTypeIds.Clear(); selectedMovementTypes.Clear(); referenceFilter = ""; startDate = endDate = null; ApplyMovementFilter(); }
+    private Task SetLeaveTypeFilters(IReadOnlyCollection<string> values) { selectedLeaveTypeIds.Clear(); selectedLeaveTypeIds.UnionWith(values); ApplyMovementFilter(); return Task.CompletedTask; }
+    private Task SetMovementTypeFilters(IReadOnlyCollection<string> values) { selectedMovementTypes.Clear(); selectedMovementTypes.UnionWith(values); ApplyMovementFilter(); return Task.CompletedTask; }
+    private void BackToEmployees() { selectedEmployee = null; typeSummaries = []; movements = []; filteredMovements = []; }
+
+    private async Task HandleEmployeeRowKey(KeyboardEventArgs args, LeaveQuotaMovementEmployeeSummaryDto employee)
+    {
+        if (args.Key is "Enter" or " ")
+            await OpenEmployee(employee);
+    }
+    private async Task OpenLeaveDocument(LeaveQuotaMovementDto movement)
+    {
+        if (!movement.SourceId.HasValue) return;
+        detailError = null;
+        try { selectedLeaveDocument = await Http.GetFromJsonAsync<LeaveDocumentDto>($"api/leave-documents/{movement.SourceId.Value}"); }
+        catch (Exception ex) { detailError = $"เปิดเอกสารการลาไม่สำเร็จ: {ex.Message}"; }
+    }
+    private void CloseLeaveDocument() => selectedLeaveDocument = null;
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string HoursAndDays(decimal hours) => $"{hours:0.##} ชม. ({hours / 8:0.##} วัน)";
+    private static string MovementText(LeaveQuotaMovementDto item) => item.MovementType switch
+    {
+        "OPENING_QUOTA" => "ยกยอดมา",
+        "QUOTA_CREATED" => "ได้วันลาเพิ่ม",
+        "QUOTA_ADJUSTED" => item.HoursIn > 0 ? "ได้วันลาเพิ่ม" : "ปรับลดวันลา",
+        "QUOTA_REMOVED" => "ลบโควต้า",
+        "LEAVE_RESERVED" => "ใช้ไป",
+        "LEAVE_RETURNED" => "ได้วันลาคืน",
+        "LEAVE_ADJUSTED" => item.HoursIn > 0 ? "ได้วันลาคืน" : "ใช้ไป",
+        _ => item.MovementType
+    };
+    private static string MovementClass(LeaveQuotaMovementDto item) => item.HoursIn > 0 ? "movement-credit" : "movement-debit";
+    private static string LeaveStatusText(string status) => status switch { "PENDING_APPROVAL" => "รออนุมัติ", "APPROVED" => "อนุมัติแล้ว", "REJECTED" => "ไม่อนุมัติ", "EDIT_REQUESTED" => "ขอแก้ไข", "CANCELLED" => "ยกเลิก", _ => status };
+}

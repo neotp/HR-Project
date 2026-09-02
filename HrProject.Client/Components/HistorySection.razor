@@ -1,0 +1,14 @@
+<section class="pre-history-section">
+    <div class="pre-history-heading">
+        <h2>@Title</h2>
+        @if (!IsReadOnly) { <button type="button" @onclick="OnAdd">+ เพิ่มรายการ</button> }
+    </div>
+    <div class="pre-history-scroll">@ChildContent</div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public bool IsReadOnly { get; set; }
+    [Parameter] public EventCallback OnAdd { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

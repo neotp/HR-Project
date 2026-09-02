@@ -42,15 +42,44 @@
             {
                 <div class="form-grid">
                     <label class="full-width">เลือกลูกน้อง<span class="required">*</span>
-                        <select @bind="recipientEmployeeId" @bind:after="RecipientChanged">
-                            <option value="">-- เลือกพนักงาน --</option>
-                            @foreach (var recipient in recipients)
+                        <div class="recipient-combobox">
+                            <input type="text"
+                                   value="@recipientSearchText"
+                                   placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --"
+                                   autocomplete="off"
+                                   role="combobox"
+                                   aria-expanded="@isRecipientDropdownOpen"
+                                   aria-autocomplete="list"
+                                   @onfocus="OpenRecipientDropdown"
+                                   @onblur="CloseRecipientDropdown"
+                                   @oninput="SearchRecipient" />
+                            <button class="recipient-combobox-toggle" type="button"
+                                    tabindex="-1" aria-label="แสดงรายชื่อพนักงาน"
+                                    @onmousedown:preventDefault="true"
+                                    @onclick="ToggleRecipientDropdown">⌄</button>
+
+                            @if (isRecipientDropdownOpen)
                             {
-                                <option value="@recipient.EmployeeId">
-                                    @recipient.EmployeeName (@recipient.EmployeeId) — @recipient.Department
-                                </option>
+                                <div class="recipient-options" role="listbox">
+                                    @if (!FilteredRecipients.Any())
+                                    {
+                                        <div class="recipient-option-empty">ไม่พบพนักงานที่ค้นหา</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var recipient in FilteredRecipients)
+                                        {
+                                            <button type="button" class="recipient-option" role="option"
+                                                    @onmousedown:preventDefault="true"
+                                                    @onclick="() => SelectRecipient(recipient)">
+                                                <strong>@recipient.EmployeeName (@recipient.EmployeeId)</strong>
+                                                <span>@recipient.Department · @recipient.Position</span>
+                                            </button>
+                                        }
+                                    }
+                                </div>
                             }
-                        </select>
+                        </div>
                     </label>
 
                     @if (SelectedRecipient is not null)
@@ -75,21 +104,22 @@
                         </div>
                     }
 
+                    <label class="full-width">ประเภทการลา<span class="required">*</span>
+                        <select @bind="leaveTypeId">
+                            <option value="0">-- เลือกประเภทการลา --</option>
+                            @foreach (var leaveType in leaveTypes)
+                            {
+                                <option value="@leaveType.Id">@leaveType.NameTh</option>
+                            }
+                        </select>
+                    </label>
                     <label class="full-width">วันที่ขอลา<span class="required">*</span>
-                        <input type="date" @bind="leaveDate" />
+                        <input value="@leaveDate.ToString("dd/MM/yyyy")" disabled />
+                        <small>กำหนดเป็นวันที่บันทึกรายการและไม่สามารถแก้ไขได้</small>
                     </label>
-                    <label>เวลาเริ่มต้น<span class="required">*</span>
-                        <input type="time" @bind="startTime" />
-                    </label>
-                    <label>เวลาสิ้นสุด<span class="required">*</span>
-                        <input type="time" @bind="endTime" />
-                    </label>
-                    <label class="full-width">จำนวนชั่วโมง<span class="required">*</span>
-                        <input type="number" min="0.5" max="24" step="0.5" @bind="leaveHours" />
-                    </label>
-                    <label class="full-width">หมายเหตุ
+                    <label class="full-width">เหตุผล
                         <textarea rows="5" @bind="note" maxlength="4000"
-                                  placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                                  placeholder="ระบุเหตุผล"></textarea>
                     </label>
                 </div>
 
@@ -124,17 +154,16 @@
                         <tr>
                             <th>เลขที่รายการ</th>
                             <th>ลูกน้อง</th>
+                            <th>ประเภทการลา</th>
                             <th>วันที่ขอลา</th>
-                            <th>ช่วงเวลา</th>
-                            <th>จำนวนชั่วโมง</th>
-                            <th>หมายเหตุ</th>
+                            <th>เหตุผล</th>
                             <th>สถานะอีเมล</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (!isLoading && notifications.Count == 0)
                         {
-                            <tr><td colspan="7" class="no-results">ยังไม่มีประวัติการแจ้งข้อมูล</td></tr>
+                            <tr><td colspan="6" class="no-results">ยังไม่มีประวัติการแจ้งข้อมูล</td></tr>
                         }
                         else
                         {
@@ -146,9 +175,8 @@
                                         <strong>@item.RecipientName</strong>
                                         <small>@item.RecipientEmail</small>
                                     </td>
+                                    <td>@(string.IsNullOrWhiteSpace(item.LeaveTypeName) ? "-" : item.LeaveTypeName)</td>
                                     <td>@item.LeaveDate.ToString("dd/MM/yyyy")</td>
-                                    <td>@TimeRange(item)</td>
-                                    <td>@(item.LeaveHours.HasValue ? $"{item.LeaveHours:0.##} ชั่วโมง" : "-")</td>
                                     <td><span class="subject-cell">@(string.IsNullOrWhiteSpace(item.Note) ? "-" : item.Note)</span></td>
                                     <td>
                                         <span class="email-status @StatusClass(item.EmailStatus)">@StatusText(item.EmailStatus)</span>
@@ -171,22 +199,39 @@
 @code {
     private readonly List<ManagerNotificationRecipientDto> recipients = [];
     private readonly List<ManagerLeaveNotificationDto> notifications = [];
+    private readonly List<LeaveTypeDto> leaveTypes = [];
     private bool isLoading = true;
     private bool isSending;
     private string loadError = string.Empty;
     private string saveError = string.Empty;
     private string successMessage = string.Empty;
     private string recipientEmployeeId = string.Empty;
+    private string recipientSearchText = string.Empty;
+    private bool isRecipientDropdownOpen;
+    private long leaveTypeId;
     private DateOnly leaveDate = DateOnly.FromDateTime(DateTime.Today);
-    private TimeOnly startTime = new(9, 0);
-    private TimeOnly endTime = new(18, 0);
-    private decimal leaveHours = 8;
     private string note = string.Empty;
     private int currentPage = 1;
     private int pageSize = 10;
 
     private ManagerNotificationRecipientDto? SelectedRecipient =>
         recipients.FirstOrDefault(x => x.EmployeeId == recipientEmployeeId);
+
+    private IEnumerable<ManagerNotificationRecipientDto> FilteredRecipients
+    {
+        get
+        {
+            var term = recipientSearchText.Trim();
+            return recipients.Where(recipient =>
+                    term.Length == 0 ||
+                    recipient.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    recipient.EmployeeId.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    recipient.Department.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    recipient.Position.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    recipient.Email.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Take(100);
+        }
+    }
 
     private IEnumerable<ManagerLeaveNotificationDto> PagedNotifications =>
         notifications.Skip((currentPage - 1) * pageSize).Take(pageSize);
@@ -199,9 +244,11 @@
                 "api/manager-leave-notifications/recipients");
             var historyTask = Http.GetFromJsonAsync<List<ManagerLeaveNotificationDto>>(
                 "api/manager-leave-notifications");
-            await Task.WhenAll(recipientTask, historyTask);
+            var leaveTypeTask = Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types");
+            await Task.WhenAll(recipientTask, historyTask, leaveTypeTask);
             recipients.AddRange(await recipientTask ?? []);
             notifications.AddRange(await historyTask ?? []);
+            leaveTypes.AddRange(await leaveTypeTask ?? []);
         }
         catch (Exception exception)
         {
@@ -219,6 +266,32 @@
         successMessage = string.Empty;
     }
 
+    private void OpenRecipientDropdown() => isRecipientDropdownOpen = true;
+
+    private void ToggleRecipientDropdown() => isRecipientDropdownOpen = !isRecipientDropdownOpen;
+
+    private async Task CloseRecipientDropdown()
+    {
+        await Task.Delay(150);
+        isRecipientDropdownOpen = false;
+    }
+
+    private void SearchRecipient(ChangeEventArgs args)
+    {
+        recipientSearchText = args.Value?.ToString() ?? string.Empty;
+        recipientEmployeeId = string.Empty;
+        isRecipientDropdownOpen = true;
+        RecipientChanged();
+    }
+
+    private void SelectRecipient(ManagerNotificationRecipientDto recipient)
+    {
+        recipientEmployeeId = recipient.EmployeeId;
+        recipientSearchText = $"{recipient.EmployeeName} ({recipient.EmployeeId}) — {recipient.Department}";
+        isRecipientDropdownOpen = false;
+        RecipientChanged();
+    }
+
     private async Task SendNotification()
     {
         saveError = string.Empty;
@@ -228,22 +301,16 @@
             saveError = "กรุณาเลือกลูกน้อง";
             return;
         }
-        if (endTime <= startTime)
+        if (leaveTypeId <= 0)
         {
-            saveError = "เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น";
+            saveError = "กรุณาเลือกประเภทการลา";
             return;
         }
-        if (leaveHours <= 0 || leaveHours > 24)
-        {
-            saveError = "จำนวนชั่วโมงต้องมากกว่า 0 และไม่เกิน 24 ชั่วโมง";
-            return;
-        }
-
         isSending = true;
         try
         {
             var request = new CreateManagerLeaveNotificationRequest(
-                recipientEmployeeId, leaveDate, startTime, endTime, leaveHours, note.Trim());
+                recipientEmployeeId, leaveTypeId, note.Trim());
             var response = await Http.PostAsJsonAsync("api/manager-leave-notifications", request);
             if (!response.IsSuccessStatusCode)
             {
@@ -273,10 +340,10 @@
     private void ResetForm(bool clearMessages = true)
     {
         recipientEmployeeId = string.Empty;
+        recipientSearchText = string.Empty;
+        isRecipientDropdownOpen = false;
+        leaveTypeId = 0;
         leaveDate = DateOnly.FromDateTime(DateTime.Today);
-        startTime = new TimeOnly(9, 0);
-        endTime = new TimeOnly(18, 0);
-        leaveHours = 8;
         note = string.Empty;
         saveError = string.Empty;
         if (clearMessages)
@@ -285,11 +352,6 @@
 
     private static string Initial(string name) =>
         string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString();
-
-    private static string TimeRange(ManagerLeaveNotificationDto item) =>
-        item.StartTime.HasValue || item.EndTime.HasValue
-            ? $"{item.StartTime?.ToString("HH:mm") ?? "-"} - {item.EndTime?.ToString("HH:mm") ?? "-"}"
-            : "ไม่ระบุเวลา";
 
     private static string StatusClass(string status) => status.ToUpperInvariant() switch
     {

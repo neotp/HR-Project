@@ -11,10 +11,7 @@ public sealed record ManagerNotificationRecipientDto(
 
 public sealed record CreateManagerLeaveNotificationRequest(
     string RecipientEmployeeId,
-    DateOnly LeaveDate,
-    TimeOnly StartTime,
-    TimeOnly EndTime,
-    decimal LeaveHours,
+    long LeaveTypeId,
     string? Note);
 
 public sealed record ManagerLeaveNotificationDto(
@@ -26,6 +23,8 @@ public sealed record ManagerLeaveNotificationDto(
     string RecipientEmployeeId,
     string RecipientName,
     string RecipientEmail,
+    long? LeaveTypeId,
+    string? LeaveTypeName,
     DateOnly LeaveDate,
     TimeOnly? StartTime,
     TimeOnly? EndTime,

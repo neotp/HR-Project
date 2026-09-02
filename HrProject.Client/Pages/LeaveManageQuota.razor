@@ -99,13 +99,9 @@
             <div class="quota-modal-body">
                 <div class="form-grid">
                     <label>ชื่อพนักงาน
-                        <select @bind="quotaEmployeeId" disabled="@editingQuotaId.HasValue">
-                            <option value="">-- เลือกพนักงาน --</option>
-                            @foreach (var employee in employees)
-                            {
-                                <option value="@employee.EmployeeCode">@employee.FullName</option>
-                            }
-                        </select>
+                        <EmployeeSearchSelect Items="employees"
+                                              @bind-Value="quotaEmployeeId"
+                                              Disabled="@editingQuotaId.HasValue" />
                     </label>
                     <label>ประเภทการลา
                         <select @bind="quotaLeaveTypeId" disabled="@editingQuotaId.HasValue">
@@ -210,12 +206,14 @@
     private decimal quotaHours;
     private decimal usedHours;
     private LeaveQuotaDto? deletingQuota;
+    private CurrentMicrosoftUserDto? currentUser;
     private decimal RemainingPreview => quotaHours - usedHours;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
             employeeNames = employees.ToDictionary(
                 employee => employee.EmployeeCode,
@@ -299,8 +297,8 @@
                 DateTime.Today.Year,
                 quotaHours,
                 null,
-                "EMP-001",
-                "Anan Sukjai");
+                currentUser?.EmployeeId ?? string.Empty,
+                currentUser?.EmployeeName ?? currentUser?.DisplayName ?? string.Empty);
             var response = await Http.PostAsJsonAsync("api/leave-quotas", request);
             if (!response.IsSuccessStatusCode)
             {
@@ -351,7 +349,10 @@
         deleteError = null;
         try
         {
-            var response = await Http.DeleteAsync($"api/leave-quotas/{deletingQuota.Id}");
+            var actorId = Uri.EscapeDataString(currentUser?.EmployeeId ?? string.Empty);
+            var actorName = Uri.EscapeDataString(currentUser?.EmployeeName ?? currentUser?.DisplayName ?? string.Empty);
+            var response = await Http.DeleteAsync(
+                $"api/leave-quotas/{deletingQuota.Id}?actionBy={actorId}&actionByName={actorName}");
             if (!response.IsSuccessStatusCode)
             {
                 deleteError = response.StatusCode == System.Net.HttpStatusCode.NotFound

@@ -1,0 +1,198 @@
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<section class="leave-attachments" aria-label="@Title">
+    <div class="leave-attachments-heading">
+        <span>@Title</span>
+        @if (!isLoading && attachments.Count > 0)
+        {
+            <small>@attachments.Count ไฟล์</small>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="leave-attachments-state">กำลังโหลดไฟล์แนบ...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(loadError))
+    {
+        <div class="leave-attachments-state error">@loadError</div>
+    }
+    else if (attachments.Count == 0)
+    {
+        <div class="leave-attachments-state">@EmptyText</div>
+    }
+    else
+    {
+        <div class="leave-attachment-list">
+            @foreach (var attachment in attachments)
+            {
+                <button class="leave-attachment-item" type="button"
+                        title="ดูตัวอย่าง @attachment.FileName"
+                        @onclick="() => OpenPreview(attachment)">
+                    <span class="leave-attachment-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" /></svg>
+                    </span>
+                    <span class="leave-attachment-info">
+                        <strong>@attachment.FileName</strong>
+                        <small>@FormatFileSize(attachment.FileSizeBytes)</small>
+                    </span>
+                    <span class="leave-attachment-action">ดูตัวอย่าง</span>
+                </button>
+            }
+        </div>
+    }
+</section>
+
+@if (previewAttachment is not null)
+{
+    <div class="leave-preview-overlay" role="dialog" aria-modal="true" aria-labelledby="leave-preview-title">
+        <section class="leave-preview-modal">
+            <header class="leave-preview-header">
+                <div>
+                    <h2 id="leave-preview-title">ตัวอย่างเอกสารแนบ</h2>
+                    <p>@previewAttachment.FileName · @FormatFileSize(previewAttachment.FileSizeBytes)</p>
+                </div>
+                <button type="button" aria-label="ปิดตัวอย่างเอกสาร" @onclick="ClosePreview">×</button>
+            </header>
+            <div class="leave-preview-body">
+                @if (isLoadingPreview)
+                {
+                    <div class="leave-preview-state">กำลังโหลดเอกสาร...</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewError))
+                {
+                    <div class="leave-preview-state error">@previewError</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewUrl))
+                {
+                    @if (previewAttachment.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <img src="@previewUrl" alt="@previewAttachment.FileName" />
+                    }
+                    else
+                    {
+                        <iframe src="@PreviewSource" title="@previewAttachment.FileName"></iframe>
+                    }
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public long DocumentId { get; set; }
+    [Parameter] public bool PendingEditRequest { get; set; }
+    [Parameter] public string? Heading { get; set; }
+
+    private readonly List<LeaveDocumentAttachmentDto> attachments = [];
+    private long loadedDocumentId;
+    private bool loadedPendingEditRequest;
+    private bool isLoading = true;
+    private string? loadError;
+    private LeaveDocumentAttachmentDto? previewAttachment;
+    private bool isLoadingPreview;
+    private string? previewError;
+    private string? previewUrl;
+
+    private string Title => Heading ?? (PendingEditRequest ? "ไฟล์แนบที่ขอเพิ่ม" : "เอกสารแนบ");
+    private string EmptyText => PendingEditRequest ? "ไม่มีไฟล์แนบที่ขอเพิ่ม" : "ไม่มีเอกสารแนบ";
+    private string? PreviewSource => string.IsNullOrWhiteSpace(previewUrl)
+        ? null
+        : $"{previewUrl}#toolbar=0&navpanes=0&scrollbar=1";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (DocumentId <= 0 ||
+            (loadedDocumentId == DocumentId && loadedPendingEditRequest == PendingEditRequest))
+            return;
+
+        loadedDocumentId = DocumentId;
+        loadedPendingEditRequest = PendingEditRequest;
+        await LoadAttachments();
+    }
+
+    private async Task LoadAttachments()
+    {
+        attachments.Clear();
+        loadError = null;
+        isLoading = true;
+        try
+        {
+            var path = PendingEditRequest
+                ? $"api/leave-documents/{DocumentId}/edit-requests/pending/attachments"
+                : $"api/leave-documents/{DocumentId}/attachments";
+            attachments.AddRange(await Http.GetFromJsonAsync<List<LeaveDocumentAttachmentDto>>(path) ?? []);
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดไฟล์แนบไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OpenPreview(LeaveDocumentAttachmentDto attachment)
+    {
+        await RevokePreviewUrl();
+        previewAttachment = attachment;
+        previewError = null;
+        isLoadingPreview = true;
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/leave-documents/{DocumentId}/attachments/{attachment.Id}/preview");
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                previewError = string.IsNullOrWhiteSpace(details)
+                    ? $"เปิดไฟล์ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details;
+                return;
+            }
+
+            var content = await response.Content.ReadAsByteArrayAsync();
+            previewUrl = await JS.InvokeAsync<string>(
+                "hrPreview.createObjectUrl", attachment.ContentType, content);
+        }
+        catch (Exception exception)
+        {
+            previewError = $"เปิดไฟล์ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoadingPreview = false;
+        }
+    }
+
+    private async Task ClosePreview()
+    {
+        await RevokePreviewUrl();
+        previewAttachment = null;
+        previewError = null;
+        isLoadingPreview = false;
+    }
+
+    private async Task RevokePreviewUrl()
+    {
+        if (string.IsNullOrWhiteSpace(previewUrl)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl", previewUrl);
+        }
+        catch (JSException)
+        {
+            // The browser is already tearing down the component.
+        }
+        previewUrl = null;
+    }
+
+    private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / 1024d / 1024d:0.##} MB"
+        : $"{Math.Max(1, bytes / 1024d):0.##} KB";
+
+    public async ValueTask DisposeAsync() => await RevokePreviewUrl();
+}

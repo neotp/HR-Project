@@ -23,6 +23,7 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         new("RELIGION", "ศาสนา", 110),
         new("BLOOD_TYPE", "กรุ๊ปเลือด", 120),
         new("MARITAL_STATUS", "สถานภาพสมรส", 130)
+        ,new("ATTENDANCE_EVENT_TYPE", "ประเภท Event การมาทำงาน", 140, false, true)
     ];
 
     [HttpGet("categories")]
@@ -112,7 +113,9 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT id, code, name_th, default_hours, is_active, updated_at
+            SELECT id, code, name_th, default_hours,
+                   default_bonus_deduction_enabled, default_bonus_deduction_percent,
+                   is_active, updated_at
             FROM public.leave_types
             ORDER BY id
             """;
@@ -123,8 +126,8 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         {
             result.Add(new LeaveTypeMasterDto(
                 reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
-                reader.GetDecimal(3), reader.GetBoolean(4),
-                reader.GetFieldValue<DateTimeOffset>(5)));
+                reader.GetDecimal(3), reader.GetBoolean(4), reader.GetDecimal(5),
+                reader.GetBoolean(6), reader.GetFieldValue<DateTimeOffset>(7)));
         }
         return Ok(result);
     }
@@ -139,6 +142,38 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         long id,
         SaveLeaveTypeMasterRequest request,
         CancellationToken cancellationToken) => SaveLeaveType(id, request, cancellationToken);
+
+    [HttpGet("attendance-event-types")]
+    public async Task<ActionResult<IReadOnlyList<AttendanceEventTypeMasterDto>>> GetAttendanceEventTypes(
+        [FromQuery] bool includeInactive = true,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id, code, name_th, name_en, counts_as_work_time,
+                   display_order, is_active, updated_at
+            FROM public.attendance_event_types
+            WHERE (@include_inactive OR is_active = TRUE)
+            ORDER BY display_order, name_th, id
+            """;
+        var result = new List<AttendanceEventTypeMasterDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("include_inactive", includeInactive);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(ReadAttendanceEventType(reader));
+        return Ok(result);
+    }
+
+    [HttpPost("attendance-event-types")]
+    public Task<ActionResult<AttendanceEventTypeMasterDto>> CreateAttendanceEventType(
+        SaveAttendanceEventTypeMasterRequest request,
+        CancellationToken cancellationToken) => SaveAttendanceEventType(null, request, cancellationToken);
+
+    [HttpPut("attendance-event-types/{id:long}")]
+    public Task<ActionResult<AttendanceEventTypeMasterDto>> UpdateAttendanceEventType(
+        long id,
+        SaveAttendanceEventTypeMasterRequest request,
+        CancellationToken cancellationToken) => SaveAttendanceEventType(id, request, cancellationToken);
 
     private async Task<ActionResult<MasterDataItemDto>> SaveItem(
         long? id,
@@ -200,18 +235,25 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
     {
         var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.NameTh) ||
-            request.DefaultHours < 0)
+            request.DefaultHours < 0 || request.DefaultBonusDeductionPercent is < 0 or > 100)
             return BadRequest("กรุณากรอกรหัส ชื่อ และจำนวนชั่วโมงเริ่มต้นให้ถูกต้อง");
 
         const string insertSql = """
-            INSERT INTO public.leave_types(code, name_th, default_hours, is_active)
-            VALUES (@code, @name_th, @default_hours, @is_active)
+            INSERT INTO public.leave_types
+                (code, name_th, default_hours, default_bonus_deduction_enabled,
+                 default_bonus_deduction_percent, is_active)
+            VALUES
+                (@code, @name_th, @default_hours, @bonus_enabled,
+                 @bonus_percent, @is_active)
             RETURNING id
             """;
         const string updateSql = """
             UPDATE public.leave_types SET
                 code = @code, name_th = @name_th,
-                default_hours = @default_hours, is_active = @is_active
+                default_hours = @default_hours,
+                default_bonus_deduction_enabled = @bonus_enabled,
+                default_bonus_deduction_percent = @bonus_percent,
+                is_active = @is_active
             WHERE id = @id
             RETURNING id
             """;
@@ -222,6 +264,10 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
             command.Parameters.AddWithValue("code", code);
             command.Parameters.AddWithValue("name_th", request.NameTh.Trim());
             command.Parameters.AddWithValue("default_hours", request.DefaultHours);
+            command.Parameters.AddWithValue("bonus_enabled", request.DefaultBonusDeductionEnabled);
+            command.Parameters.AddWithValue(
+                "bonus_percent",
+                request.DefaultBonusDeductionEnabled ? request.DefaultBonusDeductionPercent : 0);
             command.Parameters.AddWithValue("is_active", request.IsActive);
             var savedId = (long?)await command.ExecuteScalarAsync(cancellationToken);
             if (!savedId.HasValue) return NotFound();
@@ -230,6 +276,55 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             return Conflict("รหัสประเภทการลานี้มีอยู่แล้ว");
+        }
+    }
+
+    private async Task<ActionResult<AttendanceEventTypeMasterDto>> SaveAttendanceEventType(
+        long? id,
+        SaveAttendanceEventTypeMasterRequest request,
+        CancellationToken cancellationToken)
+    {
+        var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.NameTh) ||
+            request.DisplayOrder < 0)
+            return BadRequest("กรุณากรอกรหัส ชื่อ และลำดับแสดงผลให้ถูกต้อง");
+
+        const string insertSql = """
+            INSERT INTO public.attendance_event_types
+                (code, name_th, name_en, counts_as_work_time, display_order, is_active)
+            VALUES
+                (@code, @name_th, @name_en, @counts_as_work_time, @display_order, @is_active)
+            RETURNING id
+            """;
+        const string updateSql = """
+            UPDATE public.attendance_event_types SET
+                code = @code, name_th = @name_th, name_en = @name_en,
+                counts_as_work_time = @counts_as_work_time,
+                display_order = @display_order, is_active = @is_active
+            WHERE id = @id
+            RETURNING id
+            """;
+        try
+        {
+            await using var command = dataSource.CreateCommand(id.HasValue ? updateSql : insertSql);
+            if (id.HasValue) command.Parameters.AddWithValue("id", id.Value);
+            command.Parameters.AddWithValue("code", code);
+            command.Parameters.AddWithValue("name_th", request.NameTh.Trim());
+            command.Parameters.Add(new NpgsqlParameter<string?>("name_en", NullIfEmpty(request.NameEn)));
+            command.Parameters.AddWithValue("counts_as_work_time", request.CountsAsWorkTime);
+            command.Parameters.AddWithValue("display_order", request.DisplayOrder);
+            command.Parameters.AddWithValue("is_active", request.IsActive);
+            var savedId = (long?)await command.ExecuteScalarAsync(cancellationToken);
+            if (!savedId.HasValue) return NotFound();
+            return Ok(await FindAttendanceEventType(savedId.Value, cancellationToken));
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Conflict("รหัสประเภท Event นี้มีอยู่แล้ว");
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            return Conflict("ไม่สามารถเปลี่ยนรหัสประเภท Event ที่ถูกใช้งานแล้วได้");
         }
     }
 
@@ -259,7 +354,9 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
     private async Task<LeaveTypeMasterDto?> FindLeaveType(long id, CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT id, code, name_th, default_hours, is_active, updated_at
+            SELECT id, code, name_th, default_hours,
+                   default_bonus_deduction_enabled, default_bonus_deduction_percent,
+                   is_active, updated_at
             FROM public.leave_types WHERE id = @id
             """;
         await using var command = dataSource.CreateCommand(sql);
@@ -268,12 +365,32 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         if (!await reader.ReadAsync(cancellationToken)) return null;
         return new LeaveTypeMasterDto(
             reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
-            reader.GetDecimal(3), reader.GetBoolean(4),
-            reader.GetFieldValue<DateTimeOffset>(5));
+            reader.GetDecimal(3), reader.GetBoolean(4), reader.GetDecimal(5),
+            reader.GetBoolean(6), reader.GetFieldValue<DateTimeOffset>(7));
     }
 
+    private async Task<AttendanceEventTypeMasterDto?> FindAttendanceEventType(
+        long id, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT id, code, name_th, name_en, counts_as_work_time,
+                   display_order, is_active, updated_at
+            FROM public.attendance_event_types
+            WHERE id = @id
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadAttendanceEventType(reader) : null;
+    }
+
+    private static AttendanceEventTypeMasterDto ReadAttendanceEventType(NpgsqlDataReader reader) => new(
+        reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
+        reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetBoolean(4),
+        reader.GetInt32(5), reader.GetBoolean(6), reader.GetFieldValue<DateTimeOffset>(7));
+
     private static bool IsGenericCategory(string? category) =>
-        Categories.Any(item => !item.IsLeaveType &&
+        Categories.Any(item => !item.IsLeaveType && !item.IsAttendanceEventType &&
             string.Equals(item.Code, category?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private async Task<bool> IsActiveBusinessUnit(long id, CancellationToken cancellationToken)

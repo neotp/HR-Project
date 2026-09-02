@@ -79,6 +79,8 @@ public sealed class AuthenticationController(NpgsqlDataSource dataSource) : Cont
             employee?.FullName ?? displayName ?? email.Trim(),
             employee?.Department ?? string.Empty,
             employee?.Position ?? string.Empty,
+            employee?.SupervisorName ?? string.Empty,
+            employee?.LeaveApproverName ?? string.Empty,
             employee is not null));
     }
 

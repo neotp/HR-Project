@@ -60,17 +60,9 @@
             <div class="tab-edit-actions">
                 <span class="tab-policy-note">@TabPolicyDescription(activeTab)</span>
                 <div>
-                    @if (CanDirectEdit(activeTab))
-                    {
-                        <button class="direct-edit-button" type="button" @onclick="() => OpenEditor(false)">แก้ไขข้อมูล</button>
-                    }
                     @if (CanRequestEdit(activeTab))
                     {
-                        <button class="request-edit-button" type="button" @onclick="() => OpenEditor(true)">ขอแก้ไขข้อมูล</button>
-                    }
-                    @if (activeTab == "internal")
-                    {
-                        <span class="hr-only-badge">เฉพาะ HR แก้ไข</span>
+                        <button class="request-edit-button" type="button" @onclick="OpenEditor">ขอแก้ไขข้อมูล</button>
                     }
                 </div>
             </div>
@@ -84,12 +76,23 @@
                             <div class="detail-grid">
                                 <DetailField Label="รหัสพนักงาน" Value="@employee.EmployeeCode" />
                                 <DetailField Label="คำนำหน้าชื่อ" Value="@employee.Title" />
-                                <DetailField Label="ชื่อ-นามสกุล (ไทย)" Value="@employee.ThaiFullName" />
-                                <DetailField Label="ชื่อ-นามสกุล (อังกฤษ)" Value="@employee.EnglishFullName" />
+                                <DetailField Label="ชื่อ-นามสกุล (ไทย)" Value="@DisplayValue(string.IsNullOrWhiteSpace(employee.ThaiFullName) ? employee.FullName : employee.ThaiFullName)" />
+                                <DetailField Label="ชื่อ-นามสกุล (อังกฤษ)" Value="@DisplayValue(employee.EnglishFullName)" />
                                 <DetailField Label="ชื่อเล่น" Value="@employee.Nickname" />
-                                <DetailField Label="E-mail" Value="@employee.Email" />
+                                <DetailField Label="Email" Value="@employee.Email" />
                                 <DetailField Label="เบอร์มือถือส่วนตัว" Value="@employee.PersonalMobile" />
-                                <DetailField Label="โทรศัพท์บ้าน" Value="@employee.HomePhone" />
+                                <DetailField Label="เบอร์มือถือบริษัท" Value="@DisplayValue(employee.CompanyMobile)" />
+                                <DetailField Label="Ext. ภายใน" Value="@DisplayValue(employee.InternalExtension)" />
+                                <DetailField Label="Business Unit" Value="@DisplayValue(employee.BusinessUnit)" />
+                                <DetailField Label="แผนก" Value="@DisplayValue(employee.Department)" />
+                                <DetailField Label="ตำแหน่ง" Value="@DisplayValue(employee.Position)" />
+                                <DetailField Label="หัวหน้างาน" Value="@DisplayValue(employee.SupervisorName)" />
+                                <DetailField Label="Reporting To (Leave Approve)" Value="@DisplayValue(employee.LeaveApproverName)" />
+                                <DetailField Label="วันที่เริ่มงาน" Value="@FormatDate(employee.StartDate)" />
+                                <DetailField Label="Branch" Value="@DisplayValue(employee.BranchName)" />
+                                <DetailField Label="Province of Residence (จังหวัดที่อาศัยอยู่)" Value="@DisplayValue(employee.ResidenceProvince)" />
+                                <DetailField Label="Province of Responsibility (จังหวัดที่ให้ดูแล)" Value="@DisplayValue(employee.ResponsibilityProvince)" />
+                                <DetailField Label="ประเภท Checklist" Value="@DisplayValue(employee.ChecklistType)" />
                             </div>
                         </section>
                         break;
@@ -97,6 +100,12 @@
                         <section aria-labelledby="personal-title">
                             <h2 id="personal-title">ข้อมูลส่วนบุคคล</h2>
                             <div class="detail-grid">
+                                <DetailField Label="คำนำหน้าชื่อ" Value="@employee.Title" />
+                                <DetailField Label="ชื่อ-นามสกุล (ไทย)" Value="@employee.ThaiFullName" />
+                                <DetailField Label="ชื่อ-นามสกุล (อังกฤษ)" Value="@employee.EnglishFullName" />
+                                <DetailField Label="ชื่อเล่น" Value="@employee.Nickname" />
+                                <DetailField Label="เบอร์มือถือส่วนตัว" Value="@employee.PersonalMobile" />
+                                <DetailField Label="โทรศัพท์บ้าน" Value="@employee.HomePhone" />
                                 <DetailField Label="ศาสนา" Value="@employee.Religion" />
                                 <DetailField Label="หมู่เลือด" Value="@employee.BloodType" />
                                 <DetailField Label="จังหวัดที่พักอาศัย" Value="@employee.ResidenceProvince" />
@@ -114,36 +123,31 @@
                             <h2 id="internal-title">ข้อมูลภายในบริษัท</h2>
                             <div class="detail-grid">
                                 <DetailField Label="รหัสพนักงาน" Value="@employee.EmployeeCode" />
+                                <DetailField Label="Email for Lotus Notes" Value="@DisplayValue(employee.LotusNotesEmail)" />
+                                <DetailField Label="Email" Value="@DisplayValue(employee.Email)" />
                                 <DetailField Label="บริษัท" Value="@DisplayValue(employee.Company)" />
                                 <DetailField Label="Business Unit" Value="@DisplayValue(employee.BusinessUnit)" />
-                                <DetailField Label="ฝ่าย" Value="@DisplayValue(employee.Division)" />
                                 <DetailField Label="แผนก" Value="@DisplayValue(employee.Department)" />
-                                <DetailField Label="ส่วนงาน" Value="@DisplayValue(employee.Section)" />
                                 <DetailField Label="ตำแหน่ง" Value="@DisplayValue(employee.Position)" />
-                                <DetailField Label="รหัสตำแหน่ง" Value="@DisplayValue(employee.JobCode)" />
                                 <DetailField Label="หัวหน้างาน" Value="@DisplayValue(employee.SupervisorName)" />
                                 <DetailField Label="Reporting To (Leave Approve)" Value="@DisplayValue(employee.LeaveApproverName)" />
-                                <DetailField Label="หัวหน้างาน (Functional Boss)" Value="@DisplayValue(employee.FunctionalSupervisorName)" />
-                                <DetailField Label="Buddy" Value="@DisplayValue(employee.BuddyName)" />
-                                <DetailField Label="ประเภทการจ้าง" Value="@DisplayValue(employee.EmploymentType)" />
-                                <DetailField Label="ประเภทพนักงานและเวลาทำงาน" Value="@DisplayValue(employee.WorkSchedule)" />
-                                <DetailField Label="สถานที่ทำงาน" Value="@DisplayValue(employee.WorkLocation)" />
-                                <DetailField Label="อีเมลบริษัท" Value="@DisplayValue(employee.Email)" />
-                                <DetailField Label="Ext. ภายใน" Value="@DisplayValue(employee.InternalExtension)" />
+                                <DetailField Label="Branch" Value="@DisplayValue(employee.BranchName)" />
                                 <DetailField Label="เบอร์โทรสายตรง" Value="@DisplayValue(employee.DirectPhone)" />
                                 <DetailField Label="เบอร์มือถือบริษัท" Value="@DisplayValue(employee.CompanyMobile)" />
-                                <DetailField Label="MAC Address" Value="@DisplayValue(employee.MacAddress)" />
-                                <DetailField Label="รหัสสาขา" Value="@DisplayValue(employee.BranchCode)" />
-                                <DetailField Label="ชื่อสาขา" Value="@DisplayValue(employee.BranchName)" />
-                                <DetailField Label="จังหวัดที่ให้ดูแล" Value="@DisplayValue(employee.ResponsibilityProvince)" />
+                                <DetailField Label="Ext. ภายใน" Value="@DisplayValue(employee.InternalExtension)" />
+                                <DetailField Label="Buddy" Value="@DisplayValue(employee.BuddyName)" />
+                                <DetailField Label="Province of Residence (จังหวัดที่อาศัยอยู่)" Value="@DisplayValue(employee.ResidenceProvince)" />
+                                <DetailField Label="Province of Responsibility (จังหวัดที่ให้ดูแล)" Value="@DisplayValue(employee.ResponsibilityProvince)" />
                                 <DetailField Label="ประเภท Checklist" Value="@DisplayValue(employee.ChecklistType)" />
+                                <DetailField Label="ประเภทพนักงานและเวลาทำงานในโปรแกรมดึงเวลาทำงาน" Value="@DisplayValue(employee.WorkSchedule)" />
                                 <DetailField Label="สินค้าที่ให้ขาย" Value="@DisplayValue(employee.ProductsResponsible)" />
                                 <DetailField Label="วันที่เริ่มงาน" Value="@FormatDate(employee.StartDate)" />
-                                <DetailField Label="วันที่บรรจุ" Value="@FormatDate(employee.AppointmentDate)" />
-                                <DetailField Label="วันที่เปิดกองทุนเงินสะสม" Value="@FormatDate(employee.ProvidentFundStartDate)" />
                                 <DetailField Label="ประสบการณ์การทำงาน" Value="@DisplayValue(employee.WorkExperienceType)" />
                                 <DetailField Label="บริษัทมีที่จอดรถให้" Value="@ParkingText(employee.HasCompanyParking)" />
+                                <DetailField Label="สามารถเดินทางไปต่างจังหวัดได้" Value="@BooleanText(employee.CanTravelUpcountry, "ได้", "ไม่ได้")" />
+                                <DetailField Label="MAC Address" Value="@DisplayValue(employee.MacAddress)" />
                                 <DetailField Label="สถานะพนักงาน" Value="@DisplayValue(employee.EmployeeStatus)" />
+                                <DetailField Label="การคำนวณการมาทำงาน" Value="@(employee.ExcludeAttendanceCalculation ? "ไม่ต้องคำนวณ" : "คำนวณตามปกติ")" />
                             </div>
                         </section>
                         break;
@@ -246,43 +250,51 @@
         <section class="employee-edit-modal">
             <header class="employee-edit-modal-header">
                 <div>
-                    <h2 id="employee-edit-title">@(isRequestMode ? "ขอแก้ไขข้อมูลพนักงาน" : "แก้ไขข้อมูลพนักงาน")</h2>
+                    <h2 id="employee-edit-title">ขอแก้ไขข้อมูลพนักงาน</h2>
                     <p>@employee.EmployeeCode · @employee.FullName</p>
                 </div>
                 <button type="button" aria-label="ปิด" @onclick="CloseEditRequest">×</button>
             </header>
             <div class="employee-edit-modal-body">
-                <p class="edit-hint">@(isRequestMode
-                    ? $"คำขอนี้มีเฉพาะ {TabLabel(editActiveTab)} และข้อมูลหลักจะเปลี่ยนหลังได้รับอนุมัติ"
-                    : $"บันทึก {TabLabel(editActiveTab)} ได้ทันทีโดยไม่ต้องส่งคำขอ")</p>
+                <p class="edit-hint">คำขอนี้มีเฉพาะ @TabLabel(editActiveTab) และข้อมูลหลักจะเปลี่ยนหลังได้รับอนุมัติ</p>
                 <section class="edit-tab-panel">
                     @switch (editActiveTab)
                     {
-                        case "basic":
+                        case "personal":
                             <div class="employee-edit-grid">
-                                @if (isRequestMode)
+                                @if (true)
                                 {
+                                    <div class="profile-image-request-editor wide-field">
+                                        <div class="profile-image-request-preview">
+                                            @if (string.IsNullOrWhiteSpace(proposedProfileImageDataUrl))
+                                            {
+                                                <span>@Initials(employee)</span>
+                                            }
+                                            else
+                                            {
+                                                <img src="@proposedProfileImageDataUrl" alt="รูปโปรไฟล์ที่เลือก" />
+                                            }
+                                        </div>
+                                        <div class="profile-image-request-actions">
+                                            <strong>รูปโปรไฟล์</strong>
+                                            <small>รองรับ JPG, PNG หรือ WEBP ขนาดไม่เกิน 2 MB</small>
+                                            <label class="select-profile-image-button">
+                                                เลือกรูปใหม่
+                                                <InputFile OnChange="UploadProposedProfileImage" accept="image/jpeg,image/png,image/webp" />
+                                            </label>
+                                            @if (!string.Equals(proposedProfileImageDataUrl, employee.ProfileImageDataUrl, StringComparison.Ordinal))
+                                            {
+                                                <button type="button" class="reset-profile-image-button" @onclick="ResetProposedProfileImage">ใช้รูปเดิม</button>
+                                            }
+                                        </div>
+                                    </div>
                                     <label>คำนำหน้าชื่อ<input @bind="proposedTitle" /></label>
                                     <label>ชื่อ<input @bind="proposedFirstName" /></label>
                                     <label>นามสกุล<input @bind="proposedLastName" /></label>
                                     <label>ชื่อ-นามสกุล (ไทย)<input @bind="proposedThaiFullName" /></label>
                                     <label>ชื่อ-นามสกุล (อังกฤษ)<input @bind="proposedEnglishFullName" /></label>
-                                    <label>E-mail<input type="email" @bind="proposedEmail" /></label>
-                                }
-                                else
-                                {
-                                    <label>ชื่อเล่น<input @bind="proposedNickname" /></label>
-                                    <label>เบอร์มือถือส่วนตัว<input @bind="proposedPersonalMobile" /></label>
-                                    <label>โทรศัพท์บ้าน<input @bind="proposedHomePhone" /></label>
-                                }
-                            </div>
-                            break;
-                        case "personal":
-                            <div class="employee-edit-grid">
-                                @if (isRequestMode)
-                                {
                                     <label>เลขบัตรประชาชน<input @bind="personalNationalId" placeholder="ระบุข้อมูลที่ต้องการแก้ไข" /></label>
-                                    <label>วันเกิด<input type="date" @bind="personalBirthDate" /></label>
+                                    <label>วันเกิด<DateOnlyPicker @bind-Value="personalBirthDate" AriaLabel="วันเกิด" /></label>
                                     <label>เพศ<select @bind="personalGender"><option value="">-- เลือก --</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option><option value="ไม่ระบุ">ไม่ระบุ</option></select></label>
                                     <label>ศาสนา<input @bind="personalReligion" /></label>
                                     <label>หมู่เลือด<input @bind="personalBloodType" /></label>
@@ -290,8 +302,11 @@
                                     <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="3" @bind="personalIdCardAddress"></textarea></label>
                                     <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="3" @bind="personalHouseRegistrationAddress"></textarea></label>
                                 }
-                                else
+                                @if (true)
                                 {
+                                    <label>ชื่อเล่น<input @bind="proposedNickname" /></label>
+                                    <label>เบอร์มือถือส่วนตัว<input @bind="proposedPersonalMobile" /></label>
+                                    <label>โทรศัพท์บ้าน<input @bind="proposedHomePhone" /></label>
                                     <label class="wide-field">ที่อยู่ปัจจุบัน<textarea rows="3" @bind="personalCurrentAddress"></textarea></label>
                                     <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="personalEmergencyContactName" /></label>
                                     <label>เบอร์ติดต่อฉุกเฉิน<input @bind="personalEmergencyContactPhone" /></label>
@@ -301,6 +316,8 @@
                             break;
                         case "internal":
                             <div class="employee-edit-grid">
+                                <label>Email for Lotus Notes<input @bind="proposedLotusNotesEmail" /></label>
+                                <label>Email<input type="email" @bind="proposedEmail" /></label>
                                 <label>บริษัท<input @bind="internalCompany" /></label>
                                 <label>Business Unit<input @bind="internalBusinessUnit" /></label>
                                 <label>ฝ่าย<input @bind="internalDivision" /></label>
@@ -332,9 +349,9 @@
                                 <label>จังหวัดที่ให้ดูแล<input @bind="internalResponsibilityProvince" /></label>
                                 <label>ประเภท Checklist<input @bind="internalChecklistType" /></label>
                                 <label>สินค้าที่ให้ขาย<input @bind="internalProductsResponsible" /></label>
-                                <label>วันที่เริ่มงาน<input type="date" @bind="proposedStartDate" /></label>
-                                <label>วันที่บรรจุ<input type="date" @bind="internalAppointmentDate" /></label>
-                                <label>วันที่เปิดกองทุนเงินสะสม<input type="date" @bind="internalProvidentFundStartDate" /></label>
+                                <label>วันที่เริ่มงาน<DateOnlyPicker Value="@proposedStartDate" ValueChanged="value => proposedStartDate = value ?? proposedStartDate" AriaLabel="วันที่เริ่มงาน" /></label>
+                                <label>วันที่บรรจุ<DateOnlyPicker @bind-Value="internalAppointmentDate" AriaLabel="วันที่บรรจุ" /></label>
+                                <label>วันที่เปิดกองทุนเงินสะสม<DateOnlyPicker @bind-Value="internalProvidentFundStartDate" AriaLabel="วันที่เปิดกองทุนเงินสะสม" /></label>
                                 <label>ประสบการณ์การทำงาน
                                     <select @bind="internalWorkExperienceType">
                                         <option value="">-- เลือก --</option>
@@ -357,6 +374,10 @@
                                         <option value="พักงาน">พักงาน</option>
                                         <option value="ลาออก">ลาออก</option>
                                     </select>
+                                </label>
+                                <label class="attendance-exclusion-option">
+                                    <input type="checkbox" @bind="internalExcludeAttendanceCalculation" />
+                                    <span>ไม่ต้องคำนวณการมาทำงาน</span>
                                 </label>
                             </div>
                             break;
@@ -395,13 +416,13 @@
                             break;
                         case "family":
                             <div class="employee-edit-grid">
-                                @if (isRequestMode)
+                                @if (true)
                                 {
                                     <label>สถานภาพการสมรส<select @bind="familyMaritalStatus"><option value="โสด">โสด</option><option value="สมรส">สมรส</option><option value="หย่า">หย่า</option><option value="หม้าย">หม้าย</option></select></label>
                                     <label>ชื่อ-นามสกุลคู่สมรส<input @bind="familySpouseName" /></label>
                                     <label>เลขบัตรประชาชนคู่สมรส<input @bind="familySpouseNationalId" /></label>
                                 }
-                                else
+                                @if (true)
                                 {
                                     <label>เบอร์โทรศัพท์ครอบครัว<input @bind="familyPhone" /></label>
                                     <label class="wide-field">URL แผนที่อยู่ปัจจุบัน<input type="url" @bind="familyCurrentAddressMapUrl" /></label>
@@ -410,12 +431,9 @@
                             break;
                     }
                 </section>
-                @if (isRequestMode)
-                {
-                    <label class="edit-reason">เหตุผลที่ขอแก้ไข
-                        <textarea rows="3" @bind="editReason" placeholder="ระบุเหตุผลในการขอแก้ไขข้อมูล"></textarea>
-                    </label>
-                }
+                <label class="edit-reason">เหตุผลที่ขอแก้ไข
+                    <textarea rows="3" @bind="editReason" placeholder="ระบุเหตุผลในการขอแก้ไขข้อมูล"></textarea>
+                </label>
                 @if (!string.IsNullOrWhiteSpace(editError))
                 {
                     <div class="edit-error" role="alert">@editError</div>
@@ -424,18 +442,9 @@
             <footer class="employee-edit-modal-footer">
                 <button class="cancel-edit-button" type="button"
                         disabled="@isSubmittingEdit" @onclick="CloseEditRequest">ปิด</button>
-                @if (isRequestMode)
-                {
-                    <button class="submit-edit-button" type="button" disabled="@isSubmittingEdit" @onclick="SubmitEditRequest">
-                        @(isSubmittingEdit ? "กำลังส่งคำขอ..." : "ส่งคำขอแก้ไข")
-                    </button>
-                }
-                else
-                {
-                    <button class="submit-edit-button direct-save-button" type="button" disabled="@isSubmittingEdit" @onclick="SaveDirectChanges">
-                        @(isSubmittingEdit ? "กำลังบันทึก..." : "บันทึกข้อมูล")
-                    </button>
-                }
+                <button class="submit-edit-button" type="button" disabled="@isSubmittingEdit" @onclick="SubmitEditRequest">
+                    @(isSubmittingEdit ? "กำลังส่งคำขอ..." : "ส่งคำขอแก้ไข")
+                </button>
             </footer>
         </section>
     </div>
@@ -457,8 +466,9 @@
     private bool isLoading = true;
     private bool isEditRequestOpen;
     private bool isSubmittingEdit;
-    private bool isRequestMode;
     private Employee? employee;
+    private CurrentMicrosoftUserDto? currentUser;
+    private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
     private string activeTab = "basic";
     private string editActiveTab = "basic";
     private string? actionMessage;
@@ -469,9 +479,12 @@
     private string proposedThaiFullName = string.Empty;
     private string proposedEnglishFullName = string.Empty;
     private string proposedNickname = string.Empty;
+    private string proposedLotusNotesEmail = string.Empty;
     private string proposedEmail = string.Empty;
     private string proposedPersonalMobile = string.Empty;
     private string proposedHomePhone = string.Empty;
+    private string proposedProfileImageDataUrl = string.Empty;
+    private const long MaxProfileImageBytes = 2 * 1024 * 1024;
     private DateOnly proposedStartDate;
     private string personalNationalId = string.Empty;
     private DateOnly? personalBirthDate;
@@ -513,6 +526,7 @@
     private string internalWorkExperienceType = string.Empty;
     private string internalHasCompanyParking = string.Empty;
     private string internalEmployeeStatus = string.Empty;
+    private bool internalExcludeAttendanceCalculation;
     private string workCompany = string.Empty;
     private string workPosition = string.Empty;
     private string workPeriod = string.Empty;
@@ -553,10 +567,26 @@
     {
         isLoading = true;
         employee = null;
+        currentUser = null;
+        allowedActions = new(StringComparer.OrdinalIgnoreCase);
         activeTab = "basic";
         try
         {
             employee = await Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
+            try
+            {
+                currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+                if (!string.IsNullOrWhiteSpace(currentUser?.EmployeeId))
+                {
+                    var permissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                        $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&pageKey=EMPLOYEES");
+                    allowedActions = permissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+                }
+            }
+            catch (HttpRequestException)
+            {
+                allowedActions = new(StringComparer.OrdinalIgnoreCase);
+            }
         }
         catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -570,16 +600,13 @@
 
     private void BackToList() => Navigation.NavigateTo("/");
 
-    private void OpenEditor(bool requestMode)
+    private void OpenEditor()
     {
         if (employee is null)
             return;
 
-        if (requestMode && !CanRequestEdit(activeTab) ||
-            !requestMode && !CanDirectEdit(activeTab))
+        if (!CanRequestEdit(activeTab))
             return;
-
-        isRequestMode = requestMode;
 
         proposedTitle = employee.Title;
         proposedFirstName = employee.FirstName;
@@ -587,9 +614,11 @@
         proposedThaiFullName = employee.ThaiFullName;
         proposedEnglishFullName = employee.EnglishFullName;
         proposedNickname = employee.Nickname;
+        proposedLotusNotesEmail = employee.LotusNotesEmail;
         proposedEmail = employee.Email;
         proposedPersonalMobile = employee.PersonalMobile;
         proposedHomePhone = employee.HomePhone;
+        proposedProfileImageDataUrl = employee.ProfileImageDataUrl;
         proposedStartDate = employee.StartDate;
         editActiveTab = activeTab;
         personalNationalId = string.Empty;
@@ -632,6 +661,7 @@
         internalWorkExperienceType = employee.WorkExperienceType;
         internalHasCompanyParking = ParkingEditValue(employee.HasCompanyParking);
         internalEmployeeStatus = employee.EmployeeStatus;
+        internalExcludeAttendanceCalculation = employee.ExcludeAttendanceCalculation;
         workCompany = employee.PreviousCompany;
         workPosition = employee.PreviousPosition;
         workPeriod = employee.PreviousWorkPeriod;
@@ -669,22 +699,54 @@
 
     private async Task SaveDirectChanges()
     {
-        if (employee is null || isRequestMode)
+        if (employee is null)
             return;
 
         editError = null;
         switch (editActiveTab)
         {
-            case "basic":
+            case "personal":
                 employee.Nickname = proposedNickname.Trim();
                 employee.PersonalMobile = proposedPersonalMobile.Trim();
                 employee.HomePhone = proposedHomePhone.Trim();
-                break;
-            case "personal":
                 employee.CurrentAddress = personalCurrentAddress.Trim();
                 employee.EmergencyContactName = personalEmergencyContactName.Trim();
                 employee.EmergencyContactPhone = personalEmergencyContactPhone.Trim();
                 employee.EmergencyContactAddress = personalEmergencyContactAddress.Trim();
+                break;
+            case "internal":
+                employee.LotusNotesEmail = proposedLotusNotesEmail.Trim();
+                employee.Email = proposedEmail.Trim();
+                employee.Company = internalCompany.Trim();
+                employee.BusinessUnit = internalBusinessUnit.Trim();
+                employee.Division = internalDivision.Trim();
+                employee.Department = internalDepartment.Trim();
+                employee.Section = internalSection.Trim();
+                employee.Position = internalPosition.Trim();
+                employee.JobCode = internalJobCode.Trim();
+                employee.SupervisorName = internalSupervisorName.Trim();
+                employee.LeaveApproverName = internalLeaveApproverName.Trim();
+                employee.FunctionalSupervisorName = internalFunctionalSupervisorName.Trim();
+                employee.BuddyName = internalBuddyName.Trim();
+                employee.EmploymentType = internalEmploymentType.Trim();
+                employee.WorkSchedule = internalWorkSchedule.Trim();
+                employee.WorkLocation = internalWorkLocation.Trim();
+                employee.InternalExtension = internalExtension.Trim();
+                employee.DirectPhone = internalDirectPhone.Trim();
+                employee.CompanyMobile = internalCompanyMobile.Trim();
+                employee.MacAddress = internalMacAddress.Trim();
+                employee.BranchCode = internalBranchCode.Trim();
+                employee.BranchName = internalBranchName.Trim();
+                employee.ResponsibilityProvince = internalResponsibilityProvince.Trim();
+                employee.ChecklistType = internalChecklistType.Trim();
+                employee.ProductsResponsible = internalProductsResponsible.Trim();
+                employee.StartDate = proposedStartDate;
+                employee.AppointmentDate = internalAppointmentDate;
+                employee.ProvidentFundStartDate = internalProvidentFundStartDate;
+                employee.WorkExperienceType = internalWorkExperienceType.Trim();
+                employee.HasCompanyParking = ParseOptionalBoolean(internalHasCompanyParking);
+                employee.EmployeeStatus = internalEmployeeStatus.Trim();
+                employee.ExcludeAttendanceCalculation = internalExcludeAttendanceCalculation;
                 break;
             case "training":
                 employee.TrainingHistory = editableTrainingHistory;
@@ -698,7 +760,10 @@
         isSubmittingEdit = true;
         try
         {
-            var response = await Http.PutAsJsonAsync($"api/employees/{employee.Id}/self-service", employee);
+            var endpoint = editActiveTab == "internal"
+                ? $"api/employees/{employee.Id}/company?actorEmployeeId={Uri.EscapeDataString(currentUser?.EmployeeId ?? string.Empty)}"
+                : $"api/employees/{employee.Id}/self-service";
+            var response = await Http.PutAsJsonAsync(endpoint, employee);
             if (!response.IsSuccessStatusCode)
             {
                 editError = $"บันทึกข้อมูลไม่สำเร็จ: {await response.Content.ReadAsStringAsync()}";
@@ -728,15 +793,13 @@
         var changes = new List<EmployeeFieldChangeDto>();
         switch (editActiveTab)
         {
-            case "basic":
+            case "personal":
+                AddChange(changes, "profileImage", "รูปโปรไฟล์", employee.ProfileImageDataUrl, proposedProfileImageDataUrl);
                 AddChange(changes, "title", "คำนำหน้าชื่อ", employee.Title, proposedTitle);
                 AddChange(changes, "firstName", "ชื่อ", employee.FirstName, proposedFirstName);
                 AddChange(changes, "lastName", "นามสกุล", employee.LastName, proposedLastName);
                 AddChange(changes, "thaiFullName", "ชื่อ-นามสกุล (ไทย)", employee.ThaiFullName, proposedThaiFullName);
                 AddChange(changes, "englishFullName", "ชื่อ-นามสกุล (อังกฤษ)", employee.EnglishFullName, proposedEnglishFullName);
-                AddChange(changes, "email", "อีเมล", employee.Email, proposedEmail);
-                break;
-            case "personal":
                 AddOptionalChange(changes, "personal.nationalId", "เลขบัตรประชาชน", personalNationalId);
                 AddOptionalChange(changes, "personal.birthDate", "วันเกิด", personalBirthDate?.ToString("yyyy-MM-dd") ?? string.Empty);
                 AddOptionalChange(changes, "personal.gender", "เพศ", personalGender);
@@ -745,6 +808,47 @@
                 AddChange(changes, "personal.residenceProvince", "จังหวัดที่พักอาศัย", employee.ResidenceProvince, personalResidenceProvince);
                 AddChange(changes, "personal.idCardAddress", "ที่อยู่ตามบัตรประชาชน", employee.IdCardAddress, personalIdCardAddress);
                 AddChange(changes, "personal.houseRegistrationAddress", "ที่อยู่ตามทะเบียนบ้าน", employee.HouseRegistrationAddress, personalHouseRegistrationAddress);
+                AddChange(changes, "nickname", "ชื่อเล่น", employee.Nickname, proposedNickname);
+                AddChange(changes, "personalMobile", "เบอร์มือถือส่วนตัว", employee.PersonalMobile, proposedPersonalMobile);
+                AddChange(changes, "homePhone", "โทรศัพท์บ้าน", employee.HomePhone, proposedHomePhone);
+                AddChange(changes, "personal.currentAddress", "ที่อยู่ปัจจุบัน", employee.CurrentAddress, personalCurrentAddress);
+                AddChange(changes, "personal.emergencyContactName", "บุคคลติดต่อกรณีฉุกเฉิน", employee.EmergencyContactName, personalEmergencyContactName);
+                AddChange(changes, "personal.emergencyContactPhone", "เบอร์ติดต่อฉุกเฉิน", employee.EmergencyContactPhone, personalEmergencyContactPhone);
+                AddChange(changes, "personal.emergencyContactAddress", "ที่อยู่ผู้ติดต่อฉุกเฉิน", employee.EmergencyContactAddress, personalEmergencyContactAddress);
+                break;
+            case "internal":
+                AddChange(changes, "lotusNotesEmail", "Email for Lotus Notes", employee.LotusNotesEmail, proposedLotusNotesEmail);
+                AddChange(changes, "email", "Email", employee.Email, proposedEmail);
+                AddChange(changes, "internal.company", "บริษัท", employee.Company, internalCompany);
+                AddChange(changes, "internal.businessUnit", "Business Unit", employee.BusinessUnit, internalBusinessUnit);
+                AddChange(changes, "internal.division", "ฝ่าย", employee.Division, internalDivision);
+                AddChange(changes, "internal.department", "แผนก", employee.Department, internalDepartment);
+                AddChange(changes, "internal.section", "ส่วนงาน", employee.Section, internalSection);
+                AddChange(changes, "internal.position", "ตำแหน่ง", employee.Position, internalPosition);
+                AddChange(changes, "internal.jobCode", "รหัสตำแหน่ง", employee.JobCode, internalJobCode);
+                AddChange(changes, "internal.supervisor", "หัวหน้างาน", employee.SupervisorName, internalSupervisorName);
+                AddChange(changes, "internal.leaveApprover", "Reporting To (Leave Approve)", employee.LeaveApproverName, internalLeaveApproverName);
+                AddChange(changes, "internal.functionalSupervisor", "หัวหน้างาน (Functional Boss)", employee.FunctionalSupervisorName, internalFunctionalSupervisorName);
+                AddChange(changes, "internal.buddy", "Buddy", employee.BuddyName, internalBuddyName);
+                AddChange(changes, "internal.employmentType", "ประเภทการจ้าง", employee.EmploymentType, internalEmploymentType);
+                AddChange(changes, "internal.workSchedule", "ประเภทพนักงานและเวลาทำงาน", employee.WorkSchedule, internalWorkSchedule);
+                AddChange(changes, "internal.workLocation", "สถานที่ทำงาน", employee.WorkLocation, internalWorkLocation);
+                AddChange(changes, "internal.extension", "Ext. ภายใน", employee.InternalExtension, internalExtension);
+                AddChange(changes, "internal.directPhone", "เบอร์โทรสายตรง", employee.DirectPhone, internalDirectPhone);
+                AddChange(changes, "internal.companyMobile", "เบอร์มือถือบริษัท", employee.CompanyMobile, internalCompanyMobile);
+                AddChange(changes, "internal.macAddress", "MAC Address", employee.MacAddress, internalMacAddress);
+                AddChange(changes, "internal.branchCode", "รหัสสาขา", employee.BranchCode, internalBranchCode);
+                AddChange(changes, "internal.branchName", "ชื่อสาขา", employee.BranchName, internalBranchName);
+                AddChange(changes, "internal.responsibilityProvince", "จังหวัดที่ให้ดูแล", employee.ResponsibilityProvince, internalResponsibilityProvince);
+                AddChange(changes, "internal.checklistType", "ประเภท Checklist", employee.ChecklistType, internalChecklistType);
+                AddChange(changes, "internal.productsResponsible", "สินค้าที่ให้ขาย", employee.ProductsResponsible, internalProductsResponsible);
+                AddChange(changes, "internal.startDate", "วันที่เริ่มงาน", DateText(employee.StartDate), DateText(proposedStartDate));
+                AddChange(changes, "internal.appointmentDate", "วันที่บรรจุ", DateText(employee.AppointmentDate), DateText(internalAppointmentDate));
+                AddChange(changes, "internal.providentFundStartDate", "วันที่เปิดกองทุนเงินสะสม", DateText(employee.ProvidentFundStartDate), DateText(internalProvidentFundStartDate));
+                AddChange(changes, "internal.workExperienceType", "ประสบการณ์การทำงาน", employee.WorkExperienceType, internalWorkExperienceType);
+                AddChange(changes, "internal.hasCompanyParking", "บริษัทมีที่จอดรถให้", BooleanText(employee.HasCompanyParking), BooleanText(ParseOptionalBoolean(internalHasCompanyParking)));
+                AddChange(changes, "internal.employeeStatus", "สถานะพนักงาน", employee.EmployeeStatus, internalEmployeeStatus);
+                AddChange(changes, "internal.excludeAttendance", "การคำนวณการมาทำงาน", employee.ExcludeAttendanceCalculation.ToString(), internalExcludeAttendanceCalculation.ToString());
                 break;
             case "work":
                 AddTableChange(changes, "work.history", "รายการประวัติการทำงาน", employee.WorkHistory, editableWorkHistory);
@@ -752,22 +856,21 @@
             case "education":
                 AddTableChange(changes, "education.history", "รายการประวัติการศึกษา", employee.EducationHistory, editableEducationHistory);
                 break;
+            case "training":
+                AddTableChange(changes, "training.history", "รายการประวัติการอบรมและสัมมนา", employee.TrainingHistory, editableTrainingHistory);
+                break;
             case "family":
                 AddChange(changes, "family.maritalStatus", "สถานภาพการสมรส", employee.MaritalStatus, familyMaritalStatus);
                 AddChange(changes, "family.spouseName", "ชื่อ-นามสกุลคู่สมรส", employee.SpouseName, familySpouseName);
                 AddChange(changes, "family.spouseNationalId", "เลขบัตรประชาชนคู่สมรส", employee.SpouseNationalId, familySpouseNationalId);
+                AddChange(changes, "family.phone", "เบอร์โทรศัพท์ครอบครัว", employee.FamilyPhone, familyPhone);
+                AddChange(changes, "family.currentAddressMapUrl", "URL แผนที่อยู่ปัจจุบัน", employee.CurrentAddressMapUrl, familyCurrentAddressMapUrl);
                 break;
         }
 
         if (changes.Count == 0 || string.IsNullOrWhiteSpace(editReason))
         {
             editError = "กรุณาแก้ไขข้อมูลอย่างน้อย 1 รายการและระบุเหตุผล";
-            return;
-        }
-
-        if (changes.Any(change => string.IsNullOrWhiteSpace(change.NewValue)))
-        {
-            editError = "ข้อมูลที่ขอแก้ไขต้องไม่เป็นค่าว่าง";
             return;
         }
 
@@ -779,8 +882,8 @@
                 employee.FullName,
                 changes,
                 editReason,
-                "EMP-001",
-                "Anan Sukjai");
+                currentUser?.EmployeeId ?? employee.EmployeeCode,
+                currentUser?.EmployeeName ?? currentUser?.DisplayName ?? employee.FullName);
             var response = await Http.PostAsJsonAsync("api/employee-edit-requests", request);
             if (!response.IsSuccessStatusCode)
             {
@@ -815,6 +918,43 @@
         var normalizedNewValue = newValue?.Trim() ?? string.Empty;
         if (!string.Equals(oldValue, normalizedNewValue, StringComparison.Ordinal))
             changes.Add(new EmployeeFieldChangeDto(fieldKey, fieldName, oldValue, normalizedNewValue));
+    }
+
+    private async Task UploadProposedProfileImage(InputFileChangeEventArgs eventArgs)
+    {
+        editError = null;
+        var file = eventArgs.File;
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            editError = "กรุณาเลือกไฟล์รูป JPG, PNG หรือ WEBP เท่านั้น";
+            return;
+        }
+
+        if (file.Size > MaxProfileImageBytes)
+        {
+            editError = "รูปโปรไฟล์ต้องมีขนาดไม่เกิน 2 MB";
+            return;
+        }
+
+        try
+        {
+            await using var input = file.OpenReadStream(MaxProfileImageBytes);
+            using var memory = new MemoryStream();
+            await input.CopyToAsync(memory);
+            proposedProfileImageDataUrl =
+                $"data:{file.ContentType};base64,{Convert.ToBase64String(memory.ToArray())}";
+        }
+        catch (Exception exception)
+        {
+            editError = $"อ่านไฟล์รูปไม่สำเร็จ: {exception.Message}";
+        }
+    }
+
+    private void ResetProposedProfileImage()
+    {
+        if (employee is not null)
+            proposedProfileImageDataUrl = employee.ProfileImageDataUrl;
     }
 
     private static void AddOptionalChange(
@@ -855,21 +995,28 @@
     private void AddEditableEducation() => editableEducationHistory.Add(new EmployeeEducationItem());
     private void AddEditableTraining() => editableTrainingHistory.Add(new EmployeeTrainingItem());
 
-    private static bool CanDirectEdit(string tab) => tab is "basic" or "personal" or "training" or "family";
-    private static bool CanRequestEdit(string tab) => tab is "basic" or "personal" or "work" or "education" or "family";
+    private static string DateText(DateOnly value) =>
+        value == default ? string.Empty : value.ToString("yyyy-MM-dd");
+    private static string DateText(DateOnly? value) =>
+        value?.ToString("yyyy-MM-dd") ?? string.Empty;
+    private static string BooleanText(bool? value) =>
+        value?.ToString() ?? string.Empty;
+
+    private static bool CanRequestEdit(string tab) =>
+        tab is "personal" or "internal" or "work" or "education" or "training" or "family";
 
     private static string TabLabel(string tab) =>
         Tabs.FirstOrDefault(item => item.Key == tab).Label ?? "ข้อมูลพนักงาน";
 
-    private static string TabPolicyDescription(string tab) => tab switch
+    private string TabPolicyDescription(string tab) => tab switch
     {
-        "basic" => "ชื่อเล่นและข้อมูลติดต่อแก้ได้ทันที ส่วนชื่อและอีเมลต้องขออนุมัติ",
-        "personal" => "ที่อยู่ปัจจุบันและผู้ติดต่อฉุกเฉินแก้ได้ทันที ข้อมูลระบุตัวตนต้องขออนุมัติ",
-        "internal" => "ข้อมูลการจ้างงานและโครงสร้างบริษัทจัดการโดย HR",
+        "basic" => "หน้าสรุปข้อมูลจากข้อมูลส่วนบุคคลและข้อมูลภายในบริษัท",
+        "personal" => "การแก้ไขรูป ข้อมูลระบุตัวตน และข้อมูลติดต่อ ต้องส่งคำขออนุมัติ",
+        "internal" => "การแก้ไขอีเมล หัวหน้า และโครงสร้างบริษัท ต้องส่งคำขออนุมัติ",
         "work" => "การเพิ่ม แก้ไข หรือลบประวัติการทำงานต้องขออนุมัติ",
         "education" => "การเพิ่ม แก้ไข หรือลบประวัติการศึกษาต้องขออนุมัติ",
-        "training" => "พนักงานเพิ่ม แก้ไข และลบประวัติการอบรมได้ทันที",
-        "family" => "ข้อมูลติดต่อแก้ได้ทันที ส่วนข้อมูลคู่สมรสต้องขออนุมัติ",
+        "training" => "การเพิ่ม แก้ไข หรือลบประวัติการอบรมต้องขออนุมัติ",
+        "family" => "การแก้ไขข้อมูลติดต่อและข้อมูลครอบครัวต้องขออนุมัติ",
         _ => string.Empty
     };
 
@@ -900,6 +1047,13 @@
         true => "มี",
         false => "ไม่มี",
         null => string.Empty
+    };
+
+    private static bool? ParseOptionalBoolean(string value) => value switch
+    {
+        "มี" => true,
+        "ไม่มี" => false,
+        _ => null
     };
 
     private static string BooleanText(bool? value, string trueText, string falseText) => value switch

@@ -9,13 +9,29 @@ public sealed class MicrosoftGraphMailService(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration)
 {
-    public async Task SendAsync(
+    public Task SendAsync(
         string senderEmail,
         string recipientEmail,
         string subject,
         string htmlBody,
+        CancellationToken cancellationToken) =>
+        SendAsync(senderEmail, [recipientEmail], subject, htmlBody, cancellationToken);
+
+    public async Task SendAsync(
+        string senderEmail,
+        IReadOnlyCollection<string> recipientEmails,
+        string subject,
+        string htmlBody,
         CancellationToken cancellationToken)
     {
+        var recipients = recipientEmails
+            .Where(email => !string.IsNullOrWhiteSpace(email))
+            .Select(email => email.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (recipients.Length == 0)
+            throw new InvalidOperationException("ไม่พบอีเมลผู้รับ");
+
         var tenantId = Required("AzureAd:TenantId");
         var clientId = Required("AzureAd:ClientId");
         var clientSecret = Required("AzureAd:ClientSecret");
@@ -49,10 +65,8 @@ public sealed class MicrosoftGraphMailService(
             {
                 subject,
                 body = new { contentType = "HTML", content = htmlBody },
-                toRecipients = new[]
-                {
-                    new { emailAddress = new { address = recipientEmail } }
-                }
+                toRecipients = recipients.Select(address =>
+                    new { emailAddress = new { address } }).ToArray()
             },
             saveToSentItems = true
         });
@@ -70,24 +84,20 @@ public sealed class MicrosoftGraphMailService(
     public static string BuildBody(
         string senderName,
         string recipientName,
+        string leaveTypeName,
         DateOnly leaveDate,
-        TimeOnly startTime,
-        TimeOnly endTime,
-        decimal leaveHours,
         string note)
     {
         static string E(string value) => WebUtility.HtmlEncode(value);
         var dateText = leaveDate.ToString("dd/MM/yyyy");
-        var timeText = $"{startTime:HH:mm} - {endTime:HH:mm}";
 
         return $$"""
             <div style="font-family:Arial,'Tahoma',sans-serif;color:#1e293b;line-height:1.6">
               <h2 style="color:#172442">แจ้งข้อมูลจากหัวหน้างาน</h2>
               <p>เรียน {{E(recipientName)}}</p>
               <table style="border-collapse:collapse;width:100%;max-width:680px">
+                <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold">ประเภทการลา</td><td style="padding:8px;border:1px solid #e2e8f0">{{E(leaveTypeName)}}</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold">วันที่</td><td style="padding:8px;border:1px solid #e2e8f0">{{E(dateText)}}</td></tr>
-                <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold">เวลา</td><td style="padding:8px;border:1px solid #e2e8f0">{{E(timeText)}}</td></tr>
-                <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold">จำนวนชั่วโมง</td><td style="padding:8px;border:1px solid #e2e8f0">{{leaveHours.ToString("0.##")}} ชั่วโมง</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold">หมายเหตุ</td><td style="padding:8px;border:1px solid #e2e8f0;white-space:pre-wrap">{{E(string.IsNullOrWhiteSpace(note) ? "-" : note)}}</td></tr>
               </table>
               <p>ผู้แจ้ง: {{E(senderName)}}</p>

@@ -1,6 +1,7 @@
-.criteria-card { margin-bottom: 1.5rem; }
+.criteria-card { margin-bottom: 1.5rem; overflow: visible; }
 .criteria-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 1rem; }
 .criteria-grid label, .form-grid label { display: flex; flex-direction: column; gap: .4rem; color: #334155; font-size: .85rem; font-weight: 600; }
+.criteria-grid .criteria-field { display:flex; flex-direction:column; gap:.4rem; color:#334155; font-size:.85rem; font-weight:600; }
 .criteria-grid input, .criteria-grid select, .form-grid input, .form-grid select, .form-grid textarea { width: 100%; min-height: 2.5rem; padding: .5rem .7rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .criteria-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
 .btn-create { color: #fff; background: #ff6b35; border: 0; }.btn-create:hover:not(:disabled) { color: #fff; background: #e85a2a; }

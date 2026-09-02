@@ -1,0 +1,84 @@
+@using System.Globalization
+@inject IJSRuntime JS
+
+<div class="formatted-date-picker @(Disabled ? "disabled" : null)">
+    <input @key="inputVersion"
+           class="formatted-date-text"
+           type="text"
+           value="@displayValue"
+           placeholder="dd/MM/yyyy"
+           inputmode="numeric"
+           maxlength="10"
+           disabled="@Disabled"
+           aria-label="@AriaLabel"
+           @onchange="ChangeText" />
+    <button class="calendar-trigger" type="button" disabled="@Disabled"
+            aria-label="เปิดปฏิทินเลือกวันที่" @onclick="OpenPicker">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" /></svg>
+    </button>
+    <input class="native-date-trigger"
+           @ref="nativeDateInput"
+           type="date"
+           value="@IsoValue"
+           min="@MinIsoValue"
+           disabled="@Disabled"
+           aria-label="เปิดปฏิทินเลือกวันที่"
+           @onchange="ChangeNativeDate" />
+</div>
+
+@code {
+    [Parameter] public DateTime? Value { get; set; }
+    [Parameter] public EventCallback<DateTime?> ValueChanged { get; set; }
+    [Parameter] public DateTime? Min { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "วันที่ รูปแบบวัน/เดือน/ปี";
+
+    private string displayValue = string.Empty;
+    private int inputVersion;
+    private ElementReference nativeDateInput;
+    private string IsoValue => Value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+    private string MinIsoValue => Min?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        displayValue = Value?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private async Task ChangeText(ChangeEventArgs eventArgs)
+    {
+        var text = eventArgs.Value?.ToString()?.Trim() ?? string.Empty;
+        if (DateTime.TryParseExact(
+                text,
+                "dd/MM/yyyy",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var parsed) &&
+            (!Min.HasValue || parsed.Date >= Min.Value.Date))
+        {
+            await ValueChanged.InvokeAsync(parsed.Date);
+            return;
+        }
+
+        displayValue = Value?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+        inputVersion++;
+    }
+
+    private async Task ChangeNativeDate(ChangeEventArgs eventArgs)
+    {
+        if (DateTime.TryParseExact(
+                eventArgs.Value?.ToString(),
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var parsed))
+        {
+            await ValueChanged.InvokeAsync(parsed.Date);
+        }
+    }
+
+    private async Task OpenPicker()
+    {
+        if (!Disabled)
+            await JS.InvokeVoidAsync("hrDatePicker.open", nativeDateInput);
+    }
+}

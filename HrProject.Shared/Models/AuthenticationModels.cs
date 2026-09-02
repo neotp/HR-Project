@@ -9,4 +9,6 @@ public sealed record CurrentMicrosoftUserDto(
     string EmployeeName,
     string Department,
     string Position,
+    string SupervisorName,
+    string LeaveApproverName,
     bool IsEmployeeLinked);

@@ -1,4 +1,9 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject HrProject.Client.Services.LoadingState LoadingState
+@inject HrProject.Client.Services.PageAvailabilityState PageAvailability
+@inject NavigationManager Navigation
+
 <div class="page @(isSidebarCollapsed ? "sidebar-collapsed" : null)">
     <div class="sidebar">
         <NavMenu @bind-IsDesktopCollapsed="isSidebarCollapsed" />
@@ -10,11 +15,100 @@
         </div> *@
 
         <article class="content px-4">
-            @Body
+            @if (!PageAvailability.IsLoaded)
+            {
+                <div class="page-availability-loading" role="status">
+                    <span class="layout-loading-spinner" aria-hidden="true"></span>
+                    <span>กำลังตรวจสอบสถานะเมนู...</span>
+                </div>
+            }
+            else if (closedPage is not null)
+            {
+                <section class="maintenance-page" role="status">
+                    <div class="maintenance-icon" aria-hidden="true">⚙</div>
+                    <h1>หน้านี้ปิดปรับปรุงชั่วคราว</h1>
+                    <p><strong>@closedPage.PageName</strong> ยังไม่เปิดให้ใช้งานในขณะนี้</p>
+                    <p>กรุณาลองใหม่ภายหลัง หรือติดต่อผู้ดูแลระบบ</p>
+                    <a class="maintenance-home-link" href="/">กลับหน้าหลัก</a>
+                </section>
+            }
+            else if (deniedPage is not null)
+            {
+                <section class="maintenance-page access-denied-page" role="alert">
+                    <div class="maintenance-icon access-denied-icon" aria-hidden="true">🔒</div>
+                    <h1>ไม่มีสิทธิ์เข้าถึงหน้านี้</h1>
+                    <p>บัญชีของคุณไม่มีสิทธิ์เปิดหน้า <strong>@deniedPage.PageName</strong></p>
+                    <p>สิทธิ์พื้นฐานของหน้านี้สำหรับ Boss หรือ Reporting To (Leave Approve) และผู้ที่ได้รับสิทธิ์เพิ่มเติมเท่านั้น</p>
+                    <a class="maintenance-home-link" href="/">กลับหน้าหลัก</a>
+                </section>
+            }
+            else
+            {
+                @Body
+            }
         </article>
+
+        @if (LoadingState.IsVisible)
+        {
+            <div class="loading-overlay layout-loading-overlay" role="status" aria-live="polite" aria-busy="true">
+                <div class="loading-dialog">
+                    <span class="layout-loading-spinner" aria-hidden="true"></span>
+                    <span class="loading-dialog-title">Loading...</span>
+                    <p class="loading-dialog-message">กำลังโหลดข้อมูล...</p>
+                </div>
+            </div>
+        }
     </main>
 </div>
 
 @code {
     private bool isSidebarCollapsed;
+    private HrProject.Shared.Models.ApplicationPageAvailabilityDto? closedPage;
+    private HrProject.Shared.Models.ApplicationPageAvailabilityDto? deniedPage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        LoadingState.Changed += HandleLoadingChanged;
+        PageAvailability.Changed += HandleAvailabilityChanged;
+        Navigation.LocationChanged += HandleLocationChanged;
+        try
+        {
+            await PageAvailability.EnsureLoadedAsync();
+        }
+        catch
+        {
+            // Availability failures must not make the whole application unusable.
+            PageAvailability.UseOpenFallback();
+        }
+        EvaluateCurrentPage();
+    }
+
+    private void HandleLoadingChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void HandleAvailabilityChanged()
+    {
+        EvaluateCurrentPage();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        EvaluateCurrentPage();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void EvaluateCurrentPage()
+    {
+        closedPage = PageAvailability.FindClosedPage(Navigation.Uri);
+        deniedPage = closedPage is null
+            ? PageAvailability.FindDeniedPage(Navigation.Uri)
+            : null;
+    }
+
+    public void Dispose()
+    {
+        LoadingState.Changed -= HandleLoadingChanged;
+        PageAvailability.Changed -= HandleAvailabilityChanged;
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
 }

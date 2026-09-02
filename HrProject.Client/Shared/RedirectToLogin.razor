@@ -7,9 +7,13 @@
         if (!path.StartsWith("login", StringComparison.OrdinalIgnoreCase) &&
             !path.StartsWith("authentication", StringComparison.OrdinalIgnoreCase))
         {
-            Navigation.NavigateTo(
-                $"login?returnUrl={Uri.EscapeDataString('/' + path)}",
-                replace: true);
+            Navigation.NavigateToLogin(
+                "authentication/login",
+                new InteractiveRequestOptions
+                {
+                    Interaction = InteractionType.SignIn,
+                    ReturnUrl = Navigation.Uri
+                });
         }
     }
 }
