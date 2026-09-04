@@ -63,7 +63,7 @@
                 {
                     <tr>
                         <td>@item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")<small>@(string.IsNullOrWhiteSpace(item.CreatedByName) ? item.CreatedBy : item.CreatedByName)</small></td>
-                        <td><strong>@item.EmployeeName</strong><small>@item.EmployeeId · @item.Department</small></td>
+                        <td><strong>@item.EmployeeName</strong><small>@EmployeeCodeFormat.Display(item.EmployeeId) · @item.Department</small></td>
                         <td>@item.EventTypeName</td>
                         <td>@item.EventDate.ToString("dd/MM/yyyy")</td>
                         <td>@item.StartTime.ToString("HH:mm")–@item.EndTime.ToString("HH:mm")</td>
@@ -93,7 +93,7 @@
                 {
                     <tr>
                         <td>@item.WorkDate.ToString("dd/MM/yyyy")</td>
-                        <td><strong>@item.EmployeeName</strong><small>@item.EmployeeId</small></td>
+                        <td><strong>@item.EmployeeName</strong><small>@EmployeeCodeFormat.Display(item.EmployeeId)</small></td>
                         <td>@(string.IsNullOrWhiteSpace(item.Department) ? "-" : item.Department)</td>
                         <td>@DisplayTime(item.FirstScanAt) – @DisplayTime(item.LastScanAt)</td>
                         <td><span class="result-tag @ResultClass(item)">@ResultText(item)</span></td>
@@ -112,7 +112,7 @@
 {
     <div class="review-overlay" role="dialog" aria-modal="true" @onclick="CloseDetail">
         <section class="review-modal" @onclick:stopPropagation="true">
-            <header><div><h2>รายละเอียดการมาทำงาน</h2><p>@selectedItem.EmployeeName (@selectedItem.EmployeeId) · @selectedItem.WorkDate.ToString("dd/MM/yyyy")</p></div><button type="button" disabled="@isSaving" @onclick="CloseDetail">×</button></header>
+            <header><div><h2>รายละเอียดการมาทำงาน</h2><p>@selectedItem.EmployeeName (@EmployeeCodeFormat.Display(selectedItem.EmployeeId)) · @selectedItem.WorkDate.ToString("dd/MM/yyyy")</p></div><button type="button" disabled="@isSaving" @onclick="CloseDetail">×</button></header>
             <div class="review-modal-body">
                 <section class="attendance-comparison">
                     <div><span>เวลาเข้า</span><strong>@DisplayTime(selectedItem.FirstScanAt)</strong></div>

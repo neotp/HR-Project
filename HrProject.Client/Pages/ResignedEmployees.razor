@@ -1,0 +1,192 @@
+@page "/employees/resigned"
+@using HrProject.Shared.Models
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject HrProject.Client.Services.LoadingState LoadingState
+
+<PageTitle>พนักงานที่ลาออก | HR Project</PageTitle>
+
+<section class="manage-page">
+    <header class="page-header-card resigned-header">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>พนักงานที่ลาออก</h1>
+                <p>รายชื่อพนักงานที่มีสถานะลาออก สำหรับผู้ที่ได้รับสิทธิ์เท่านั้น</p>
+            </div>
+            <span class="restricted-label">จำกัดสิทธิ์การเข้าถึง</span>
+        </div>
+    </header>
+
+    <section class="content-card employee-search-card">
+        <div class="content-card-header">ค้นหาพนักงาน</div>
+        <div class="content-card-body employee-search-body">
+            <div class="employee-search-fields">
+                <label>
+                    <span>รหัส ชื่อ หรืออีเมล</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหารหัส ชื่อ หรืออีเมล" />
+                        @if (!string.IsNullOrWhiteSpace(searchText))
+                        {
+                            <button type="button" aria-label="ล้างคำค้นหา" @onclick="ClearMainSearch">×</button>
+                        }
+                    </div>
+                </label>
+                <label>
+                    <span>ตำแหน่ง</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="positionSearch" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหาตำแหน่ง" />
+                        @if (!string.IsNullOrWhiteSpace(positionSearch))
+                        {
+                            <button type="button" aria-label="ล้างตำแหน่ง" @onclick="ClearPositionSearch">×</button>
+                        }
+                    </div>
+                </label>
+                <label>
+                    <span>แผนก</span>
+                    <div class="employee-search-input">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input @bind="departmentSearch" @bind:event="oninput" @bind:after="ResetPaging"
+                               placeholder="ค้นหาแผนก" />
+                        @if (!string.IsNullOrWhiteSpace(departmentSearch))
+                        {
+                            <button type="button" aria-label="ล้างแผนก" @onclick="ClearDepartmentSearch">×</button>
+                        }
+                    </div>
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header">
+            รายชื่อพนักงานที่ลาออก
+            <span class="employee-result-count">@FilteredEmployees.Count รายการ</span>
+        </div>
+        <div class="content-card-body">
+            @if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="load-error" role="alert">@loadError</div>
+            }
+            else
+            {
+                <div class="employee-table-scroll">
+                    <table class="table employee-table">
+                        <thead>
+                            <tr>
+                                <th>รหัสพนักงาน</th>
+                                <th>ชื่อพนักงาน</th>
+                                <th>แผนก</th>
+                                <th>ตำแหน่ง</th>
+                                <th>Email</th>
+                                <th>สถานะ</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (FilteredEmployees.Count == 0)
+                            {
+                                <tr><td colspan="7" class="employee-empty-state">ไม่พบพนักงานที่ลาออกตามคำค้นหา</td></tr>
+                            }
+                            @foreach (var employee in PagedEmployees)
+                            {
+                                <tr class="employee-row" tabindex="0"
+                                    title="เปิดข้อมูลพนักงาน"
+                                    @onclick="() => OpenEmployee(employee.Id)"
+                                    @onkeydown="args => HandleRowKey(args, employee.Id)">
+                                    <td>@EmployeeCodeFormat.Display(employee.EmployeeCode)</td>
+                                    <td><strong>@DisplayName(employee)</strong></td>
+                                    <td>@DisplayValue(employee.Department)</td>
+                                    <td>@DisplayValue(employee.Position)</td>
+                                    <td>@DisplayValue(employee.Email)</td>
+                                    <td><span class="resigned-status">ลาออก</span></td>
+                                    <td><span class="view-details">ดูข้อมูล ›</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <Pagination TotalItems="@FilteredEmployees.Count"
+                            @bind-CurrentPage="currentPage"
+                            @bind-PageSize="pageSize" />
+            }
+        </div>
+    </section>
+</section>
+
+@code {
+    private List<Employee> employees = [];
+    private string searchText = string.Empty;
+    private string positionSearch = string.Empty;
+    private string departmentSearch = string.Empty;
+    private string? loadError;
+    private int currentPage = 1;
+    private int pageSize = 10;
+
+    private List<Employee> FilteredEmployees => employees
+        .Where(employee =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             employee.EmployeeCode.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.ThaiFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.EnglishFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.Nickname.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.LotusNotesEmail.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             employee.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(positionSearch) ||
+             employee.Position.Contains(positionSearch, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(departmentSearch) ||
+             employee.Department.Contains(departmentSearch, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+
+    private IEnumerable<Employee> PagedEmployees
+    {
+        get
+        {
+            var filtered = FilteredEmployees;
+            var lastPage = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)pageSize));
+            var safePage = Math.Clamp(currentPage, 1, lastPage);
+            return filtered.Skip((safePage - 1) * pageSize).Take(pageSize);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var loading = LoadingState.BeginRequest();
+        try
+        {
+            employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees/resigned") ?? [];
+        }
+        catch (HttpRequestException exception)
+        {
+            loadError = exception.StatusCode == System.Net.HttpStatusCode.Forbidden
+                ? "คุณไม่มีสิทธิ์ดูข้อมูลพนักงานที่ลาออก"
+                : $"โหลดข้อมูลพนักงานที่ลาออกไม่สำเร็จ: {exception.Message}";
+        }
+    }
+
+    private void ResetPaging() => currentPage = 1;
+    private void ClearMainSearch() { searchText = string.Empty; currentPage = 1; }
+    private void ClearPositionSearch() { positionSearch = string.Empty; currentPage = 1; }
+    private void ClearDepartmentSearch() { departmentSearch = string.Empty; currentPage = 1; }
+    private void OpenEmployee(int id) => Navigation.NavigateTo($"/employees/{id}?from=resigned");
+
+    private void HandleRowKey(KeyboardEventArgs args, int id)
+    {
+        if (args.Key is "Enter" or " ")
+            OpenEmployee(id);
+    }
+
+    private static string DisplayName(Employee employee) =>
+        !string.IsNullOrWhiteSpace(employee.ThaiFullName)
+            ? employee.ThaiFullName
+            : !string.IsNullOrWhiteSpace(employee.FullName)
+                ? employee.FullName
+                : employee.EnglishFullName;
+
+    private static string DisplayValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value;
+}

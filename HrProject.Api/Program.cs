@@ -180,6 +180,18 @@ if (args.Length >= 1 && string.Equals(args[0], "--verify-attendance-pipeline", S
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--cleanup-future-attendance", StringComparison.OrdinalIgnoreCase))
+{
+    await using var cleanupDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var cleanupCommand = cleanupDataSource.CreateCommand("""
+        DELETE FROM public.attendance_daily_records
+        WHERE work_date > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date
+        """);
+    var deleted = await cleanupCommand.ExecuteNonQueryAsync();
+    Console.WriteLine($"Deleted future attendance records: {deleted}");
+    return;
+}
+
 if (args.Length >= 1 && string.Equals(args[0], "--seed-leave-quotas", StringComparison.OrdinalIgnoreCase))
 {
     var quotaYear = args.Length >= 2 && int.TryParse(args[1], out var requestedYear)
@@ -655,6 +667,19 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-pre-employee-full-data
     await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
     await migrationCommand.ExecuteNonQueryAsync();
     Console.WriteLine("Added full Employee draft data to Pre-Employee successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-resigned-employees-page", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "052_add_resigned_employees_page.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added resigned employees application page successfully.");
     return;
 }
 

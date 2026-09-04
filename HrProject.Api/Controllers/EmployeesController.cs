@@ -11,7 +11,8 @@ namespace HrProject.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class EmployeesController(
     NpgsqlDataSource dataSource,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    PageAccessService pageAccessService) : ControllerBase
 {
     private const string BaseSelect = """
         SELECT e.id, e.employee_code,
@@ -40,7 +41,36 @@ public sealed class EmployeesController(
     {
         var result = new List<Employee>();
         await using var command = dataSource.CreateCommand(
-            BaseSelect + " WHERE e.is_active = TRUE ORDER BY e.employee_code");
+            BaseSelect + """
+                 WHERE e.is_active = TRUE
+                   AND COALESCE(BTRIM(c.employee_status), '') <> 'ลาออก'
+                 ORDER BY e.employee_code
+                """);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(ReadBaseEmployee(reader));
+        return Ok(result);
+    }
+
+    [HttpGet("resigned")]
+    public async Task<ActionResult<IReadOnlyList<Employee>>> GetResigned(
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(authenticatedEmployeeId) ||
+            !await pageAccessService.HasAccess(
+                authenticatedEmployeeId, "EMPLOYEES_RESIGNED", cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                "ไม่มีสิทธิ์ดูข้อมูลพนักงานที่ลาออก");
+        }
+
+        var result = new List<Employee>();
+        await using var command = dataSource.CreateCommand(
+            BaseSelect + """
+                 WHERE BTRIM(COALESCE(c.employee_status, '')) = 'ลาออก'
+                 ORDER BY e.employee_code
+                """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
             result.Add(ReadBaseEmployee(reader));
@@ -51,14 +81,32 @@ public sealed class EmployeesController(
     public async Task<ActionResult<Employee>> GetById(int id, CancellationToken cancellationToken)
     {
         var employee = await FindById(id, cancellationToken);
-        return employee is null ? NotFound() : Ok(employee);
+        if (employee is null)
+            return NotFound();
+
+        if (string.Equals(employee.EmployeeStatus, EmployeeStatusValues.Resigned,
+                StringComparison.Ordinal))
+        {
+            var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+            if (string.IsNullOrWhiteSpace(authenticatedEmployeeId) ||
+                !await pageAccessService.HasAccess(
+                    authenticatedEmployeeId, "EMPLOYEES_RESIGNED", cancellationToken))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    "ไม่มีสิทธิ์ดูข้อมูลพนักงานที่ลาออก");
+            }
+        }
+
+        return Ok(employee);
     }
 
     [HttpPost]
     public async Task<ActionResult<Employee>> Create(Employee employee, CancellationToken cancellationToken)
     {
-        if (employee.EmployeeCode?.Trim().Length != 6)
-            return BadRequest("รหัสพนักงานต้องมี 6 ตัว");
+        employee.EmployeeCode = EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode);
+        employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
+        if (!EmployeeCodeFormat.IsValid(employee.EmployeeCode))
+            return BadRequest("รหัสพนักงานต้องเป็นตัวเลข 6 หลัก เช่น 004193");
 
         if (string.IsNullOrWhiteSpace(employee.EmployeeCode) ||
             string.IsNullOrWhiteSpace(employee.FirstName) ||
@@ -346,7 +394,7 @@ public sealed class EmployeesController(
         SupervisorName = S(reader, 22), LeaveApproverName = S(reader, 23),
         FunctionalSupervisorName = S(reader, 24), BuddyName = S(reader, 25),
         EmploymentType = S(reader, 26), WorkSchedule = S(reader, 27), WorkLocation = S(reader, 28),
-        EmployeeStatus = S(reader, 29), InternalExtension = S(reader, 30), DirectPhone = S(reader, 31),
+        EmployeeStatus = EmployeeStatusValues.Normalize(S(reader, 29)), InternalExtension = S(reader, 30), DirectPhone = S(reader, 31),
         CompanyMobile = S(reader, 32), MacAddress = S(reader, 33), BranchCode = S(reader, 34),
         BranchName = S(reader, 35), ResponsibilityProvince = S(reader, 36),
         ChecklistType = S(reader, 37), ProductsResponsible = S(reader, 38),

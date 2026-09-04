@@ -64,7 +64,7 @@
                             }
                             else
                             {
-                                <span class="response-unavailable">ยังไม่เปิดให้โต้แย้ง</span>
+                                <span class="response-unavailable">@ResponseUnavailableText(record)</span>
                             }
                         </td>
                     </tr>
@@ -246,6 +246,11 @@
             ? "status-late"
             : item.FinalStatus == "IN_PROGRESS" ? "status-inprogress" : "status-present";
     private static string DisplayTime(DateTime? value) => value?.ToString("HH:mm") ?? "-";
-    private static bool CanSubmitResponse(AttendanceDailyDto record) => record.FinalStatus != "IN_PROGRESS";
+    private static bool CanSubmitResponse(AttendanceDailyDto record) =>
+        record.FinalStatus is not ("IN_PROGRESS" or "PRESENT");
+    private static string ResponseUnavailableText(AttendanceDailyDto record) =>
+        record.FinalStatus == "PRESENT"
+            ? "รายการมาปกติไม่ต้องโต้แย้ง"
+            : "ยังไม่เปิดให้โต้แย้ง";
     private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.##} MB" : $"{bytes / 1024d:0.##} KB";
 }

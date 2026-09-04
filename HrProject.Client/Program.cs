@@ -16,6 +16,8 @@ var apiScope = builder.Configuration["Api:Scope"]
 // must be shared with MainLayout so request activity reaches the visible UI.
 builder.Services.AddSingleton<LoadingState>();
 builder.Services.AddTransient<LoadingHttpMessageHandler>();
+builder.Services.AddSingleton<NavPendingRefreshState>();
+builder.Services.AddTransient<NavPendingRefreshHttpMessageHandler>();
 
 builder.Services.AddHttpClient("HrApi", client =>
 {
@@ -26,7 +28,19 @@ builder.Services.AddHttpClient("HrApi", client =>
         .ConfigureHandler(
             authorizedUrls: [apiOrigin.TrimEnd('/')],
             scopes: [apiScope]))
+.AddHttpMessageHandler<NavPendingRefreshHttpMessageHandler>()
 .AddHttpMessageHandler<LoadingHttpMessageHandler>();
+
+// Background navigation counters must not open the full-page loading overlay.
+builder.Services.AddHttpClient("HrApiBackground", client =>
+{
+    client.BaseAddress = new Uri($"{apiOrigin.TrimEnd('/')}/");
+})
+.AddHttpMessageHandler(provider =>
+    provider.GetRequiredService<AuthorizationMessageHandler>()
+        .ConfigureHandler(
+            authorizedUrls: [apiOrigin.TrimEnd('/')],
+            scopes: [apiScope]));
 
 builder.Services.AddScoped(provider =>
     provider.GetRequiredService<IHttpClientFactory>().CreateClient("HrApi"));

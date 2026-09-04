@@ -86,7 +86,7 @@
                                 title="เปิดข้อมูลพนักงาน"
                                 @onclick="() => OpenEmployee(employee.Id)"
                                 @onkeydown="args => HandleRowKey(args, employee.Id)">
-                                <td>@employee.EmployeeCode</td>
+                                <td>@EmployeeCodeFormat.Display(employee.EmployeeCode)</td>
                                 <td><strong>@employee.FullName</strong></td>
                                 <td>@employee.Department</td>
                                 <td>@employee.Position</td>
@@ -160,7 +160,7 @@
                                         }
                                     </div>
                                 </div>
-                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" /></label>
+                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="xxxxxx" /></label>
                                 <label>คำนำหน้าชื่อ<select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>ชื่อ <span>*</span><input @bind="newEmployee.FirstName" /></label>
                                 <label>นามสกุล <span>*</span><input @bind="newEmployee.LastName" /></label>
@@ -214,9 +214,8 @@
                                 <label>ชื่อสาขา<input @bind="newEmployee.BranchName" /></label>
                                 <label>สถานะพนักงาน
                                     <select @bind="newEmployee.EmployeeStatus">
-                                        <option value="ปฏิบัติงาน">ปฏิบัติงาน</option>
-                                        <option value="ทดลองงาน">ทดลองงาน</option>
-                                        <option value="พักงาน">พักงาน</option>
+                                        <option value="พนักงาน">พนักงาน</option>
+                                        <option value="ลาออก">ลาออก</option>
                                     </select>
                                 </label>
                                 <label class="attendance-exclusion-option">
@@ -442,7 +441,7 @@
         ("work", "ประวัติการทำงาน"),
         ("education", "ประวัติการศึกษา"),
         ("training", "ประวัติการอบรม & สัมมนา"),
-        ("family", "ประวัติครอบครัว")
+        ("family", "บันทึกค่าลดหย่อนภาษี")
     ];
 
     protected override async Task OnInitializedAsync()
@@ -498,7 +497,8 @@
     private async Task SaveEmployee()
     {
         createError = null;
-        if (newEmployee.EmployeeCode.Trim().Length != 6)
+        newEmployee.EmployeeCode = EmployeeCodeFormat.NormalizeNew(newEmployee.EmployeeCode);
+        if (!EmployeeCodeFormat.IsValid(newEmployee.EmployeeCode))
         {
             createError = "รหัสพนักงานต้องมี 6 ตัว";
             return;
@@ -596,7 +596,7 @@
     {
         Company = "SiS Distribution (Thailand) PCL.",
         StartDate = DateOnly.FromDateTime(DateTime.Today),
-        EmployeeStatus = "ปฏิบัติงาน"
+        EmployeeStatus = EmployeeStatusValues.Employee
     };
 
     private void HandleRowKey(KeyboardEventArgs args, int id)

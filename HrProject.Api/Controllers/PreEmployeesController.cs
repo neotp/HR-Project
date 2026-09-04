@@ -167,6 +167,7 @@ public sealed class PreEmployeesController(
             }
             if (status == "CONVERTED") return Conflict("รายการนี้ถูกสร้างเป็นพนักงานแล้ว");
             var employee = ResolveEmployee(draft);
+            employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
             var validation = ValidateEmployee(employee);
             if (validation is not null) return BadRequest(validation);
 
@@ -181,7 +182,7 @@ public sealed class PreEmployeesController(
                 """;
             await using (var command = new NpgsqlCommand(duplicateSql, connection, transaction))
             {
-                command.Parameters.AddWithValue("employee_code", employee.EmployeeCode.Trim());
+                command.Parameters.AddWithValue("employee_code", EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode));
                 command.Parameters.AddWithValue("email", employee.Email.Trim());
                 if ((bool)(await command.ExecuteScalarAsync(cancellationToken))!)
                     return Conflict("รหัสพนักงานหรืออีเมลนี้มีอยู่ในระบบแล้ว");
@@ -190,7 +191,7 @@ public sealed class PreEmployeesController(
             long employeeId;
             await using (var command = new NpgsqlCommand("INSERT INTO public.employees(employee_code,is_active,source_system) VALUES(@code,TRUE,'PRE_EMPLOYEE') RETURNING id", connection, transaction))
             {
-                command.Parameters.AddWithValue("code", employee.EmployeeCode.Trim());
+                command.Parameters.AddWithValue("code", EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode));
                 employeeId = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
             }
             await InsertFullEmployeeData(connection, transaction, employeeId, employee, cancellationToken);
@@ -208,7 +209,7 @@ public sealed class PreEmployeesController(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
-            return Ok(new ConvertPreEmployeeResult(id, employeeId, employee.EmployeeCode.Trim()));
+            return Ok(new ConvertPreEmployeeResult(id, employeeId, EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode)));
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -238,7 +239,8 @@ public sealed class PreEmployeesController(
     {
         var missing = new List<string>();
         if (string.IsNullOrWhiteSpace(employee.EmployeeCode)) missing.Add("รหัสพนักงาน");
-        else if (employee.EmployeeCode.Trim().Length != 6) missing.Add("รหัสพนักงานต้องมี 6 ตัว");
+        else if (!EmployeeCodeFormat.IsValid(EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode)))
+            missing.Add("รหัสพนักงานต้องเป็นตัวเลข 6 หลัก");
         if (string.IsNullOrWhiteSpace(employee.FirstName)) missing.Add("ชื่อ");
         if (string.IsNullOrWhiteSpace(employee.LastName)) missing.Add("นามสกุล");
         if (string.IsNullOrWhiteSpace(employee.Email)) missing.Add("อีเมล");
@@ -250,8 +252,9 @@ public sealed class PreEmployeesController(
     private static void AddParameters(NpgsqlCommand command, SavePreEmployeeRequest request, string status, string? validation)
     {
         var employee = ResolveEmployee(request);
+        employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
         AddText(command,"source_system",request.SourceSystem); AddText(command,"source_reference_id",request.SourceReferenceId);
-        AddText(command,"employee_code",employee.EmployeeCode); AddText(command,"title",employee.Title);
+        AddText(command,"employee_code",EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode)); AddText(command,"title",employee.Title);
         AddText(command,"first_name_th",employee.FirstName); AddText(command,"last_name_th",employee.LastName);
         AddText(command,"full_name_en",employee.EnglishFullName); AddText(command,"nickname",employee.Nickname);
         AddText(command,"email",employee.Email); AddText(command,"email_alias",employee.LotusNotesEmail);
@@ -272,7 +275,16 @@ public sealed class PreEmployeesController(
         r.GetString(21), S(r,22), r.IsDBNull(23)?null:r.GetInt64(23), S(r,24), S(r,25),
         T(r,26), S(r,27), S(r,28), T(r,29), r.GetString(30), r.GetString(31),
         r.GetFieldValue<DateTimeOffset>(32), r.GetFieldValue<DateTimeOffset>(33), S(r,34), S(r,35), T(r,36),
-        r.IsDBNull(37) ? new Employee() : JsonSerializer.Deserialize<Employee>(r.GetString(37), JsonOptions) ?? new Employee());
+        ReadEmployeeData(r, 37));
+
+    private static Employee ReadEmployeeData(NpgsqlDataReader reader, int ordinal)
+    {
+        var employee = reader.IsDBNull(ordinal)
+            ? new Employee()
+            : JsonSerializer.Deserialize<Employee>(reader.GetString(ordinal), JsonOptions) ?? new Employee();
+        employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
+        return employee;
+    }
 
     private static Employee ResolveEmployee(SavePreEmployeeRequest request) => request.EmployeeData ?? new Employee
     {

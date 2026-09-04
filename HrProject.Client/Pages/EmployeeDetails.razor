@@ -33,7 +33,7 @@
                          alt="รูปของ @employee.FullName" />
                 }
                 <div class="profile-name">
-                    <span class="employee-code">@employee.EmployeeCode</span>
+                    <span class="employee-code">@EmployeeCodeFormat.Display(employee.EmployeeCode)</span>
                     <h1>@employee.FullName</h1>
                     <p>@employee.Position · @employee.Department</p>
                 </div>
@@ -74,7 +74,7 @@
                         <section aria-labelledby="basic-title">
                             <h2 id="basic-title">ข้อมูลพื้นฐาน</h2>
                             <div class="detail-grid">
-                                <DetailField Label="รหัสพนักงาน" Value="@employee.EmployeeCode" />
+                                <DetailField Label="รหัสพนักงาน" Value="@EmployeeCodeFormat.Display(employee.EmployeeCode)" />
                                 <DetailField Label="คำนำหน้าชื่อ" Value="@employee.Title" />
                                 <DetailField Label="ชื่อ-นามสกุล (ไทย)" Value="@DisplayValue(string.IsNullOrWhiteSpace(employee.ThaiFullName) ? employee.FullName : employee.ThaiFullName)" />
                                 <DetailField Label="ชื่อ-นามสกุล (อังกฤษ)" Value="@DisplayValue(employee.EnglishFullName)" />
@@ -122,7 +122,7 @@
                         <section aria-labelledby="internal-title">
                             <h2 id="internal-title">ข้อมูลภายในบริษัท</h2>
                             <div class="detail-grid">
-                                <DetailField Label="รหัสพนักงาน" Value="@employee.EmployeeCode" />
+                                <DetailField Label="รหัสพนักงาน" Value="@EmployeeCodeFormat.Display(employee.EmployeeCode)" />
                                 <DetailField Label="Email for Lotus Notes" Value="@DisplayValue(employee.LotusNotesEmail)" />
                                 <DetailField Label="Email" Value="@DisplayValue(employee.Email)" />
                                 <DetailField Label="บริษัท" Value="@DisplayValue(employee.Company)" />
@@ -217,7 +217,7 @@
                         break;
                     case "family":
                         <section aria-labelledby="family-title">
-                            <h2 id="family-title">ประวัติครอบครัว</h2>
+                            <h2 id="family-title">บันทึกค่าลดหย่อนภาษี</h2>
                             <div class="detail-grid">
                                 <DetailField Label="สถานะภาพการสมรส" Value="@employee.MaritalStatus" />
                                 <DetailField Label="จดทะเบียนสมรส" Value="@BooleanText(employee.IsMarriageRegistered, "จดทะเบียน", "ไม่ได้จดทะเบียน")" />
@@ -251,7 +251,7 @@
             <header class="employee-edit-modal-header">
                 <div>
                     <h2 id="employee-edit-title">ขอแก้ไขข้อมูลพนักงาน</h2>
-                    <p>@employee.EmployeeCode · @employee.FullName</p>
+                    <p>@EmployeeCodeFormat.Display(employee.EmployeeCode) · @employee.FullName</p>
                 </div>
                 <button type="button" aria-label="ปิด" @onclick="CloseEditRequest">×</button>
             </header>
@@ -368,10 +368,7 @@
                                 </label>
                                 <label>สถานะพนักงาน
                                     <select @bind="internalEmployeeStatus">
-                                        <option value="">-- เลือก --</option>
-                                        <option value="ปฏิบัติงาน">ปฏิบัติงาน</option>
-                                        <option value="ทดลองงาน">ทดลองงาน</option>
-                                        <option value="พักงาน">พักงาน</option>
+                                        <option value="พนักงาน">พนักงาน</option>
                                         <option value="ลาออก">ลาออก</option>
                                     </select>
                                 </label>
@@ -461,6 +458,9 @@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "from")]
+    public string? SourcePage { get; set; }
+
     [Parameter] public int Id { get; set; }
 
     private bool isLoading = true;
@@ -560,7 +560,7 @@
         ("work", "ประวัติการทำงาน"),
         ("education", "ประวัติการศึกษา"),
         ("training", "ประวัติการอบรม & สัมมนา"),
-        ("family", "ประวัติครอบครัว")
+        ("family", "บันทึกค่าลดหย่อนภาษี")
     ];
 
     protected override async Task OnParametersSetAsync()
@@ -598,7 +598,10 @@
         }
     }
 
-    private void BackToList() => Navigation.NavigateTo("/");
+    private void BackToList() => Navigation.NavigateTo(
+        string.Equals(SourcePage, "resigned", StringComparison.OrdinalIgnoreCase)
+            ? "/employees/resigned"
+            : "/");
 
     private void OpenEditor()
     {
@@ -660,7 +663,7 @@
         internalProvidentFundStartDate = employee.ProvidentFundStartDate;
         internalWorkExperienceType = employee.WorkExperienceType;
         internalHasCompanyParking = ParkingEditValue(employee.HasCompanyParking);
-        internalEmployeeStatus = employee.EmployeeStatus;
+        internalEmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
         internalExcludeAttendanceCalculation = employee.ExcludeAttendanceCalculation;
         workCompany = employee.PreviousCompany;
         workPosition = employee.PreviousPosition;
@@ -1016,7 +1019,7 @@
         "work" => "การเพิ่ม แก้ไข หรือลบประวัติการทำงานต้องขออนุมัติ",
         "education" => "การเพิ่ม แก้ไข หรือลบประวัติการศึกษาต้องขออนุมัติ",
         "training" => "การเพิ่ม แก้ไข หรือลบประวัติการอบรมต้องขออนุมัติ",
-        "family" => "การแก้ไขข้อมูลติดต่อและข้อมูลครอบครัวต้องขออนุมัติ",
+        "family" => "การแก้ไขข้อมูลค่าลดหย่อนภาษีต้องขออนุมัติ",
         _ => string.Empty
     };
 

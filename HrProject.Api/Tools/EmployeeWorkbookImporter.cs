@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Xml.Linq;
 using Npgsql;
+using HrProject.Shared.Models;
 
 namespace HrProject.Api.Tools;
 
@@ -117,7 +118,7 @@ internal static class EmployeeWorkbookImporter
                     cell => ColumnName((string?)cell.Attribute("r") ?? string.Empty),
                     cell => CellValue(cell, sharedStrings),
                     StringComparer.OrdinalIgnoreCase);
-            var code = Value(cells, "A");
+            var code = EmployeeCodeFormat.NormalizeNew(Value(cells, "A"));
             if (string.IsNullOrWhiteSpace(code))
                 continue;
 
@@ -300,7 +301,7 @@ internal static class EmployeeWorkbookImporter
             VALUES
                 (@id, @company_code, @business_unit, @department,
                  @position, @supervisor, @supervisor,
-                 @extension, @start_date, 'ปฏิบัติงาน')
+                 @extension, @start_date, 'พนักงาน')
             ON CONFLICT (employee_id) DO UPDATE SET
                 company_code = EXCLUDED.company_code,
                 business_unit = EXCLUDED.business_unit,

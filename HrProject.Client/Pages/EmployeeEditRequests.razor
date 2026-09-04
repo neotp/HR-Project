@@ -108,7 +108,7 @@
                                         </td>
                                         <td>
                                             <strong>@request.EmployeeName</strong>
-                                            <small>@request.EmployeeId</small>
+                                            <small>@EmployeeCodeFormat.Display(request.EmployeeId)</small>
                                         </td>
                                         <td>
                                             <div class="change-tags">
@@ -142,7 +142,7 @@
             <header>
                 <div>
                     <h2 id="request-detail-title">@selectedRequest.RequestNo</h2>
-                    <p>@selectedRequest.EmployeeId · @selectedRequest.EmployeeName</p>
+                    <p>@EmployeeCodeFormat.Display(selectedRequest.EmployeeId) · @selectedRequest.EmployeeName</p>
                 </div>
                 <button type="button" aria-label="ปิด" disabled="@isReviewing"
                         @onclick="CloseRequest">×</button>
@@ -150,7 +150,7 @@
             <div class="request-detail-body">
                 <div class="request-document-info">
                     <span><strong>พนักงาน:</strong> @selectedRequest.EmployeeName</span>
-                    <span><strong>รหัส:</strong> @selectedRequest.EmployeeId</span>
+                    <span><strong>รหัส:</strong> @EmployeeCodeFormat.Display(selectedRequest.EmployeeId)</span>
                     <span><strong>ผู้ขอแก้ไข:</strong> @selectedRequest.RequestedByName</span>
                     <span><strong>วันที่ขอ:</strong> @selectedRequest.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
                     <span><strong>สถานะ:</strong> <span class="request-status @StatusClass(selectedRequest.Status)" data-status="@selectedRequest.Status">@StatusText(selectedRequest.Status)</span></span>
@@ -480,7 +480,7 @@
             ("work", "ประวัติการทำงาน"),
             ("education", "ประวัติการศึกษา"),
             ("training", "ประวัติการอบรม & สัมมนา"),
-            ("family", "ประวัติครอบครัว")
+            ("family", "บันทึกค่าลดหย่อนภาษี")
         };
 
         return sectionDefinitions

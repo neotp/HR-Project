@@ -31,7 +31,7 @@
                     <img class="pre-avatar pre-photo" src="@employee.ProfileImageDataUrl" alt="รูปโปรไฟล์" />
                 }
                 <div>
-                    <div class="pre-profile-meta"><span>@Display(employee.EmployeeCode)</span><span class="status-tag @StatusClass(item.Status)">@StatusText(item.Status)</span></div>
+                    <div class="pre-profile-meta"><span>@EmployeeCodeFormat.Display(employee.EmployeeCode)</span><span class="status-tag @StatusClass(item.Status)">@StatusText(item.Status)</span></div>
                     <h1>@Display(employee.ThaiFullName.Length > 0 ? employee.ThaiFullName : employee.FullName)</h1>
                     <p>@Display(employee.Position) · @Display(employee.Department)</p>
                 </div>
@@ -90,7 +90,7 @@
                         break;
                     case "internal":
                         <section><h2>ข้อมูลภายในบริษัท</h2><div class="pre-form-grid">
-                            <Field Label="รหัสพนักงาน" Required="true"><input @bind="employee.EmployeeCode" minlength="6" maxlength="6" disabled="@IsReadOnly" /></Field>
+                            <Field Label="รหัสพนักงาน" Required="true"><input @bind="employee.EmployeeCode" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="xxxxxx" disabled="@IsReadOnly" /></Field>
                             <Field Label="Email for Lotus Notes"><input @bind="employee.LotusNotesEmail" disabled="@IsReadOnly" /></Field>
                             <Field Label="Email" Required="true"><input type="email" @bind="employee.Email" disabled="@IsReadOnly" /></Field>
                             <Field Label="บริษัท"><input @bind="employee.Company" disabled="@IsReadOnly" /></Field>
@@ -114,7 +114,7 @@
                             <label class="check-field"><input type="checkbox" @bind="employee.HasCompanyParking" disabled="@IsReadOnly" /> บริษัทมีที่จอดรถให้</label>
                             <label class="check-field"><input type="checkbox" @bind="employee.CanTravelUpcountry" disabled="@IsReadOnly" /> สามารถเดินทางไปต่างจังหวัดได้</label>
                             <Field Label="MAC Address"><input @bind="employee.MacAddress" disabled="@IsReadOnly" /></Field>
-                            <Field Label="สถานะพนักงาน"><input @bind="employee.EmployeeStatus" disabled="@IsReadOnly" /></Field>
+                            <Field Label="สถานะพนักงาน"><select @bind="employee.EmployeeStatus" disabled="@IsReadOnly"><option value="พนักงาน">พนักงาน</option><option value="ลาออก">ลาออก</option></select></Field>
                             <label class="check-field"><input type="checkbox" @bind="employee.ExcludeAttendanceCalculation" disabled="@IsReadOnly" /> ไม่ต้องคำนวณการมาทำงาน</label>
                         </div></section>
                         break;
@@ -143,7 +143,7 @@
                         </HistorySection>
                         break;
                     case "family":
-                        <section><h2>ประวัติครอบครัว</h2><div class="pre-form-grid">
+                        <section><h2>บันทึกค่าลดหย่อนภาษี</h2><div class="pre-form-grid">
                             <Field Label="สถานะสมรส"><input @bind="employee.MaritalStatus" disabled="@IsReadOnly" /></Field>
                             <label class="check-field"><input type="checkbox" @bind="employee.IsMarriageRegistered" disabled="@IsReadOnly" /> จดทะเบียนสมรส</label>
                             <Field Label="คำนำหน้าคู่สมรส"><input @bind="employee.SpouseTitle" disabled="@IsReadOnly" /></Field>
@@ -198,7 +198,7 @@
     private static readonly TabInfo[] Tabs = [
         new("personal","ข้อมูลส่วนบุคคล"), new("internal","ข้อมูลภายในบริษัท"),
         new("work","ประวัติการทำงาน"), new("education","ประวัติการศึกษา"), new("training","ประวัติการอบรม & สัมมนา"),
-        new("family","ประวัติครอบครัว"), new("source","ข้อมูลต้นทาง")];
+        new("family","บันทึกค่าลดหย่อนภาษี"), new("source","ข้อมูลต้นทาง")];
 
     protected override async Task OnParametersSetAsync() => await Reload();
     private async Task Reload()
@@ -234,7 +234,8 @@
     {
         if (isSaving || item is null) return;
         formError = null; successMessage = null;
-        if (employee.EmployeeCode.Trim().Length != 6) { formError = "รหัสพนักงานต้องมี 6 ตัว"; return; }
+        employee.EmployeeCode = EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode);
+        if (!EmployeeCodeFormat.IsValid(employee.EmployeeCode)) { formError = "รหัสพนักงานต้องเป็นตัวเลข 6 หลัก"; return; }
         employee.ThaiFullName = $"{employee.FirstName} {employee.LastName}".Trim();
         isSaving = true;
         try

@@ -63,7 +63,7 @@
                                         title="เปิด Movement โควต้าวันลาของพนักงาน"
                                         @onclick="() => OpenEmployee(employee)"
                                         @onkeydown="args => HandleEmployeeRowKey(args, employee)">
-                                        <td>@employee.EmployeeId</td><td><strong>@employee.EmployeeName</strong></td><td>@Display(employee.Department)</td>
+                                        <td>@EmployeeCodeFormat.Display(employee.EmployeeId)</td><td><strong>@employee.EmployeeName</strong></td><td>@Display(employee.Department)</td>
                                         <td>@employee.LeaveTypeCount</td>
                                         <td>@HoursAndDays(employee.QuotaHours)</td>
                                         <td class="movement-out">@HoursAndDays(employee.UsedHours)</td>
@@ -86,7 +86,7 @@
             <button class="movement-back-link" type="button" @onclick="BackToEmployees">‹ กลับหน้ารายชื่อพนักงาน</button>
             <div class="movement-profile-summary">
                 <div class="movement-avatar">@EmployeeInitial</div>
-                <div><span>@selectedEmployee.EmployeeId</span><h2>@selectedEmployee.EmployeeName</h2><p>@Display(selectedEmployee.Department) · ปีโควต้า @selectedYear</p></div>
+                <div><span>@EmployeeCodeFormat.Display(selectedEmployee.EmployeeId)</span><h2>@selectedEmployee.EmployeeName</h2><p>@Display(selectedEmployee.Department) · ปีโควต้า @selectedYear</p></div>
             </div>
         </section>
 

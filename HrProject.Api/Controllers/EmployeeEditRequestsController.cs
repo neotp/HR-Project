@@ -92,6 +92,11 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         if (profileImageChange is not null && !IsValidProfileImage(profileImageChange.NewValue))
             return BadRequest("รูปโปรไฟล์ไม่ถูกต้องหรือมีขนาดใหญ่เกิน 2 MB");
 
+        var employeeStatusChange = changes.FirstOrDefault(change =>
+            string.Equals(change.FieldKey, "internal.employeeStatus", StringComparison.OrdinalIgnoreCase));
+        if (employeeStatusChange is not null && !EmployeeStatusValues.IsValid(employeeStatusChange.NewValue))
+            return BadRequest("สถานะพนักงานต้องเป็น พนักงาน หรือ ลาออก เท่านั้น");
+
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         const string insertSql = """

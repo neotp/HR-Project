@@ -1,5 +1,6 @@
 @page "/leave/request-quota"
 @inject HttpClient Http
+@inject HrProject.Client.Services.LoadingState LoadingState
 
 <PageTitle>ขอวันลาเพิ่ม | HR Project</PageTitle>
 
@@ -107,7 +108,11 @@
                                         <td>@request.LeaveTypeName</td>
                                         <td>@request.RequestedHours.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.RequestedHours) วัน)</small></td>
                                         <td>
-                                            @if (request.ApprovedHours.HasValue)
+                                            @if (request.Status == "PENDING")
+                                            {
+                                                <span>@request.RequestedHours.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.RequestedHours) วัน)</small></span>
+                                            }
+                                            else if (request.ApprovedHours.HasValue)
                                             {
                                                 <span>@request.ApprovedHours.Value.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.ApprovedHours.Value) วัน)</small></span>
                                             }
@@ -337,6 +342,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        using var pageLoading = LoadingState.BeginRequest();
         try
         {
             currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
@@ -463,7 +469,9 @@
     private void OpenRequest(LeaveQuotaRequestDto request)
     {
         selectedRequest = request;
-        reviewApprovedHours = request.ApprovedHours ?? request.RequestedHours;
+        reviewApprovedHours = request.Status == "PENDING"
+            ? request.RequestedHours
+            : request.ApprovedHours ?? request.RequestedHours;
         reviewRemark = string.Empty;
         reviewError = null;
     }

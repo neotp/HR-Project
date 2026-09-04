@@ -30,7 +30,7 @@
                             @onmousedown:preventDefault="true"
                             @onclick="() => SelectEmployee(employee)">
                         <strong>@employee.FullName</strong>
-                        <span>@employee.EmployeeCode@EmployeeDetails(employee)</span>
+                        <span>@EmployeeCodeFormat.Display(employee.EmployeeCode)@EmployeeDetails(employee)</span>
                     </button>
                 }
             }
@@ -74,7 +74,7 @@
             string.Equals(employee.EmployeeCode, synchronizedValue, StringComparison.OrdinalIgnoreCase));
         searchText = selected is null
             ? string.Empty
-            : $"{selected.FullName} ({selected.EmployeeCode})";
+            : $"{selected.FullName} ({EmployeeCodeFormat.Display(selected.EmployeeCode)})";
     }
 
     private void Open() => isOpen = true;
@@ -89,7 +89,7 @@
 
     private async Task SelectEmployee(Employee employee)
     {
-        searchText = $"{employee.FullName} ({employee.EmployeeCode})";
+        searchText = $"{employee.FullName} ({EmployeeCodeFormat.Display(employee.EmployeeCode)})";
         synchronizedValue = employee.EmployeeCode;
         isOpen = false;
         await ValueChanged.InvokeAsync(employee.EmployeeCode);

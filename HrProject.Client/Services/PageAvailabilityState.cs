@@ -32,7 +32,11 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
                 "api/page-permissions/availability", cancellationToken) ?? [];
             try
             {
-                foreach (var pageKey in new[] { "LEAVE_PENDING", "LEAVE_QUOTA_MOVEMENTS", "ATTENDANCE_REVIEWS" })
+                foreach (var pageKey in new[]
+                         {
+                             "LEAVE_PENDING", "LEAVE_QUOTA_MOVEMENTS", "ATTENDANCE_REVIEWS",
+                             "EMPLOYEES_RESIGNED"
+                         })
                 {
                     var pageAccess = await httpClient.GetFromJsonAsync<CurrentPageAccessDto>(
                         $"api/page-permissions/current-access/{pageKey}", cancellationToken);
@@ -48,6 +52,8 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
                     "LEAVE_QUOTA_MOVEMENTS", false, false, false);
                 currentAccess["ATTENDANCE_REVIEWS"] = new CurrentPageAccessDto(
                     "ATTENDANCE_REVIEWS", false, false, false);
+                currentAccess["EMPLOYEES_RESIGNED"] = new CurrentPageAccessDto(
+                    "EMPLOYEES_RESIGNED", false, false, false);
             }
             IsLoaded = true;
         }

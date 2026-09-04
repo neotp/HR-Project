@@ -20,6 +20,9 @@ public sealed class AttendanceProcessor(
         var queued = await AddQueuedRecalculations(affected, token);
         var today = DateOnly.FromDateTime(LocalNow());
         var yesterday = today.AddDays(-1);
+        // Attendance is a result of an elapsed work day. Calendar changes may
+        // queue future dates, but those dates must not become absent/late yet.
+        await DeleteFutureDailyRecords(today, token);
         // Rebuild today on every cycle and yesterday for all employees so that
         // a stopped worker can safely resume before final daily calculation.
         await AddEmployeesWithScans(affected, today, token);
@@ -161,8 +164,21 @@ public sealed class AttendanceProcessor(
 
     private async Task RecalculateOne(AttendanceKey key, CancellationToken token)
     {
+        var today = DateOnly.FromDateTime(LocalNow());
+        if (key.WorkDate > today)
+        {
+            await DeleteDailyRecord(key, token);
+            return;
+        }
+
         var dayContext = await LoadDayContext(key, token);
-        if (!dayContext.IsWorkDay) return;
+        if (!dayContext.IsWorkDay)
+        {
+            // Removing a working Saturday or adding a public holiday must also
+            // remove a previously calculated attendance document for that day.
+            await DeleteDailyRecord(key, token);
+            return;
+        }
 
         var result = Calculate(key.WorkDate, dayContext);
         await using var connection = await dataSource.OpenConnectionAsync(token);
@@ -267,6 +283,27 @@ public sealed class AttendanceProcessor(
         }
 
         await transaction.CommitAsync(token);
+    }
+
+    private async Task DeleteFutureDailyRecords(DateOnly today, CancellationToken token)
+    {
+        await using var command = dataSource.CreateCommand("""
+            DELETE FROM public.attendance_daily_records
+            WHERE work_date > @today
+            """);
+        command.Parameters.AddWithValue("today", today);
+        await command.ExecuteNonQueryAsync(token);
+    }
+
+    private async Task DeleteDailyRecord(AttendanceKey key, CancellationToken token)
+    {
+        await using var command = dataSource.CreateCommand("""
+            DELETE FROM public.attendance_daily_records
+            WHERE employee_id = @employee_id AND work_date = @work_date
+            """);
+        command.Parameters.AddWithValue("employee_id", key.EmployeeId);
+        command.Parameters.AddWithValue("work_date", key.WorkDate);
+        await command.ExecuteNonQueryAsync(token);
     }
 
     private async Task<DayContext> LoadDayContext(AttendanceKey key, CancellationToken token)

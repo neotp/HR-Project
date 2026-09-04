@@ -151,8 +151,9 @@ public sealed class AttendanceController(
 
         var ownerError = await ValidateOwnRecord(id, cancellationToken);
         if (ownerError is not null) return ownerError;
-        if (await IsAttendanceInProgress(id, cancellationToken))
-            return Conflict("รายการที่อยู่ระหว่างวันทำงานยังไม่สามารถส่งข้อโต้แย้งได้");
+        var responseBlockReason = await GetResponseBlockReason(id, cancellationToken);
+        if (responseBlockReason is not null)
+            return Conflict(responseBlockReason);
         var actor = await GetAuthenticatedEmployee(cancellationToken);
         if (actor is null) return Unauthorized();
 
@@ -487,12 +488,18 @@ public sealed class AttendanceController(
         return employeeId is null ? NotFound() : await ValidateOwnEmployee(employeeId, cancellationToken);
     }
 
-    private async Task<bool> IsAttendanceInProgress(long id, CancellationToken cancellationToken)
+    private async Task<string?> GetResponseBlockReason(long id, CancellationToken cancellationToken)
     {
-        const string sql = "SELECT final_status = 'IN_PROGRESS' FROM public.attendance_daily_records WHERE id = @id";
+        const string sql = "SELECT final_status FROM public.attendance_daily_records WHERE id = @id";
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("id", id);
-        return await command.ExecuteScalarAsync(cancellationToken) is true;
+        var status = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        return status switch
+        {
+            "IN_PROGRESS" => "รายการที่อยู่ระหว่างวันทำงานยังไม่สามารถส่งข้อโต้แย้งได้",
+            "PRESENT" => "รายการมาปกติไม่สามารถส่งข้อโต้แย้งได้",
+            _ => null
+        };
     }
 
     private async Task<ActionResult?> ValidateOwnOrReviewerRecord(

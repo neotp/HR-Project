@@ -28,7 +28,7 @@
     private string EmployeeLabel => currentUser is null
         ? "กำลังเชื่อมข้อมูลพนักงาน..."
         : currentUser.IsEmployeeLinked
-            ? $"{currentUser.EmployeeId} · {currentUser.Department}"
+            ? $"{EmployeeCodeFormat.Display(currentUser.EmployeeId)} · {currentUser.Department}"
             : "ยังไม่ผูกข้อมูลพนักงาน";
     private string UserInitial => string.IsNullOrWhiteSpace(DisplayName)
         ? "M"

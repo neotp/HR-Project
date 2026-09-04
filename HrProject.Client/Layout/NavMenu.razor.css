@@ -82,3 +82,49 @@
 }
 
 .desktop-collapsed .maintenance-label { display: none; }
+
+.nav-menu ::deep .nav-pending-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.55rem;
+    height: 1.55rem;
+    margin-left: auto;
+    padding: 0 .42rem;
+    color: #fff;
+    background: linear-gradient(135deg, #ff7a45, #ef4444);
+    border: 1px solid rgba(255,255,255,.28);
+    border-radius: 999px;
+    box-shadow: 0 4px 12px rgba(239,68,68,.32);
+    font-size: .72rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -.02em;
+}
+
+.nav-menu ::deep .menu-link.active .nav-pending-badge {
+    color: #9a3412;
+    background: #fff7ed;
+    border-color: #fed7aa;
+    box-shadow: 0 3px 10px rgba(15,23,42,.16);
+}
+
+@media (min-width: 900px) {
+    .nav-shell.desktop-collapsed .nav-menu ::deep .menu-link { position: relative; }
+    .nav-shell.desktop-collapsed .nav-menu ::deep .nav-pending-badge {
+        position: absolute;
+        top: .15rem;
+        right: .08rem;
+        min-width: 1.08rem;
+        height: 1.08rem;
+        padding: 0 .25rem;
+        border: 2px solid #1a2848;
+        font-size: .55rem;
+        box-shadow: 0 2px 7px rgba(239,68,68,.4);
+    }
+    .nav-shell.desktop-collapsed .nav-menu ::deep .menu-link.active .nav-pending-badge {
+        color: #fff;
+        background: #ef4444;
+        border-color: #5a3745;
+    }
+}

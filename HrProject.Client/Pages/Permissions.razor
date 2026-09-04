@@ -571,6 +571,7 @@
                     new SaveRolePagePermissionsRequest(items, actor.Id, actor.Name));
             if (!response.IsSuccessStatusCode) { await SetSaveError(response); return; }
             permissions = await response.Content.ReadFromJsonAsync<List<PagePermissionDto>>() ?? [];
+            await PageAvailability.RefreshAsync();
             saveSucceeded = true; saveMessage = "บันทึกสิทธิ์การเข้าถึงเรียบร้อยแล้ว";
         }
         catch (Exception exception) { saveSucceeded = false; saveMessage = $"บันทึกสิทธิ์ไม่สำเร็จ: {exception.Message}"; }
