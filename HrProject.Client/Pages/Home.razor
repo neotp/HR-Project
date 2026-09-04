@@ -446,9 +446,12 @@
 
     protected override async Task OnInitializedAsync()
     {
-        employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
-        masterItems = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
-            "api/system-master-data/items/all") ?? [];
+        var employeesTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
+        var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+            "api/system-master-data/items/all");
+        await Task.WhenAll(employeesTask, masterItemsTask);
+        employees = await employeesTask ?? [];
+        masterItems = await masterItemsTask ?? [];
     }
 
     private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) =>

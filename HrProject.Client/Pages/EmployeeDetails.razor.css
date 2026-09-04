@@ -84,3 +84,12 @@
 .submit-edit-button { color: #fff; background: #ff6b35; border: 0; }
 .submit-edit-button:disabled, .cancel-edit-button:disabled { opacity: .6; cursor: not-allowed; }
 @media (max-width: 720px) { .detail-grid, .employee-edit-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; }.employee-profile-header { padding: 1.1rem; }.tab-content { padding: 1rem; }.profile-summary { align-items: flex-start; flex-wrap: wrap; }.profile-summary h1 { font-size: 1.25rem; }.request-edit-button { width: 100%; margin-left: 0; }.history-summary { align-items: flex-start; flex-direction: column; }.employee-history-table th, .employee-history-table td { padding: .7rem; }.tab-edit-actions { align-items: stretch; flex-direction: column; padding: .75rem 1rem; }.tab-edit-actions > div { display: grid; grid-template-columns: 1fr; }.direct-edit-button, .tab-edit-actions .request-edit-button { width: 100%; }.modal-table-toolbar { align-items: stretch; flex-direction: column; }.modal-table-toolbar button { width: 100%; }.profile-image-request-editor { align-items:flex-start; flex-direction:column; }.profile-image-request-preview { align-self:center; } }
+.personal-documents-section { display: grid; gap: 1rem; }
+.personal-documents-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.personal-documents-heading h2 { margin-bottom: .3rem; }
+.personal-documents-heading p { margin: 0; color: #64748b; font-size: .82rem; }
+.confidential-badge { padding: .3rem .65rem; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; border-radius: 999px; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.personal-documents-empty { min-height: 220px; display: grid; place-items: center; align-content: center; gap: .45rem; padding: 2rem; color: #64748b; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: .75rem; text-align: center; }
+.personal-documents-empty strong { color: #334155; }
+.personal-documents-empty p { margin: 0; font-size: .8rem; }
+.personal-documents-empty-icon { width: 3rem; height: 3rem; display: grid; place-items: center; color: #fff; background: #334155; border-radius: 50%; font-size: 1.45rem; }

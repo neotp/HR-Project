@@ -47,7 +47,7 @@
 
         <section class="content-card employee-detail-card">
             <nav class="employee-tabs" aria-label="หมวดข้อมูลพนักงาน">
-                @foreach (var tab in Tabs)
+                @foreach (var tab in VisibleTabs)
                 {
                     <button type="button"
                             class="employee-tab @(activeTab == tab.Key ? "active" : null)"
@@ -235,6 +235,24 @@
                                 <DetailField Label="ลดหย่อนบิดามารดาคู่สมรส" Value="@MoneyText(employee.SpouseParentSupportDeductionAmount)" />
                                 <DetailField Label="URL แผนที่อยู่ปัจจุบัน" Value="@employee.CurrentAddressMapUrl" />
                             </div>
+                        </section>
+                        break;
+                    case "documents":
+                        <section class="personal-documents-section" aria-labelledby="documents-title">
+                            <div class="personal-documents-heading">
+                                <div>
+                                    <h2 id="documents-title">เอกสารส่วนตัว</h2>
+                                    <p>ข้อมูลเอกสารสำคัญของพนักงาน จำกัดเฉพาะผู้ที่ได้รับสิทธิ์</p>
+                                </div>
+                                <span class="confidential-badge">ข้อมูลลับ</span>
+                            </div>
+                            <EmployeePersonalDocuments EmployeeId="@employee.Id" />
+                        </section>
+                        break;
+                    case "change-history":
+                        <section aria-labelledby="change-history-title">
+                            <h2 id="change-history-title">ประวัติการเปลี่ยนแปลงข้อมูล</h2>
+                            <EmployeeChangeHistory EmployeeId="@employee.Id" />
                         </section>
                         break;
                 }
@@ -560,8 +578,14 @@
         ("work", "ประวัติการทำงาน"),
         ("education", "ประวัติการศึกษา"),
         ("training", "ประวัติการอบรม & สัมมนา"),
-        ("family", "บันทึกค่าลดหย่อนภาษี")
+        ("family", "บันทึกค่าลดหย่อนภาษี"),
+        ("documents", "เอกสารส่วนตัว"),
+        ("change-history", "ประวัติการเปลี่ยนแปลง")
     ];
+
+    private IEnumerable<(string Key, string Label)> VisibleTabs =>
+        Tabs.Where(tab => (tab.Key != "documents" && tab.Key != "change-history") ||
+            allowedActions.Contains("VIEW_PERSONAL_DOCUMENTS"));
 
     protected override async Task OnParametersSetAsync()
     {
@@ -1020,6 +1044,8 @@
         "education" => "การเพิ่ม แก้ไข หรือลบประวัติการศึกษาต้องขออนุมัติ",
         "training" => "การเพิ่ม แก้ไข หรือลบประวัติการอบรมต้องขออนุมัติ",
         "family" => "การแก้ไขข้อมูลค่าลดหย่อนภาษีต้องขออนุมัติ",
+        "documents" => "ผู้ที่ได้รับสิทธิ์จากหน้าจัดการสิทธิ์สามารถดู เพิ่ม และพรีวิวเอกสารส่วนตัวได้",
+        "change-history" => "แสดงคำขอแก้ไข ฟิลด์ที่เปลี่ยน ผู้ดำเนินการ และวันเวลาทั้งหมด",
         _ => string.Empty
     };
 

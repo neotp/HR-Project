@@ -32,14 +32,17 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
                 "api/page-permissions/availability", cancellationToken) ?? [];
             try
             {
-                foreach (var pageKey in new[]
-                         {
-                             "LEAVE_PENDING", "LEAVE_QUOTA_MOVEMENTS", "ATTENDANCE_REVIEWS",
-                             "EMPLOYEES_RESIGNED"
-                         })
+                var accessTasks = new[]
+                    {
+                        "LEAVE_PENDING", "LEAVE_QUOTA_MOVEMENTS", "ATTENDANCE_REVIEWS",
+                        "EMPLOYEES_RESIGNED"
+                    }
+                    .Select(pageKey => httpClient.GetFromJsonAsync<CurrentPageAccessDto>(
+                        $"api/page-permissions/current-access/{pageKey}", cancellationToken))
+                    .ToArray();
+                var accessResults = await Task.WhenAll(accessTasks);
+                foreach (var pageAccess in accessResults)
                 {
-                    var pageAccess = await httpClient.GetFromJsonAsync<CurrentPageAccessDto>(
-                        $"api/page-permissions/current-access/{pageKey}", cancellationToken);
                     if (pageAccess is not null)
                         currentAccess[pageAccess.PageKey] = pageAccess;
                 }

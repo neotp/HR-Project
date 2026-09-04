@@ -81,6 +81,7 @@
     private readonly CancellationTokenSource disposeToken = new();
     private HttpClient? backgroundHttp;
     private PeriodicTimer? refreshTimer;
+    private string? currentEmployeeId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -125,64 +126,97 @@
 
         try
         {
-            var user = await backgroundHttp.GetFromJsonAsync<CurrentMicrosoftUserDto>(
-                "api/auth/me", disposeToken.Token);
-            if (string.IsNullOrWhiteSpace(user?.EmployeeId))
-                return;
+            if (string.IsNullOrWhiteSpace(currentEmployeeId))
+            {
+                var user = await backgroundHttp.GetFromJsonAsync<CurrentMicrosoftUserDto>(
+                    "api/auth/me", disposeToken.Token);
+                currentEmployeeId = user?.EmployeeId;
+            }
+            if (string.IsNullOrWhiteSpace(currentEmployeeId)) return;
 
-            var employeeId = Uri.EscapeDataString(user.EmployeeId);
+            var employeeId = Uri.EscapeDataString(currentEmployeeId);
             var next = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            if (PageAvailability.HasAccess("LEAVE_PENDING"))
-            {
-                var items = await GetListAsync<LeaveDocumentDto>(
-                    $"api/leave-documents?status=PENDING_APPROVAL&actingEmployeeId={employeeId}");
-                next["LEAVE_PENDING"] = items.Count(item => item.Status == "PENDING_APPROVAL");
-            }
-
-            var editItems = await GetListAsync<LeaveDocumentDto>(
+            var pendingTask = PageAvailability.HasAccess("LEAVE_PENDING")
+                ? GetListAsync<LeaveDocumentDto>(
+                    $"api/leave-documents?status=PENDING_APPROVAL&actingEmployeeId={employeeId}")
+                : Task.FromResult(new List<LeaveDocumentDto>());
+            var editTask = GetListAsync<LeaveDocumentDto>(
                 $"api/leave-documents?status=EDIT_REQUESTED&actingEmployeeId={employeeId}");
-            var cancelItems = await GetListAsync<LeaveDocumentDto>(
+            var cancelTask = GetListAsync<LeaveDocumentDto>(
                 $"api/leave-documents/cancel-requests/pending?actingEmployeeId={employeeId}");
+            var quotaActionsTask = GetActionsAsync(employeeId, "LEAVE_REQUEST_QUOTA");
+            var employeeActionsTask = GetActionsAsync(employeeId, "EMPLOYEE_EDIT_REQUESTS");
+            var preEmployeeActionsTask = GetActionsAsync(employeeId, "PRE_EMPLOYEES");
+
+            var year = DateTime.Today.Year;
+            var from = new DateOnly(year, 1, 1);
+            var to = new DateOnly(year, 12, 31);
+            var attendanceTask = PageAvailability.HasAccess("ATTENDANCE_REVIEWS")
+                ? GetListAsync<AttendanceReviewItemDto>(
+                    $"api/attendance/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}")
+                : Task.FromResult(new List<AttendanceReviewItemDto>());
+            var eventTask = PageAvailability.HasAccess("ATTENDANCE_REVIEWS")
+                ? GetListAsync<AttendanceCalendarEventReviewDto>(
+                    $"api/attendance-calendar-events/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}")
+                : Task.FromResult(new List<AttendanceCalendarEventReviewDto>());
+
+            await Task.WhenAll(pendingTask, editTask, cancelTask, quotaActionsTask,
+                employeeActionsTask, preEmployeeActionsTask, attendanceTask, eventTask);
+
+            var pendingItems = await pendingTask;
+            if (PageAvailability.HasAccess("LEAVE_PENDING"))
+                next["LEAVE_PENDING"] = pendingItems.Count(item => item.Status == "PENDING_APPROVAL");
+
+            var editItems = await editTask;
+            var cancelItems = await cancelTask;
             next["LEAVE_REVISIONS"] = editItems.Where(item => item.Status == "EDIT_REQUESTED")
                 .Select(item => item.Id)
                 .Concat(cancelItems.Where(item => item.PendingCancelRequest is not null).Select(item => item.Id))
                 .Distinct()
                 .Count();
 
-            var quotaActions = await GetActionsAsync(employeeId, "LEAVE_REQUEST_QUOTA");
+            var quotaActions = await quotaActionsTask;
+            var employeeActions = await employeeActionsTask;
+            var preEmployeeActions = await preEmployeeActionsTask;
+            var quotaRequestsTask = HasReviewAction(quotaActions)
+                ? GetListAsync<LeaveQuotaRequestDto>("api/leave-quota-requests")
+                : Task.FromResult(new List<LeaveQuotaRequestDto>());
+            var employeeRequestsTask = HasReviewAction(employeeActions)
+                ? GetListAsync<EmployeeEditRequestDto>("api/employee-edit-requests")
+                : Task.FromResult(new List<EmployeeEditRequestDto>());
+            var preEmployeesTask = preEmployeeActions.Contains("CONVERT") ||
+                                   preEmployeeActions.Contains("EDIT") ||
+                                   preEmployeeActions.Contains("VIEW_ALL")
+                ? GetListAsync<PreEmployeeDto>("api/pre-employees")
+                : Task.FromResult(new List<PreEmployeeDto>());
+            await Task.WhenAll(quotaRequestsTask, employeeRequestsTask, preEmployeesTask);
+
             if (HasReviewAction(quotaActions))
             {
-                var requests = await GetListAsync<LeaveQuotaRequestDto>("api/leave-quota-requests");
+                var requests = await quotaRequestsTask;
                 next["LEAVE_REQUEST_QUOTA"] = requests.Count(item => item.Status == "PENDING");
             }
 
             if (PageAvailability.HasAccess("ATTENDANCE_REVIEWS"))
             {
-                var year = DateTime.Today.Year;
-                var from = new DateOnly(year, 1, 1);
-                var to = new DateOnly(year, 12, 31);
-                var attendanceItems = await GetListAsync<AttendanceReviewItemDto>(
-                    $"api/attendance/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}");
-                var eventItems = await GetListAsync<AttendanceCalendarEventReviewDto>(
-                    $"api/attendance-calendar-events/reviews?startDate={from:yyyy-MM-dd}&endDate={to:yyyy-MM-dd}");
+                var attendanceItems = await attendanceTask;
+                var eventItems = await eventTask;
                 next["ATTENDANCE_REVIEWS"] =
                     attendanceItems.Count(item => item.LatestResponse?.Status == "SUBMITTED") +
                     eventItems.Count(item => item.Status == "PENDING");
             }
 
-            var employeeActions = await GetActionsAsync(employeeId, "EMPLOYEE_EDIT_REQUESTS");
             if (HasReviewAction(employeeActions))
             {
-                var requests = await GetListAsync<EmployeeEditRequestDto>("api/employee-edit-requests");
+                var requests = await employeeRequestsTask;
                 next["EMPLOYEE_EDIT_REQUESTS"] = requests.Count(item => item.Status == "PENDING");
             }
 
-            var preEmployeeActions = await GetActionsAsync(employeeId, "PRE_EMPLOYEES");
             if (preEmployeeActions.Contains("CONVERT") || preEmployeeActions.Contains("EDIT") ||
                 preEmployeeActions.Contains("VIEW_ALL"))
             {
-                var preEmployees = await GetListAsync<PreEmployeeDto>("api/pre-employees");
+                var preEmployees = await preEmployeesTask;
                 next["PRE_EMPLOYEES"] = preEmployees.Count(item =>
                     item.Status is "DRAFT" or "INCOMPLETE" or "READY");
             }

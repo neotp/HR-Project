@@ -67,6 +67,7 @@ WITH action_seed(page_key, action_key, action_name, description, display_order) 
     ('LEAVE_MANAGE_QUOTA', 'DELETE', 'ลบโควต้า', 'ลบโควต้าของพนักงาน', 30),
     ('EMPLOYEES', 'VIEW_PERSONAL', 'ดูข้อมูลส่วนบุคคล', 'ดูข้อมูลส่วนบุคคลของพนักงาน', 10),
     ('EMPLOYEES', 'VIEW_COMPANY', 'ดูข้อมูลภายในบริษัท', 'ดูข้อมูลภายในบริษัทของพนักงาน', 20),
+      ('EMPLOYEES', 'VIEW_PERSONAL_DOCUMENTS', 'ดูและเพิ่มเอกสารส่วนตัว', 'ดู เพิ่ม และเปิดพรีวิวเอกสารส่วนตัวของพนักงาน', 25),
     ('EMPLOYEES', 'CREATE', 'เพิ่มพนักงาน', 'สร้างข้อมูลพนักงานใหม่', 30),
     ('EMPLOYEE_EDIT_REQUESTS', 'VIEW_ALL', 'ดูคำขอแก้ไขทั้งหมด', 'ดูคำขอแก้ไขข้อมูลพนักงานทุกคน', 10),
     ('EMPLOYEE_EDIT_REQUESTS', 'APPROVE', 'อนุมัติคำขอแก้ไข', 'อนุมัติการแก้ไขข้อมูลพนักงาน', 20),

@@ -137,6 +137,90 @@ code {
     color: #c02d76;
 }
 
+article.employee-document-card {
+    position: relative;
+    display: block;
+    padding: 0;
+    overflow: hidden;
+    cursor: default;
+}
+
+.employee-document-preview-button {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .75rem;
+    padding: .85rem 4.2rem .85rem .85rem;
+    text-align: left;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.employee-document-delete-button {
+    position: absolute;
+    right: .7rem;
+    bottom: .65rem;
+    padding: .3rem .55rem;
+    color: #dc2626;
+    background: #fff;
+    border: 1px solid #fecaca;
+    border-radius: .4rem;
+    font: inherit;
+    font-size: .7rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.employee-document-delete-button:hover { color: #fff; background: #dc2626; }
+.employee-document-delete-button:disabled { opacity: .55; cursor: not-allowed; }
+
+.employee-document-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2900;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: #0f172a99;
+}
+
+.employee-document-confirm-modal {
+    width: min(430px, 100%);
+    display: grid;
+    justify-items: center;
+    gap: .75rem;
+    padding: 1.4rem;
+    text-align: center;
+    background: #fff;
+    border-radius: .8rem;
+    box-shadow: 0 24px 60px #0006;
+}
+
+.document-delete-warning {
+    width: 3rem;
+    height: 3rem;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: #ef4444;
+    border-radius: 50%;
+    font-size: 1.5rem;
+    font-weight: 900;
+}
+
+.employee-document-confirm-modal h2 { margin: 0; color: #1e293b; font-size: 1.1rem; }
+.employee-document-confirm-modal p { margin: 0; color: #334155; }
+.employee-document-confirm-modal small { color: #64748b; }
+.employee-document-confirm-modal > div { display: flex; justify-content: center; gap: .6rem; margin-top: .3rem; }
+.employee-document-confirm-modal button { padding: .58rem .85rem; border-radius: .45rem; font: inherit; font-size: .78rem; font-weight: 800; cursor: pointer; }
+.cancel-delete-button { color: #475569; background: #fff; border: 1px solid #cbd5e1; }
+.confirm-delete-button { color: #fff; background: #dc2626; border: 1px solid #dc2626; }
+.employee-document-confirm-modal button:disabled { opacity: .55; cursor: not-allowed; }
+.history-status.completed { color: #047857; background: #d1fae5; }
+
 @media (max-width: 640px) {
     input, select, textarea { font-size: 16px !important; }
     button, a, input, select { touch-action: manipulation; }

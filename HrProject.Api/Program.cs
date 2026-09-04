@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using HrProject.Api.Tools;
@@ -17,6 +18,11 @@ builder.Logging.AddDebug();
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/json"]);
+});
 var connectionString = builder.Configuration.GetConnectionString("HrDatabase")
     ?? throw new InvalidOperationException("Connection string 'HrDatabase' is not configured.");
 
@@ -683,6 +689,45 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-resigned-employees-pag
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-personal-documents-tab", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "053_add_employee_personal_documents_permission.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added employee personal documents permission successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-personal-documents", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "054_create_employee_personal_documents.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created employee personal documents storage successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-activity-history", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "055_create_employee_activity_history.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created employee activity history and personal document deletion fields successfully.");
+    return;
+}
+
 // The database is hosted on another server. Keep pooled connections alive so a
 // firewall/NAT idle timeout does not hand a dead connector to background jobs.
 var pooledConnectionSettings = new NpgsqlConnectionStringBuilder(connectionString);
@@ -826,6 +871,7 @@ if (args.Length >= 2 && string.Equals(args[0], "--sync-leave-outlook-calendar", 
 }
 
 // Configure the HTTP request pipeline.
+app.UseResponseCompression();
 app.UseHttpsRedirection();
 
 app.UseCors();

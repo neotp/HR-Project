@@ -1,0 +1,355 @@
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<section class="employee-document-manager">
+    <div class="employee-document-toolbar">
+        <div>
+            <strong>รายการเอกสาร</strong>
+            <small>รองรับ PDF, JPG และ PNG สูงสุด 10 ไฟล์ และไฟล์ละไม่เกิน 10 MB</small>
+        </div>
+        <label class="employee-document-picker @(isUploading ? "disabled" : null)">
+            <span>+ เลือกเอกสาร</span>
+            <InputFile @key="inputVersion" OnChange="SelectFiles" multiple
+                       accept=".pdf,.jpg,.jpeg,.png" disabled="@isUploading" />
+        </label>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="employee-document-message @(hasError ? "error" : "success")" role="status">@message</div>
+    }
+
+    @if (pendingFiles.Count > 0)
+    {
+        <div class="employee-document-pending">
+            <header><strong>ไฟล์ที่เลือก (@pendingFiles.Count)</strong><span>ตรวจสอบก่อนบันทึก</span></header>
+            @foreach (var file in pendingFiles)
+            {
+                <div class="employee-document-pending-item">
+                    <span class="document-file-icon">@FileIcon(file.ContentType)</span>
+                    <span><strong>@file.FileName</strong><small>@FormatFileSize(file.Content.LongLength)</small></span>
+                    <button type="button" disabled="@isUploading" aria-label="นำ @file.FileName ออก"
+                            @onclick="() => RemovePending(file)">×</button>
+                </div>
+            }
+            <div class="employee-document-pending-actions">
+                <button class="clear-button" type="button" disabled="@isUploading" @onclick="ClearPending">ล้างรายการ</button>
+                <button class="upload-button" type="button" disabled="@isUploading" @onclick="UploadFiles">
+                    @(isUploading ? "กำลังบันทึก..." : $"บันทึก {pendingFiles.Count} ไฟล์")
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="employee-document-state"><span class="document-spinner"></span>กำลังโหลดเอกสาร...</div>
+    }
+    else if (documents.Count == 0)
+    {
+        <div class="employee-document-state empty">
+            <span class="empty-icon" aria-hidden="true">▤</span>
+            <strong>ยังไม่มีเอกสารส่วนตัว</strong>
+            <small>กด “เลือกเอกสาร” เพื่อเพิ่มเอกสารของพนักงาน</small>
+        </div>
+    }
+    else
+    {
+        <div class="employee-document-list">
+            @foreach (var document in documents)
+            {
+                <article class="employee-document-card">
+                    <button class="employee-document-preview-button" type="button" @onclick="() => OpenPreview(document)">
+                        <span class="document-file-icon">@FileIcon(document.ContentType)</span>
+                        <span class="document-card-main">
+                            <strong>@document.FileName</strong>
+                            <small>@FormatFileSize(document.FileSizeBytes) · เพิ่มโดย @document.UploadedByName</small>
+                        </span>
+                        <span class="document-card-date">@document.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                        <span class="document-preview-action">ดูตัวอย่าง</span>
+                    </button>
+                    <button class="employee-document-delete-button" type="button"
+                            disabled="@isDeleting" @onclick="() => AskDelete(document)">
+                        ลบ
+                    </button>
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@if (previewDocument is not null)
+{
+    <div class="employee-document-preview-overlay" role="dialog" aria-modal="true" aria-labelledby="employee-document-preview-title">
+        <section class="employee-document-preview-modal">
+            <header>
+                <div>
+                    <h2 id="employee-document-preview-title">ตัวอย่างเอกสารส่วนตัว</h2>
+                    <p>@previewDocument.FileName · @FormatFileSize(previewDocument.FileSizeBytes)</p>
+                </div>
+                <button type="button" aria-label="ปิดตัวอย่างเอกสาร" @onclick="ClosePreview">×</button>
+            </header>
+            <div class="employee-document-preview-body">
+                @if (isLoadingPreview)
+                {
+                    <div class="employee-document-state"><span class="document-spinner"></span>กำลังเปิดเอกสาร...</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewError))
+                {
+                    <div class="employee-document-state error">@previewError</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewUrl))
+                {
+                    @if (previewDocument.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <img src="@previewUrl" alt="@previewDocument.FileName" />
+                    }
+                    else
+                    {
+                        <iframe src="@PreviewSource" title="@previewDocument.FileName"></iframe>
+                    }
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@if (deleteDocument is not null)
+{
+    <div class="employee-document-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="employee-document-delete-title">
+        <section class="employee-document-confirm-modal">
+            <span class="document-delete-warning" aria-hidden="true">!</span>
+            <h2 id="employee-document-delete-title">ยืนยันการลบเอกสาร</h2>
+            <p>ต้องการลบ <strong>@deleteDocument.FileName</strong> ใช่หรือไม่</p>
+            <small>เอกสารจะไม่แสดงในรายการอีก แต่ระบบยังเก็บประวัติผู้ลบและวันเวลาไว้</small>
+            <div>
+                <button class="cancel-delete-button" type="button" disabled="@isDeleting" @onclick="CancelDelete">ปิด</button>
+                <button class="confirm-delete-button" type="button" disabled="@isDeleting" @onclick="DeleteDocument">
+                    @(isDeleting ? "กำลังลบ..." : "ยืนยันการลบ")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public int EmployeeId { get; set; }
+
+    private const long MaxFileSize = 10 * 1024 * 1024;
+    private readonly List<EmployeePersonalDocumentDto> documents = [];
+    private readonly List<EmployeePersonalDocumentUploadDto> pendingFiles = [];
+    private int loadedEmployeeId;
+    private int inputVersion;
+    private bool isLoading = true;
+    private bool isUploading;
+    private bool isDeleting;
+    private bool hasError;
+    private string? message;
+    private EmployeePersonalDocumentDto? previewDocument;
+    private EmployeePersonalDocumentDto? deleteDocument;
+    private bool isLoadingPreview;
+    private string? previewError;
+    private string? previewUrl;
+    private string? PreviewSource => string.IsNullOrWhiteSpace(previewUrl)
+        ? null
+        : $"{previewUrl}#toolbar=0&navpanes=0&scrollbar=1";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EmployeeId <= 0 || EmployeeId == loadedEmployeeId) return;
+        loadedEmployeeId = EmployeeId;
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        isLoading = true;
+        message = null;
+        try
+        {
+            documents.Clear();
+            documents.AddRange(await Http.GetFromJsonAsync<List<EmployeePersonalDocumentDto>>(
+                $"api/employees/{EmployeeId}/personal-documents") ?? []);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"โหลดเอกสารไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectFiles(InputFileChangeEventArgs eventArgs)
+    {
+        message = null;
+        if (eventArgs.FileCount > 10)
+        {
+            SetMessage("เลือกเอกสารได้ไม่เกิน 10 ไฟล์ต่อครั้ง", true);
+            inputVersion++;
+            return;
+        }
+
+        foreach (var file in eventArgs.GetMultipleFiles(10))
+        {
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (extension is not (".pdf" or ".jpg" or ".jpeg" or ".png"))
+            {
+                SetMessage($"ไฟล์ {file.Name} ไม่รองรับ กรุณาเลือก PDF, JPG หรือ PNG", true);
+                continue;
+            }
+            if (file.Size > MaxFileSize)
+            {
+                SetMessage($"ไฟล์ {file.Name} มีขนาดเกิน 10 MB", true);
+                continue;
+            }
+
+            await using var stream = file.OpenReadStream(MaxFileSize);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            pendingFiles.Add(new EmployeePersonalDocumentUploadDto(
+                file.Name, file.ContentType, memory.ToArray()));
+        }
+        inputVersion++;
+    }
+
+    private void RemovePending(EmployeePersonalDocumentUploadDto file) => pendingFiles.Remove(file);
+    private void ClearPending() => pendingFiles.Clear();
+
+    private async Task UploadFiles()
+    {
+        if (pendingFiles.Count == 0 || isUploading) return;
+        isUploading = true;
+        message = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/employees/{EmployeeId}/personal-documents",
+                new AddEmployeePersonalDocumentsRequest(pendingFiles));
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                SetMessage(string.IsNullOrWhiteSpace(details)
+                    ? $"บันทึกเอกสารไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details, true);
+                return;
+            }
+
+            documents.Clear();
+            documents.AddRange(await response.Content.ReadFromJsonAsync<List<EmployeePersonalDocumentDto>>() ?? []);
+            pendingFiles.Clear();
+            inputVersion++;
+            SetMessage("เพิ่มเอกสารส่วนตัวเรียบร้อยแล้ว", false);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"บันทึกเอกสารไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task OpenPreview(EmployeePersonalDocumentDto document)
+    {
+        await RevokePreviewUrl();
+        previewDocument = document;
+        previewError = null;
+        isLoadingPreview = true;
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/employees/{EmployeeId}/personal-documents/{document.Id}/preview");
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                previewError = string.IsNullOrWhiteSpace(details)
+                    ? $"เปิดไฟล์ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details;
+                return;
+            }
+
+            previewUrl = await JS.InvokeAsync<string>("hrPreview.createObjectUrl",
+                document.ContentType, await response.Content.ReadAsByteArrayAsync());
+        }
+        catch (Exception exception)
+        {
+            previewError = $"เปิดไฟล์ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            isLoadingPreview = false;
+        }
+    }
+
+    private void AskDelete(EmployeePersonalDocumentDto document)
+    {
+        message = null;
+        deleteDocument = document;
+    }
+
+    private void CancelDelete()
+    {
+        if (!isDeleting) deleteDocument = null;
+    }
+
+    private async Task DeleteDocument()
+    {
+        if (deleteDocument is null || isDeleting) return;
+        var document = deleteDocument;
+        isDeleting = true;
+        message = null;
+        try
+        {
+            var response = await Http.DeleteAsync(
+                $"api/employees/{EmployeeId}/personal-documents/{document.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                SetMessage(string.IsNullOrWhiteSpace(details)
+                    ? $"ลบเอกสารไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details, true);
+                return;
+            }
+
+            documents.RemoveAll(item => item.Id == document.Id);
+            deleteDocument = null;
+            SetMessage("ลบเอกสารส่วนตัวเรียบร้อยแล้ว และบันทึกลงประวัติแล้ว", false);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"ลบเอกสารไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private async Task ClosePreview()
+    {
+        await RevokePreviewUrl();
+        previewDocument = null;
+        previewError = null;
+    }
+
+    private async Task RevokePreviewUrl()
+    {
+        if (string.IsNullOrWhiteSpace(previewUrl)) return;
+        try { await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl", previewUrl); }
+        catch (JSException) { }
+        previewUrl = null;
+    }
+
+    private void SetMessage(string value, bool error) { message = value; hasError = error; }
+    private static string FileIcon(string contentType) =>
+        contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ? "PDF" : "IMG";
+    private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / 1024d / 1024d:0.##} MB"
+        : $"{Math.Max(1, bytes / 1024d):0.##} KB";
+
+    public async ValueTask DisposeAsync() => await RevokePreviewUrl();
+}

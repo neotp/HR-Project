@@ -36,12 +36,18 @@ public sealed class EmployeesController(
         LEFT JOIN public.employee_company_info c ON c.employee_id = e.id
         """;
 
+    // List screens never display the full Base64 profile image. Avoid reading and
+    // serializing it for every employee; the detail endpoint still returns it.
+    private static readonly string BaseListSelect = BaseSelect.Replace(
+        "b.profile_image_data", "NULL::text AS profile_image_data",
+        StringComparison.Ordinal);
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<Employee>>> GetAll(CancellationToken cancellationToken)
     {
         var result = new List<Employee>();
         await using var command = dataSource.CreateCommand(
-            BaseSelect + """
+            BaseListSelect + """
                  WHERE e.is_active = TRUE
                    AND COALESCE(BTRIM(c.employee_status), '') <> 'ลาออก'
                  ORDER BY e.employee_code
@@ -67,7 +73,7 @@ public sealed class EmployeesController(
 
         var result = new List<Employee>();
         await using var command = dataSource.CreateCommand(
-            BaseSelect + """
+            BaseListSelect + """
                  WHERE BTRIM(COALESCE(c.employee_status, '')) = 'ลาออก'
                  ORDER BY e.employee_code
                 """);
@@ -98,6 +104,283 @@ public sealed class EmployeesController(
         }
 
         return Ok(employee);
+    }
+
+    [HttpGet("{id:int}/personal-documents")]
+    public async Task<ActionResult<IReadOnlyList<EmployeePersonalDocumentDto>>> GetPersonalDocuments(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูเอกสารส่วนตัว");
+
+        const string sql = """
+            SELECT d.id, d.employee_id, d.original_file_name, d.content_type,
+                   d.file_size_bytes, d.uploaded_by, d.uploaded_by_name, d.uploaded_at
+            FROM public.employee_personal_documents d
+            WHERE d.employee_id = @employee_id
+              AND d.is_active = TRUE
+            ORDER BY d.uploaded_at DESC, d.id DESC
+            """;
+        var result = new List<EmployeePersonalDocumentDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new EmployeePersonalDocumentDto(
+                reader.GetInt64(0),
+                checked((int)reader.GetInt64(1)),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetInt64(4),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetFieldValue<DateTimeOffset>(7)));
+        }
+        return Ok(result);
+    }
+
+    [HttpGet("{id:int}/change-history")]
+    public async Task<ActionResult<IReadOnlyList<EmployeeChangeHistoryDto>>> GetChangeHistory(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูประวัติการเปลี่ยนแปลงข้อมูลพนักงาน");
+
+        const string sql = """
+            SELECT request.id, request.request_no, request.status, request.request_reason,
+                   request.requested_by, request.requested_by_name, request.requested_at,
+                   request.reviewed_by, request.reviewed_by_name, request.reviewed_at,
+                   request.review_remark, request.changes_json::text,
+                   history.id, history.action, history.details_text,
+                   history.action_by, history.action_by_name, history.action_at
+            FROM public.employees employee
+            JOIN public.employee_edit_requests request
+              ON request.employee_id = employee.employee_code
+            LEFT JOIN public.employee_edit_request_history history
+              ON history.employee_edit_request_id = request.id
+            WHERE employee.id = @employee_id
+            ORDER BY request.requested_at DESC, request.id DESC,
+                     history.action_at, history.id
+            """;
+        var requests = new List<EmployeeChangeHistoryBuilder>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var requestId = reader.GetInt64(0);
+            var item = requests.LastOrDefault(value => value.RequestId == requestId);
+            if (item is null)
+            {
+                var changes = JsonSerializer.Deserialize<List<EmployeeFieldChangeDto>>(
+                    reader.GetString(11),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+                item = new EmployeeChangeHistoryBuilder(
+                    requestId,
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetFieldValue<DateTimeOffset>(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8),
+                    reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+                    reader.IsDBNull(10) ? null : reader.GetString(10),
+                    changes);
+                requests.Add(item);
+            }
+
+            if (!reader.IsDBNull(12))
+            {
+                item.Actions.Add(new EmployeeChangeHistoryActionDto(
+                    reader.GetInt64(12),
+                    reader.GetString(13),
+                    reader.GetString(14),
+                    reader.GetString(15),
+                    reader.GetString(16),
+                    reader.GetFieldValue<DateTimeOffset>(17)));
+            }
+        }
+
+        var result = requests.Select(item => item.ToDto()).ToList();
+        const string activitySql = """
+            SELECT id, action_key, details_text, action_by, action_by_name, action_at
+            FROM public.employee_activity_history
+            WHERE employee_id = @employee_id
+            ORDER BY action_at DESC, id DESC
+            """;
+        await using (var activityCommand = dataSource.CreateCommand(activitySql))
+        {
+            activityCommand.Parameters.AddWithValue("employee_id", id);
+            await using var activityReader = await activityCommand.ExecuteReaderAsync(cancellationToken);
+            while (await activityReader.ReadAsync(cancellationToken))
+            {
+                var historyId = activityReader.GetInt64(0);
+                var action = activityReader.GetString(1);
+                var details = activityReader.GetString(2);
+                var actionBy = activityReader.GetString(3);
+                var actionByName = activityReader.GetString(4);
+                var actionAt = activityReader.GetFieldValue<DateTimeOffset>(5);
+                result.Add(new EmployeeChangeHistoryDto(
+                    -historyId,
+                    action == "PERSONAL_DOCUMENT_ADDED" ? "เพิ่มเอกสารส่วนตัว" : "ลบเอกสารส่วนตัว",
+                    "COMPLETED",
+                    details,
+                    actionBy,
+                    actionByName,
+                    actionAt,
+                    null, null, null, null,
+                    [],
+                    [new EmployeeChangeHistoryActionDto(
+                        historyId, action, details, actionBy, actionByName, actionAt)])
+                { HistoryType = "ACTIVITY" });
+            }
+        }
+
+        return Ok(result.OrderByDescending(item => item.RequestedAt).ThenByDescending(item => item.RequestId));
+    }
+
+    [HttpPost("{id:int}/personal-documents")]
+    public async Task<ActionResult<IReadOnlyList<EmployeePersonalDocumentDto>>> AddPersonalDocuments(
+        int id,
+        AddEmployeePersonalDocumentsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์เพิ่มเอกสารส่วนตัว");
+
+        var validationError = ValidatePersonalDocuments(request.Attachments);
+        if (validationError is not null)
+            return BadRequest(validationError);
+
+        const string employeeSql = "SELECT EXISTS (SELECT 1 FROM public.employees WHERE id = @id)";
+        await using (var employeeCommand = dataSource.CreateCommand(employeeSql))
+        {
+            employeeCommand.Parameters.AddWithValue("id", id);
+            if (!((bool?)await employeeCommand.ExecuteScalarAsync(cancellationToken) ?? false))
+                return NotFound("ไม่พบข้อมูลพนักงาน");
+        }
+
+        var actorName = await ResolveEmployeeName(authenticatedEmployeeId!, cancellationToken);
+        const string insertSql = """
+            INSERT INTO public.employee_personal_documents
+                (employee_id, original_file_name, content_type, file_size_bytes,
+                 file_content, uploaded_by, uploaded_by_name)
+            VALUES
+                (@employee_id, @file_name, @content_type, @file_size,
+                 @file_content, @uploaded_by, @uploaded_by_name)
+            RETURNING id
+            """;
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        foreach (var attachment in request.Attachments)
+        {
+            await using var command = new NpgsqlCommand(insertSql, connection, transaction);
+            command.Parameters.AddWithValue("employee_id", id);
+            command.Parameters.AddWithValue("file_name", Path.GetFileName(attachment.FileName));
+            command.Parameters.AddWithValue("content_type", NormalizePersonalDocumentContentType(attachment));
+            command.Parameters.AddWithValue("file_size", (long)attachment.Content.Length);
+            command.Parameters.Add("file_content", NpgsqlDbType.Bytea).Value = attachment.Content;
+            command.Parameters.AddWithValue("uploaded_by", authenticatedEmployeeId!);
+            command.Parameters.AddWithValue("uploaded_by_name", actorName);
+            var documentId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+            await InsertEmployeeActivityHistory(
+                connection, transaction, id, "PERSONAL_DOCUMENT_ADDED",
+                $"เพิ่มเอกสาร {Path.GetFileName(attachment.FileName)} ขนาด {attachment.Content.LongLength} ไบต์",
+                "PERSONAL_DOCUMENT", documentId, authenticatedEmployeeId!, actorName, cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return await GetPersonalDocuments(id, cancellationToken);
+    }
+
+    [HttpDelete("{id:int}/personal-documents/{documentId:long}")]
+    public async Task<IActionResult> DeletePersonalDocument(
+        int id,
+        long documentId,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ลบเอกสารส่วนตัว");
+
+        var actorName = await ResolveEmployeeName(authenticatedEmployeeId!, cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        const string sql = """
+            UPDATE public.employee_personal_documents
+            SET is_active = FALSE,
+                deleted_by = @deleted_by,
+                deleted_by_name = @deleted_by_name,
+                deleted_at = CURRENT_TIMESTAMP
+            WHERE id = @document_id
+              AND employee_id = @employee_id
+              AND is_active = TRUE
+            RETURNING original_file_name, file_size_bytes
+            """;
+        string? fileName = null;
+        long fileSize = 0;
+        await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("document_id", documentId);
+            command.Parameters.AddWithValue("employee_id", id);
+            command.Parameters.AddWithValue("deleted_by", authenticatedEmployeeId!);
+            command.Parameters.AddWithValue("deleted_by_name", actorName);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                fileName = reader.GetString(0);
+                fileSize = reader.GetInt64(1);
+            }
+        }
+
+        if (fileName is null)
+            return NotFound("ไม่พบเอกสารส่วนตัว หรือเอกสารถูกลบไปแล้ว");
+
+        await InsertEmployeeActivityHistory(
+            connection, transaction, id, "PERSONAL_DOCUMENT_DELETED",
+            $"ลบเอกสาร {fileName} ขนาด {fileSize} ไบต์",
+            "PERSONAL_DOCUMENT", documentId, authenticatedEmployeeId!, actorName, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return NoContent();
+    }
+
+    [HttpGet("{id:int}/personal-documents/{documentId:long}/preview")]
+    public async Task<IActionResult> PreviewPersonalDocument(
+        int id,
+        long documentId,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูเอกสารส่วนตัว");
+
+        const string sql = """
+            SELECT original_file_name, content_type, file_content
+            FROM public.employee_personal_documents
+            WHERE id = @document_id
+              AND employee_id = @employee_id
+              AND is_active = TRUE
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("document_id", documentId);
+        command.Parameters.AddWithValue("employee_id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return NotFound("ไม่พบเอกสารส่วนตัว");
+
+        var fileName = reader.GetString(0);
+        var contentType = reader.GetString(1);
+        var content = reader.GetFieldValue<byte[]>(2);
+        Response.Headers.ContentDisposition =
+            $"inline; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
+        return File(content, contentType);
     }
 
     [HttpPost]
@@ -637,6 +920,115 @@ public sealed class EmployeesController(
         command.Parameters.AddWithValue("tenant_id", tenantId);
         command.Parameters.AddWithValue("object_id", objectId);
         return (string?)await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    private async Task<bool> CanManagePersonalDocuments(
+        string? authenticatedEmployeeId,
+        CancellationToken cancellationToken) =>
+        !string.IsNullOrWhiteSpace(authenticatedEmployeeId) &&
+        await actionPermissionService.HasPermission(
+            authenticatedEmployeeId, "EMPLOYEES", "VIEW_PERSONAL_DOCUMENTS", cancellationToken);
+
+    private async Task<string> ResolveEmployeeName(
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT COALESCE(NULLIF(BTRIM(b.full_name_th), ''), e.employee_code)
+            FROM public.employees e
+            LEFT JOIN public.employee_basic_info b ON b.employee_id = e.id
+            WHERE e.employee_code = @employee_id
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", employeeId);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken) ?? employeeId;
+    }
+
+    private static async Task InsertEmployeeActivityHistory(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        int employeeId,
+        string actionKey,
+        string details,
+        string entityType,
+        long entityId,
+        string actionBy,
+        string actionByName,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO public.employee_activity_history
+                (employee_id, action_key, details_text, entity_type, entity_id,
+                 action_by, action_by_name)
+            VALUES
+                (@employee_id, @action_key, @details, @entity_type, @entity_id,
+                 @action_by, @action_by_name)
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("employee_id", employeeId);
+        command.Parameters.AddWithValue("action_key", actionKey);
+        command.Parameters.AddWithValue("details", details);
+        command.Parameters.AddWithValue("entity_type", entityType);
+        command.Parameters.AddWithValue("entity_id", entityId);
+        command.Parameters.AddWithValue("action_by", actionBy);
+        command.Parameters.AddWithValue("action_by_name", actionByName);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static string? ValidatePersonalDocuments(
+        IReadOnlyList<EmployeePersonalDocumentUploadDto>? attachments)
+    {
+        if (attachments is null || attachments.Count == 0)
+            return "กรุณาเลือกเอกสารอย่างน้อย 1 ไฟล์";
+        if (attachments.Count > 10)
+            return "เพิ่มเอกสารได้ไม่เกิน 10 ไฟล์ต่อครั้ง";
+
+        const int maxFileSize = 10 * 1024 * 1024;
+        foreach (var attachment in attachments)
+        {
+            var extension = Path.GetExtension(Path.GetFileName(attachment.FileName)).ToLowerInvariant();
+            if (extension is not (".pdf" or ".jpg" or ".jpeg" or ".png"))
+                return "รองรับเฉพาะไฟล์ PDF, JPG และ PNG";
+            if (attachment.Content is null || attachment.Content.Length == 0)
+                return $"ไฟล์ {attachment.FileName} ไม่มีข้อมูล";
+            if (attachment.Content.Length > maxFileSize)
+                return $"ไฟล์ {attachment.FileName} มีขนาดเกิน 10 MB";
+        }
+        return null;
+    }
+
+    private static string NormalizePersonalDocumentContentType(
+        EmployeePersonalDocumentUploadDto attachment) =>
+        Path.GetExtension(Path.GetFileName(attachment.FileName)).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            _ => "image/jpeg"
+        };
+
+    private sealed class EmployeeChangeHistoryBuilder(
+        long requestId,
+        string requestNo,
+        string status,
+        string requestReason,
+        string requestedBy,
+        string requestedByName,
+        DateTimeOffset requestedAt,
+        string? reviewedBy,
+        string? reviewedByName,
+        DateTimeOffset? reviewedAt,
+        string? reviewRemark,
+        IReadOnlyList<EmployeeFieldChangeDto> changes)
+    {
+        public long RequestId { get; } = requestId;
+        public List<EmployeeChangeHistoryActionDto> Actions { get; } = [];
+
+        public EmployeeChangeHistoryDto ToDto() => new(
+            RequestId, requestNo, status, requestReason,
+            requestedBy, requestedByName, requestedAt,
+            reviewedBy, reviewedByName, reviewedAt, reviewRemark,
+            changes, Actions);
     }
 
     private static bool IsValidProfileImage(string value) => string.IsNullOrWhiteSpace(value) || (value.StartsWith("data:image/",StringComparison.OrdinalIgnoreCase) && value.Length<=3_000_000);
