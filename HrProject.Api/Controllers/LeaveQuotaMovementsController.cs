@@ -240,6 +240,9 @@ public sealed class LeaveQuotaMovementsController(
 
     private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId)) return directEmployeeId;
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;

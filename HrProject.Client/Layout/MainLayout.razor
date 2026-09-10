@@ -3,6 +3,7 @@
 @inject HrProject.Client.Services.LoadingState LoadingState
 @inject HrProject.Client.Services.PageAvailabilityState PageAvailability
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <div class="page @(isSidebarCollapsed ? "sidebar-collapsed" : null)">
     <div class="sidebar">
@@ -65,12 +66,17 @@
     private bool isSidebarCollapsed;
     private HrProject.Shared.Models.ApplicationPageAvailabilityDto? closedPage;
     private HrProject.Shared.Models.ApplicationPageAvailabilityDto? deniedPage;
+    private bool mustChangeLocalPassword;
 
     protected override async Task OnInitializedAsync()
     {
         LoadingState.Changed += HandleLoadingChanged;
         PageAvailability.Changed += HandleAvailabilityChanged;
         Navigation.LocationChanged += HandleLocationChanged;
+        var authentication = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        mustChangeLocalPassword = authentication.User.HasClaim("auth_source", "LOCAL") &&
+            authentication.User.HasClaim("must_change_password", "true");
+        if (RedirectToPasswordChange()) return;
         try
         {
             await PageAvailability.EnsureLoadedAsync();
@@ -99,10 +105,20 @@
 
     private void EvaluateCurrentPage()
     {
+        if (RedirectToPasswordChange()) return;
         closedPage = PageAvailability.FindClosedPage(Navigation.Uri);
         deniedPage = closedPage is null
             ? PageAvailability.FindDeniedPage(Navigation.Uri)
             : null;
+    }
+
+    private bool RedirectToPasswordChange()
+    {
+        if (!mustChangeLocalPassword) return false;
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
+        if (string.Equals(path, "account/security", StringComparison.OrdinalIgnoreCase)) return false;
+        Navigation.NavigateTo("/account/security?required=true", replace: true);
+        return true;
     }
 
     public void Dispose()

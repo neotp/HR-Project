@@ -9,5 +9,9 @@
 .login-loading { display: grid; justify-items: center; gap: .8rem; color: #475569; }
 .login-loading span { width: 2.5rem; height: 2.5rem; border: 4px solid #e2e8f0; border-top-color: #ff6b35; border-radius: 50%; animation: login-spin .8s linear infinite; }
 .login-error { margin-bottom: 1rem; padding: .75rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: .5rem; }
+.login-divider { display: flex; align-items: center; gap: .75rem; margin: 1.4rem 0; color: #94a3b8; }
+.login-divider::before,.login-divider::after { content: ""; height: 1px; flex: 1; background: #e2e8f0; }
+.alternate-login { color: #1d4ed8; font-weight: 700; text-decoration: none; }
+.alternate-login:hover { text-decoration: underline; }
 @keyframes login-spin { to { transform: rotate(360deg); } }
 @media (max-width: 520px) { .login-card { padding: 2rem 1.25rem; } }

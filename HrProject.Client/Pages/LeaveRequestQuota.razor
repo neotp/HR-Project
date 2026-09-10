@@ -320,6 +320,7 @@
     private static readonly IReadOnlyList<CriteriaFilterOption> StatusFilterOptions = [new("PENDING", "รออนุมัติ"), new("APPROVED", "อนุมัติแล้ว"), new("REJECTED", "ไม่อนุมัติ"), new("CANCELLED", "ยกเลิก")];
     private readonly List<EmployeeQuotaRequestRow> employeeRequests = [];
     private List<Employee> employees = [];
+    private List<Employee> eligibleEmployees = [];
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveQuotaRequestDto> requests = [];
     private List<LeaveQuotaRequestDto> filteredRequests = [];
@@ -352,6 +353,7 @@
                 $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(CurrentEmployeeId)}&pageKey=LEAVE_REQUEST_QUOTA");
             allowedActions = actionPermissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            eligibleEmployees = employees.Where(IsDirectReport).ToList();
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             await ReloadData();
         }
@@ -606,7 +608,7 @@
     private void AddEmployee()
     {
         saveError = null;
-        if (employeeRequests.Count >= employees.Count)
+        if (employeeRequests.Count >= eligibleEmployees.Count)
         {
             saveError = "เพิ่มรายการครบจำนวนพนักงานที่มีอยู่แล้ว";
             return;
@@ -635,11 +637,44 @@
         ?? "-";
 
     private IEnumerable<Employee> AvailableEmployeesFor(EmployeeQuotaRequestRow currentRow) =>
-        employees.Where(employee =>
+        eligibleEmployees.Where(employee =>
             string.Equals(employee.EmployeeCode, currentRow.EmployeeId, StringComparison.OrdinalIgnoreCase) ||
             employeeRequests.All(row =>
                 ReferenceEquals(row, currentRow) ||
                 !string.Equals(row.EmployeeId, employee.EmployeeCode, StringComparison.OrdinalIgnoreCase)));
+
+    private bool IsDirectReport(Employee employee)
+    {
+        if (string.Equals(employee.EmployeeCode, CurrentEmployeeId, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(employee.SupervisorEmployeeId, CurrentEmployeeId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(employee.LeaveApproverEmployeeId, CurrentEmployeeId, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var manager = employees.FirstOrDefault(item =>
+            string.Equals(item.EmployeeCode, CurrentEmployeeId, StringComparison.OrdinalIgnoreCase));
+        if (manager is null)
+            return false;
+
+        var managerNames = new[]
+        {
+            manager.FullName,
+            manager.ThaiFullName,
+            manager.EnglishFullName,
+            CurrentEmployeeName
+        }.Where(value => !string.IsNullOrWhiteSpace(value))
+         .Select(NormalizeName)
+         .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return managerNames.Contains(NormalizeName(employee.SupervisorName)) ||
+               managerNames.Contains(NormalizeName(employee.LeaveApproverName));
+    }
+
+    private static string NormalizeName(string? value) =>
+        string.Join(' ', (value ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Trim();
 
     private static string HoursToDays(decimal hours) => (hours / 8).ToString("0.##");
     private static string StatusText(string status) => status switch

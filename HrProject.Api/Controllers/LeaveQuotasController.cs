@@ -1,5 +1,7 @@
 using System.Text.Json;
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -7,7 +9,10 @@ namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/leave-quotas")]
-public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class LeaveQuotasController(
+    NpgsqlDataSource dataSource,
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LeaveQuotaDto>>> GetAll(
@@ -15,6 +20,14 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
         [FromQuery] string? employeeId,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor))
+            return Forbid();
+        var requestsOwnQuota = !string.IsNullOrWhiteSpace(employeeId) &&
+                               string.Equals(actor, employeeId.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (!requestsOwnQuota &&
+            !await pageAccessService.HasAccess(actor, "LEAVE_MANAGE_QUOTA", cancellationToken))
+            return Forbid();
         const string sql = """
             SELECT q.id, q.employee_id, q.leave_type_id, t.name_th, q.quota_year,
                    q.quota_hours, usage.used_hours,
@@ -64,6 +77,13 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
         SaveLeaveQuotaRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor) ||
+            !await pageAccessService.HasAccess(actor, "LEAVE_MANAGE_QUOTA", cancellationToken) ||
+            (!await actionPermissionService.HasPermission(actor, "LEAVE_MANAGE_QUOTA", "CREATE", cancellationToken) &&
+             !await actionPermissionService.HasPermission(actor, "LEAVE_MANAGE_QUOTA", "EDIT", cancellationToken)))
+            return Forbid();
+        if (!string.Equals(actor, request.ActionBy, StringComparison.OrdinalIgnoreCase)) return Forbid();
         if (string.IsNullOrWhiteSpace(request.EmployeeId) ||
             request.LeaveTypeId <= 0 ||
             request.QuotaYear is < 2000 or > 2200 ||
@@ -189,6 +209,12 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
         [FromQuery] string actionByName,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor) ||
+            !await pageAccessService.HasAccess(actor, "LEAVE_MANAGE_QUOTA", cancellationToken) ||
+            !await actionPermissionService.HasPermission(actor, "LEAVE_MANAGE_QUOTA", "DELETE", cancellationToken) ||
+            !string.Equals(actor, actionBy, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
         if (string.IsNullOrWhiteSpace(actionBy) || string.IsNullOrWhiteSpace(actionByName))
             return BadRequest("กรุณาระบุผู้ดำเนินการลบโควต้า");
 
@@ -207,6 +233,22 @@ public sealed class LeaveQuotasController(NpgsqlDataSource dataSource) : Control
         var deletedRows = await command.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return deletedRows == 0 ? NotFound() : NoContent();
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken token)
+    {
+        var direct = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(direct)) return direct;
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
+        await using var command = dataSource.CreateCommand("""
+            SELECT employee_id FROM public.microsoft_accounts
+            WHERE tenant_id=@tenant_id AND entra_object_id=@object_id AND is_active=TRUE LIMIT 1
+            """);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(token) as string;
     }
 
     private async Task<LeaveQuotaDto?> FindById(long id, CancellationToken cancellationToken)

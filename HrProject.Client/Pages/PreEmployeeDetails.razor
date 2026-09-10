@@ -78,9 +78,12 @@
                             <Field Label="เบอร์มือถือส่วนตัว"><input @bind="employee.PersonalMobile" disabled="@IsReadOnly" /></Field>
                             <Field Label="ศาสนา"><input @bind="employee.Religion" disabled="@IsReadOnly" /></Field>
                             <Field Label="หมู่เลือด"><input @bind="employee.BloodType" disabled="@IsReadOnly" /></Field>
-                            <Field Label="จังหวัดที่พักอาศัย"><input @bind="employee.ResidenceProvince" disabled="@IsReadOnly" /></Field>
+                            <Field Label="ที่อยู่" Full="true"><textarea @bind="employee.CurrentAddress" disabled="@IsReadOnly" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></Field>
+                            <Field Label="จังหวัด"><select @bind="employee.ResidenceProvince" @bind:after="ResidenceProvinceChanged" disabled="@IsReadOnly"><option value="">-- เลือก --</option>@foreach (var option in MasterOptions("PROVINCE")) { <option value="@option.NameTh">@option.NameTh</option> }</select></Field>
+                            <Field Label="อำเภอ / เขต"><select @bind="employee.ResidenceDistrict" @bind:after="ResidenceDistrictChanged" disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceProvince))"><option value="">-- เลือก --</option>@foreach (var option in ResidenceDistrictOptions) { <option value="@option.NameTh">@option.NameTh</option> }</select></Field>
+                            <Field Label="ตำบล / แขวง"><select @bind="employee.ResidenceSubdistrict" @bind:after="ResidenceSubdistrictChanged" disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceDistrict))"><option value="">-- เลือก --</option>@foreach (var option in ResidenceSubdistrictOptions) { <option value="@option.NameTh">@option.NameTh</option> }</select></Field>
+                            <Field Label="รหัสไปรษณีย์"><select @bind="employee.ResidencePostalCode" disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceSubdistrict))"><option value="">-- เลือก --</option>@foreach (var option in ResidencePostalCodeOptions) { <option value="@option.NameTh">@option.NameTh</option> }</select></Field>
                             <Field Label="โทรศัพท์บ้าน"><input @bind="employee.HomePhone" disabled="@IsReadOnly" /></Field>
-                            <Field Label="ที่อยู่ปัจจุบัน" Full="true"><textarea @bind="employee.CurrentAddress" disabled="@IsReadOnly"></textarea></Field>
                             <Field Label="ที่อยู่ตามบัตรประชาชน" Full="true"><textarea @bind="employee.IdCardAddress" disabled="@IsReadOnly"></textarea></Field>
                             <Field Label="ที่อยู่ตามทะเบียนบ้าน" Full="true"><textarea @bind="employee.HouseRegistrationAddress" disabled="@IsReadOnly"></textarea></Field>
                             <Field Label="บุคคลติดต่อฉุกเฉิน"><input @bind="employee.EmergencyContactName" disabled="@IsReadOnly" /></Field>
@@ -97,8 +100,8 @@
                             <Field Label="Business Unit"><input @bind="employee.BusinessUnit" disabled="@IsReadOnly" /></Field>
                             <Field Label="แผนก" Required="true"><input @bind="employee.Department" disabled="@IsReadOnly" /></Field>
                             <Field Label="ตำแหน่ง" Required="true"><input @bind="employee.Position" disabled="@IsReadOnly" /></Field>
-                            <Field Label="หัวหน้างาน"><input @bind="employee.SupervisorName" disabled="@IsReadOnly" /></Field>
-                            <Field Label="Reporting To (Leave Approve)"><input @bind="employee.LeaveApproverName" disabled="@IsReadOnly" /></Field>
+                            <Field Label="หัวหน้างาน"><EmployeeSearchSelect Items="employeeOptions" Value="@employee.SupervisorEmployeeId" ValueChanged="SelectSupervisor" ExcludeEmployeeCode="@employee.EmployeeCode" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" /></Field>
+                            <Field Label="Reporting To (Leave Approve)"><EmployeeSearchSelect Items="employeeOptions" Value="@employee.LeaveApproverEmployeeId" ValueChanged="SelectLeaveApprover" ExcludeEmployeeCode="@employee.EmployeeCode" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" /></Field>
                             <Field Label="Branch"><input @bind="employee.BranchName" disabled="@IsReadOnly" /></Field>
                             <Field Label="เบอร์โทรสายตรง"><input @bind="employee.DirectPhone" disabled="@IsReadOnly" /></Field>
                             <Field Label="เบอร์มือถือบริษัท"><input @bind="employee.CompanyMobile" disabled="@IsReadOnly" /></Field>
@@ -194,6 +197,8 @@
     private string sourceSystem = "MANUAL", sourceReferenceId = "", activeTab = "personal";
     private string? loadError, formError, successMessage;
     private bool isLoading = true, isSaving, canEdit, canConvert, confirmConvertOpen;
+    private List<Employee> employeeOptions = [];
+    private List<MasterDataItemDto> masterItems = [];
     private bool IsReadOnly => item?.Status is "CONVERTED" or "CANCELLED";
     private static readonly TabInfo[] Tabs = [
         new("personal","ข้อมูลส่วนบุคคล"), new("internal","ข้อมูลภายในบริษัท"),
@@ -211,9 +216,16 @@
             var permission = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(user.EmployeeId)}&pageKey=PRE_EMPLOYEES");
             canEdit = permission?.AllowedActions.Contains("EDIT") == true;
             canConvert = permission?.AllowedActions.Contains("CONVERT") == true;
-            item = await Http.GetFromJsonAsync<PreEmployeeDto>($"api/pre-employees/{Id}");
+            var itemTask = Http.GetFromJsonAsync<PreEmployeeDto>($"api/pre-employees/{Id}");
+            var employeeOptionsTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
+            var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>("api/system-master-data/items/all");
+            await Task.WhenAll(itemTask, employeeOptionsTask, masterItemsTask);
+            item = await itemTask;
+            employeeOptions = await employeeOptionsTask ?? [];
+            masterItems = await masterItemsTask ?? [];
             if (item is null) throw new InvalidOperationException("ไม่พบรายการ");
             employee = item.EmployeeData ?? new Employee();
+            ResolveLegacyManagerIds();
             employee.WorkHistory ??= [];
             employee.EducationHistory ??= [];
             employee.TrainingHistory ??= [];
@@ -277,6 +289,47 @@
     }
 
     private void RemoveProfileImage() => employee.ProfileImageDataUrl = "";
+    private void SelectSupervisor(string employeeCode)
+    {
+        employee.SupervisorEmployeeId = employeeCode;
+        employee.SupervisorName = EmployeeName(employeeCode);
+    }
+    private void SelectLeaveApprover(string employeeCode)
+    {
+        employee.LeaveApproverEmployeeId = employeeCode;
+        employee.LeaveApproverName = EmployeeName(employeeCode);
+    }
+    private string EmployeeName(string employeeCode) => employeeOptions.FirstOrDefault(x =>
+        string.Equals(x.EmployeeCode, employeeCode, StringComparison.OrdinalIgnoreCase))?.FullName ?? "";
+    private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) => masterItems
+        .Where(item => item.IsActive && string.Equals(item.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.DisplayOrder)
+        .ThenBy(item => item.NameTh);
+    private IEnumerable<MasterDataItemDto> ResidenceDistrictOptions => ChildAddressOptions("DISTRICT", "PROVINCE", employee.ResidenceProvince);
+    private IEnumerable<MasterDataItemDto> ResidenceSubdistrictOptions => ChildAddressOptions("SUBDISTRICT", "DISTRICT", employee.ResidenceDistrict, ResidenceDistrictOptions);
+    private IEnumerable<MasterDataItemDto> ResidencePostalCodeOptions => ChildAddressOptions("POSTAL_CODE", "SUBDISTRICT", employee.ResidenceSubdistrict, ResidenceSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> ChildAddressOptions(string childCategory, string parentCategory, string parentName, IEnumerable<MasterDataItemDto>? parents = null)
+    {
+        var parent = (parents ?? MasterOptions(parentCategory)).FirstOrDefault(item => string.Equals(item.NameTh, parentName, StringComparison.OrdinalIgnoreCase));
+        return parent is null ? [] : MasterOptions(childCategory).Where(item => item.ParentItemId == parent.Id);
+    }
+    private void ResidenceProvinceChanged() { employee.ResidenceDistrict = ""; employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; }
+    private void ResidenceDistrictChanged() { employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; }
+    private void ResidenceSubdistrictChanged()
+    {
+        var postalCodes = ResidencePostalCodeOptions.ToList();
+        employee.ResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : "";
+    }
+    private void ResolveLegacyManagerIds()
+    {
+        if (string.IsNullOrWhiteSpace(employee.SupervisorEmployeeId)) employee.SupervisorEmployeeId = FindEmployeeCode(employee.SupervisorName);
+        if (string.IsNullOrWhiteSpace(employee.LeaveApproverEmployeeId)) employee.LeaveApproverEmployeeId = FindEmployeeCode(employee.LeaveApproverName);
+    }
+    private string FindEmployeeCode(string name) => employeeOptions.FirstOrDefault(x =>
+        string.Equals(x.EmployeeCode,name,StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(x.FullName,name,StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(x.ThaiFullName,name,StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(x.EnglishFullName,name,StringComparison.OrdinalIgnoreCase))?.EmployeeCode ?? "";
     private void SetStartDate(DateOnly? value) => employee.StartDate = value ?? default;
     private void AddWorkHistory() => employee.WorkHistory.Add(new());
     private void AddEducationHistory() => employee.EducationHistory.Add(new());

@@ -13,7 +13,8 @@ namespace HrProject.Api.Controllers;
 public sealed class ManagerLeaveNotificationsController(
     NpgsqlDataSource dataSource,
     MicrosoftGraphMailService mailService,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    PageAccessService pageAccessService) : ControllerBase
 {
     [HttpGet("recipients")]
     public async Task<ActionResult<IReadOnlyList<ManagerNotificationRecipientDto>>> GetRecipients(
@@ -21,6 +22,8 @@ public sealed class ManagerLeaveNotificationsController(
     {
         var actor = await GetActor(cancellationToken);
         if (actor is null)
+            return Forbid();
+        if (!await pageAccessService.HasAccess(actor.EmployeeCode, "LEAVE_TEAM", cancellationToken))
             return Forbid();
         var canSendForAnyEmployee = await actionPermissionService.HasPermission(
             actor.EmployeeCode, "LEAVE_TEAM", "CREATE_FOR_OTHERS", cancellationToken);
@@ -42,8 +45,10 @@ public sealed class ManagerLeaveNotificationsController(
                    COALESCE(NULLIF(b.full_name_th, ''), NULLIF(b.full_name_en, ''), e.employee_code),
                    COALESCE(NULLIF(msa.employee_email, ''), NULLIF(b.email_address, ''), NULLIF(b.email_alias, ''), ''),
                    COALESCE(c.department, ''), COALESCE(c.position_name, ''),
-                   REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names),
-                   REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
+                   (UPPER(BTRIM(COALESCE(c.supervisor_employee_id, ''))) = UPPER(m.employee_code)
+                    OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)),
+                   (UPPER(BTRIM(COALESCE(c.leave_approver_employee_id, ''))) = UPPER(m.employee_code)
+                    OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(m.names))
             FROM public.employees e
             JOIN public.employee_basic_info b ON b.employee_id = e.id
             JOIN public.employee_company_info c ON c.employee_id = e.id
@@ -60,7 +65,9 @@ public sealed class ManagerLeaveNotificationsController(
             WHERE e.is_active = TRUE
               AND e.id <> m.id
               AND (@can_send_all OR
-                  REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
+                  UPPER(BTRIM(COALESCE(c.supervisor_employee_id, ''))) = UPPER(m.employee_code)
+                  OR UPPER(BTRIM(COALESCE(c.leave_approver_employee_id, ''))) = UPPER(m.employee_code)
+                  OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
                   OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
               )
             ORDER BY COALESCE(NULLIF(b.full_name_th, ''), NULLIF(b.full_name_en, ''), e.employee_code)
@@ -88,6 +95,8 @@ public sealed class ManagerLeaveNotificationsController(
     {
         var actor = await GetActor(cancellationToken);
         if (actor is null)
+            return Forbid();
+        if (!await pageAccessService.HasAccess(actor.EmployeeCode, "LEAVE_TEAM", cancellationToken))
             return Forbid();
         const string sql = """
             SELECT n.id, n.notification_no, se.employee_code, n.sender_name, n.sender_email,
@@ -119,6 +128,8 @@ public sealed class ManagerLeaveNotificationsController(
     {
         var actor = await GetActor(cancellationToken);
         if (actor is null)
+            return Forbid();
+        if (!await pageAccessService.HasAccess(actor.EmployeeCode, "LEAVE_TEAM", cancellationToken))
             return Forbid();
         var canSendForAnyEmployee = await actionPermissionService.HasPermission(
             actor.EmployeeCode, "LEAVE_TEAM", "CREATE_FOR_OTHERS", cancellationToken);
@@ -197,6 +208,27 @@ public sealed class ManagerLeaveNotificationsController(
 
     private async Task<Actor?> GetActor(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+        {
+            const string localSql = """
+                SELECT e.id, e.employee_code,
+                       COALESCE(NULLIF(b.full_name_th, ''), NULLIF(b.full_name_en, ''), e.employee_code),
+                       COALESCE(NULLIF(b.email_address, ''), '')
+                FROM public.employees e
+                LEFT JOIN public.employee_basic_info b ON b.employee_id = e.id
+                WHERE e.employee_code = @employee_id AND e.is_active = TRUE
+                LIMIT 1
+                """;
+            await using var localCommand = dataSource.CreateCommand(localSql);
+            localCommand.Parameters.AddWithValue("employee_id", directEmployeeId);
+            await using var localReader = await localCommand.ExecuteReaderAsync(cancellationToken);
+            return await localReader.ReadAsync(cancellationToken)
+                ? new Actor(localReader.GetInt64(0), localReader.GetString(1),
+                    localReader.GetString(2), localReader.GetString(3))
+                : null;
+        }
+
         var tenantId = User.FindFirstValue("tid");
         var objectId = User.FindFirstValue("oid");
         var email = User.FindFirstValue("preferred_username")
@@ -233,13 +265,15 @@ public sealed class ManagerLeaveNotificationsController(
         const string sql = """
             WITH manager AS
             (
-                SELECT ARRAY_REMOVE(ARRAY[
+                SELECT e.employee_code, ARRAY_REMOVE(ARRAY[
                     NULLIF(REGEXP_REPLACE(UPPER(BTRIM(COALESCE(b.full_name_th, ''))), '\s+', ' ', 'g'), ''),
                     NULLIF(REGEXP_REPLACE(UPPER(BTRIM(COALESCE(b.full_name_en, ''))), '\s+', ' ', 'g'), ''),
                     NULLIF(REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', b.first_name_th, b.last_name_th))), '\s+', ' ', 'g'), ''),
                     NULLIF(REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', b.first_name_en, b.last_name_en))), '\s+', ' ', 'g'), '')
                 ], NULL) AS names
-                FROM public.employee_basic_info b WHERE b.employee_id = @manager_id
+                FROM public.employees e
+                JOIN public.employee_basic_info b ON b.employee_id = e.id
+                WHERE e.id = @manager_id
             )
             SELECT e.id,
                    COALESCE(NULLIF(b.full_name_th, ''), NULLIF(b.full_name_en, ''), e.employee_code),
@@ -259,7 +293,9 @@ public sealed class ManagerLeaveNotificationsController(
             CROSS JOIN manager m
             WHERE e.is_active = TRUE AND e.employee_code = @employee_code
               AND (@can_send_all OR
-                  REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
+                  UPPER(BTRIM(COALESCE(c.supervisor_employee_id, ''))) = UPPER(m.employee_code)
+                  OR UPPER(BTRIM(COALESCE(c.leave_approver_employee_id, ''))) = UPPER(m.employee_code)
+                  OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
                   OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
               )
             LIMIT 1

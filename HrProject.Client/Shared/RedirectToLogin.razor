@@ -5,15 +5,13 @@
     {
         var path = Navigation.ToBaseRelativePath(Navigation.Uri);
         if (!path.StartsWith("login", StringComparison.OrdinalIgnoreCase) &&
+            !path.StartsWith("local-login", StringComparison.OrdinalIgnoreCase) &&
             !path.StartsWith("authentication", StringComparison.OrdinalIgnoreCase))
         {
-            Navigation.NavigateToLogin(
-                "authentication/login",
-                new InteractiveRequestOptions
-                {
-                    Interaction = InteractionType.SignIn,
-                    ReturnUrl = Navigation.Uri
-                });
+            var localPath = "/" + path;
+            Navigation.NavigateTo(
+                $"/login?returnUrl={Uri.EscapeDataString(localPath)}",
+                replace: true);
         }
     }
 }

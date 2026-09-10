@@ -523,6 +523,11 @@ public sealed class AttendanceController(
     private async Task<(string EmployeeId, string Name)?> GetAuthenticatedEmployee(
         CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return (directEmployeeId,
+                User.FindFirst("name")?.Value ?? directEmployeeId);
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
@@ -586,6 +591,12 @@ public sealed class AttendanceController(
         string employeeId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(employeeId)) return BadRequest("กรุณาระบุรหัสพนักงาน");
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return string.Equals(directEmployeeId, employeeId, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูข้อมูลการมาทำงานของพนักงานนี้");
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))

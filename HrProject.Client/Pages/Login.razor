@@ -32,6 +32,8 @@
                 </svg>
                 เข้าสู่ระบบด้วย Microsoft
             </button>
+            <div class="login-divider"><span>หรือ</span></div>
+            <a class="alternate-login" href="@LocalLoginUrl">เข้าสู่ระบบด้วยบัญชีภายใน</a>
         }
     </section>
 </main>
@@ -42,6 +44,9 @@
     private bool isLoading = true;
     private string loadingMessage = "กำลังตรวจสอบสถานะ...";
     private string? errorMessage;
+    private string LocalLoginUrl => "/local-login" + (IsSafeLocalUrl(ReturnUrl)
+        ? $"?returnUrl={Uri.EscapeDataString(ReturnUrl!)}"
+        : string.Empty);
 
     protected override async Task OnInitializedAsync()
     {

@@ -1,22 +1,31 @@
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using System.Security.Claims;
 
 namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/app-roles")]
-public sealed class AppRolesController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class AppRolesController(
+    NpgsqlDataSource dataSource,
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AppRoleDto>>> GetAll(CancellationToken cancellationToken) =>
-        Ok(await LoadRoles(cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<AppRoleDto>>> GetAll(CancellationToken cancellationToken)
+    {
+        if (!await HasPermissionsPageAccess(cancellationToken)) return Forbid();
+        return Ok(await LoadRoles(cancellationToken));
+    }
 
     [HttpPost]
     public async Task<ActionResult<AppRoleDto>> Create(
         CreateAppRoleRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACCESS", cancellationToken)) return Forbid();
         if (string.IsNullOrWhiteSpace(request.RoleName))
             return BadRequest("กรุณาระบุชื่อ Role");
 
@@ -40,6 +49,7 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
         SaveAppRoleMembersRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACCESS", cancellationToken)) return Forbid();
         var employeeIds = request.EmployeeIds?
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
@@ -80,8 +90,11 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
 
     [HttpGet("{roleId:long}/permissions")]
     public async Task<ActionResult<IReadOnlyList<PagePermissionDto>>> GetPermissions(
-        long roleId, CancellationToken cancellationToken) =>
-        Ok(await LoadPermissions(roleId, cancellationToken));
+        long roleId, CancellationToken cancellationToken)
+    {
+        if (!await HasPermissionsPageAccess(cancellationToken)) return Forbid();
+        return Ok(await LoadPermissions(roleId, cancellationToken));
+    }
 
     [HttpPut("{roleId:long}/permissions")]
     public async Task<ActionResult<IReadOnlyList<PagePermissionDto>>> SavePermissions(
@@ -89,6 +102,7 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
         SaveRolePagePermissionsRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACCESS", cancellationToken)) return Forbid();
         var permissions = request.Permissions?.GroupBy(item => item.PageId).Select(group => group.Last()).ToList() ?? [];
         if (roleId <= 0 || permissions.Count == 0 || permissions.Any(item => item.PageId <= 0) ||
             string.IsNullOrWhiteSpace(request.UpdatedBy) || string.IsNullOrWhiteSpace(request.UpdatedByName))
@@ -111,8 +125,11 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
 
     [HttpGet("{roleId:long}/actions")]
     public async Task<ActionResult<IReadOnlyList<PageActionPermissionDto>>> GetActions(
-        long roleId, CancellationToken cancellationToken) =>
-        Ok(await LoadActions(roleId, cancellationToken));
+        long roleId, CancellationToken cancellationToken)
+    {
+        if (!await HasPermissionsPageAccess(cancellationToken)) return Forbid();
+        return Ok(await LoadActions(roleId, cancellationToken));
+    }
 
     [HttpPut("{roleId:long}/actions")]
     public async Task<ActionResult<IReadOnlyList<PageActionPermissionDto>>> SaveActions(
@@ -120,6 +137,7 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
         SaveRolePageActionPermissionsRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACTIONS", cancellationToken)) return Forbid();
         var permissions = request.Permissions?.GroupBy(item => item.ActionId).Select(group => group.Last()).ToList() ?? [];
         if (roleId <= 0 || permissions.Count == 0 || permissions.Any(item => item.ActionId <= 0) ||
             string.IsNullOrWhiteSpace(request.UpdatedBy) || string.IsNullOrWhiteSpace(request.UpdatedByName))
@@ -246,4 +264,40 @@ public sealed class AppRolesController(NpgsqlDataSource dataSource) : Controller
     }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task<bool> HasPermissionsPageAccess(CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        return !string.IsNullOrWhiteSpace(employeeId) &&
+               await pageAccessService.HasAccess(employeeId, "PERMISSIONS", cancellationToken);
+    }
+
+    private async Task<bool> CanManagePermissions(string actionKey, CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        return !string.IsNullOrWhiteSpace(employeeId) &&
+               await pageAccessService.HasAccess(employeeId, "PERMISSIONS", cancellationToken) &&
+               await actionPermissionService.HasPermission(employeeId, "PERMISSIONS", actionKey, cancellationToken);
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var employeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(employeeId)) return employeeId;
+
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id AND entra_object_id = @object_id AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
 }

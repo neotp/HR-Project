@@ -37,11 +37,8 @@ public sealed class LeaveDocumentsController(
                 !string.Equals(authenticatedEmployeeId, actingEmployeeId, StringComparison.OrdinalIgnoreCase))
                 return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับพนักงานที่ขอดูข้อมูล");
 
-            var canViewAll = await actionPermissionService.HasPermission(
-                    actingEmployeeId, "LEAVE_ALL_DOCUMENTS", "VIEW_ALL", cancellationToken) ||
-                await actionPermissionService.HasPermission(
-                    actingEmployeeId, "LEAVE_DOCUMENTS", "VIEW_ALL", cancellationToken);
-            if (!canViewAll)
+            if (!await pageAccessService.HasAccess(
+                    actingEmployeeId, "LEAVE_ALL_DOCUMENTS", cancellationToken))
                 return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูเอกสารการลาของพนักงานทั้งหมด");
 
             creatorEmployeeId = null;
@@ -57,6 +54,9 @@ public sealed class LeaveDocumentsController(
                 return StatusCode(StatusCodes.Status403Forbidden, "ไม่สามารถดูเอกสารการลาของพนักงานคนอื่นได้");
 
             creatorEmployeeId = authenticatedEmployeeId;
+            if (!await pageAccessService.HasAccess(
+                    authenticatedEmployeeId, "LEAVE_DOCUMENTS", cancellationToken))
+                return StatusCode(StatusCodes.Status403Forbidden, "ไม่สามารถเข้าใช้หน้าเอกสารการลาได้");
         }
         else if (string.Equals(status, "PENDING_APPROVAL", StringComparison.OrdinalIgnoreCase))
         {
@@ -83,6 +83,9 @@ public sealed class LeaveDocumentsController(
             if (string.IsNullOrWhiteSpace(actingEmployeeId) ||
                 !await IsAuthenticatedActor(actingEmployeeId, cancellationToken))
                 return StatusCode(StatusCodes.Status403Forbidden, "บัญชีผู้ใช้งานไม่ตรงกับผู้ดำเนินการ");
+            if (!await pageAccessService.HasAccess(
+                    actingEmployeeId, "LEAVE_REVISIONS", cancellationToken))
+                return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์เข้าถึงคำขอแก้ไขหรือยกเลิกเอกสาร");
             var canViewAll = await actionPermissionService.HasPermission(
                 actingEmployeeId, "LEAVE_REVISIONS", "VIEW_ALL", cancellationToken);
             restrictPendingToApprover = !canViewAll;
@@ -1475,6 +1478,10 @@ public sealed class LeaveDocumentsController(
 
     private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return directEmployeeId;
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))

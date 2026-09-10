@@ -1,0 +1,25 @@
+.account-security-page { width:min(100%,980px); margin-inline:auto; display:grid; gap:1rem; }
+.security-card { padding:1.35rem; border:1px solid #e2e8f0; border-radius:12px; background:#fff; box-shadow:0 4px 14px rgba(15,23,42,.06); }
+.security-alert { margin-bottom:1rem; padding:.9rem 1rem; color:#9a3412; background:#fff7ed; border:1px solid #fdba74; border-radius:9px; font-weight:700; }
+.security-profile { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin-bottom:1.3rem; padding:1rem; background:#f8fafc; border:1px solid #f1f5f9; border-radius:10px; }
+.security-profile div { display:grid; gap:.25rem; }
+.security-profile span { color:#64748b; font-size:.78rem; }
+.security-profile strong { color:#0f172a; font-size:.95rem; }
+.security-form { display:grid; gap:1rem; }
+.security-field { display:grid; gap:.4rem; }
+.security-field label { color:#334155; font-size:.9rem; font-weight:700; }
+.required { color:#dc2626; }
+.security-field input { width:100%; min-height:44px; padding:.65rem .8rem; color:#0f172a; background:#fff; border:1px solid #cbd5e1; border-radius:8px; outline:none; font:inherit; transition:border-color .15s ease,box-shadow .15s ease; }
+.security-field input:hover { border-color:#94a3b8; }
+.security-field input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.13); }
+.security-field small { color:#64748b; font-size:.78rem; }
+.security-actions { display:flex; justify-content:flex-end; padding-top:.2rem; }
+.security-submit { min-width:150px; min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:.65rem 1rem; color:#fff; background:#ff6b35; border:0; border-radius:8px; box-shadow:0 5px 14px rgba(255,107,53,.2); font:inherit; font-weight:800; cursor:pointer; transition:background .15s ease,transform .15s ease; }
+.security-submit:hover:not(:disabled) { background:#ee5a25; transform:translateY(-1px); }
+.security-submit:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+.security-spinner { width:15px; height:15px; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; border-radius:50%; animation:security-spin .7s linear infinite; }
+.account-message { padding:.75rem 1rem; border-radius:8px; }
+.account-message.success { color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; }
+.account-message.error { color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; }
+@keyframes security-spin { to { transform:rotate(360deg); } }
+@media (max-width:640px) { .security-card { padding:1rem; } .security-profile { grid-template-columns:1fr; } .security-actions,.security-submit { width:100%; } }

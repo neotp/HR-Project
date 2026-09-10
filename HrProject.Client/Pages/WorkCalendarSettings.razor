@@ -154,18 +154,18 @@
                 {
                     <div class="settings-form">
                         <label>
-                            ประเภท <span class="required">*</span>
+                            <span class="field-label">ประเภท <span class="required">*</span></span>
                             <select @bind="EditingDayType">
                                 <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
                                 <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
                             </select>
                         </label>
                         <label>
-                            วันที่ <span class="required">*</span>
+                            <span class="field-label">วันที่ <span class="required">*</span></span>
                             <DateOnlyPicker Value="@EditingDate" ValueChanged="value => EditingDate = value ?? EditingDate" AriaLabel="วันที่กำหนด" />
                         </label>
                         <label class="full-width">
-                            ชื่อวัน / รายการ <span class="required">*</span>
+                            <span class="field-label">ชื่อวัน / รายการ <span class="required">*</span></span>
                             <input type="text" maxlength="200" @bind="EditingName"
                                    placeholder="เช่น วันขึ้นปีใหม่ หรือ วันเสาร์ทำงานประจำเดือน" />
                         </label>
@@ -186,14 +186,14 @@
                 {
                     <div class="batch-type-row">
                         <label>
-                            ประเภท <span class="required">*</span>
+                            <span class="field-label">ประเภท <span class="required">*</span></span>
                             <select @bind="EditingDayType">
                                 <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
                                 <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
                             </select>
                         </label>
                         <label class="popup-year-field">
-                            ปีที่ต้องการกำหนด <span class="required">*</span>
+                            <span class="field-label">ปีที่ต้องการกำหนด <span class="required">*</span></span>
                             <select value="@PopupYear" @onchange="ChangePopupYear">
                                 @foreach (var year in PopupYearOptions)
                                 {

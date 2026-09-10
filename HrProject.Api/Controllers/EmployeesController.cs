@@ -30,7 +30,9 @@ public sealed class EmployeesController(
                c.start_date, c.appointment_date, c.provident_fund_start_date,
                c.work_experience_type, c.has_company_parking, c.can_travel_upcountry,
                COALESCE(b.email_alias, '') AS lotus_notes_email,
-               COALESCE(c.exclude_attendance_calculation, FALSE) AS exclude_attendance_calculation
+               COALESCE(c.exclude_attendance_calculation, FALSE) AS exclude_attendance_calculation,
+               COALESCE(c.supervisor_employee_id, '') AS supervisor_employee_id,
+               COALESCE(c.leave_approver_employee_id, '') AS leave_approver_employee_id
         FROM public.employees e
         LEFT JOIN public.employee_basic_info b ON b.employee_id = e.id
         LEFT JOIN public.employee_company_info c ON c.employee_id = e.id
@@ -54,7 +56,7 @@ public sealed class EmployeesController(
                 """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
-            result.Add(ReadBaseEmployee(reader));
+            result.Add(RedactToBasic(ReadBaseEmployee(reader)));
         return Ok(result);
     }
 
@@ -79,7 +81,7 @@ public sealed class EmployeesController(
                 """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
-            result.Add(ReadBaseEmployee(reader));
+            result.Add(RedactToBasic(ReadBaseEmployee(reader)));
         return Ok(result);
     }
 
@@ -103,7 +105,107 @@ public sealed class EmployeesController(
             }
         }
 
-        return Ok(employee);
+        var viewerEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.Equals(viewerEmployeeId, employee.EmployeeCode, StringComparison.OrdinalIgnoreCase))
+            return Ok(employee);
+
+        var canViewPersonal = !string.IsNullOrWhiteSpace(viewerEmployeeId) &&
+            await actionPermissionService.HasPermission(
+                viewerEmployeeId, "EMPLOYEES", "VIEW_PERSONAL", cancellationToken);
+        var canViewCompany = !string.IsNullOrWhiteSpace(viewerEmployeeId) &&
+            await actionPermissionService.HasPermission(
+                viewerEmployeeId, "EMPLOYEES", "VIEW_COMPANY", cancellationToken);
+        return Ok(RedactForViewer(employee, canViewPersonal, canViewCompany));
+    }
+
+    private static Employee RedactForViewer(
+        Employee employee,
+        bool canViewPersonal,
+        bool canViewCompany)
+    {
+        if (!canViewPersonal) RedactPersonalData(employee);
+        if (!canViewCompany) RedactCompanyData(employee);
+        return employee;
+    }
+
+    private static Employee RedactToBasic(Employee employee) =>
+        RedactForViewer(employee, false, false);
+
+    private static void RedactPersonalData(Employee employee)
+    {
+        employee.HomePhone = string.Empty;
+        employee.Religion = string.Empty;
+        employee.BloodType = string.Empty;
+        employee.CurrentAddress = string.Empty;
+        employee.IdCardAddress = string.Empty;
+        employee.HouseRegistrationAddress = string.Empty;
+        employee.ResidenceProvince = string.Empty;
+        employee.ResidenceDistrict = string.Empty;
+        employee.ResidenceSubdistrict = string.Empty;
+        employee.ResidencePostalCode = string.Empty;
+        employee.EmergencyContactName = string.Empty;
+        employee.EmergencyContactPhone = string.Empty;
+        employee.EmergencyContactAddress = string.Empty;
+        employee.EducationLevel = string.Empty;
+        employee.EducationInstitution = string.Empty;
+        employee.EducationMajor = string.Empty;
+        employee.EducationGraduationYear = string.Empty;
+        employee.EducationHistory = [];
+        employee.TrainingCourse = string.Empty;
+        employee.TrainingOrganizer = string.Empty;
+        employee.TrainingDate = null;
+        employee.TrainingDetails = string.Empty;
+        employee.TrainingHistory = [];
+        employee.FamilyMemberName = string.Empty;
+        employee.FamilyRelationship = string.Empty;
+        employee.FamilyPhone = string.Empty;
+        employee.FamilyOccupation = string.Empty;
+        employee.MaritalStatus = string.Empty;
+        employee.IsMarriageRegistered = null;
+        employee.SpouseTitle = string.Empty;
+        employee.SpouseName = string.Empty;
+        employee.MarriageDate = null;
+        employee.SpouseHasIncome = null;
+        employee.SpouseNationalId = string.Empty;
+        employee.SpousePassportId = string.Empty;
+        employee.SpousePassportName = string.Empty;
+        employee.SpousePassportFileName = string.Empty;
+        employee.UneducatedChildCount = 0;
+        employee.StudyingChildCount = 0;
+        employee.LifeInsuranceAmount = 0;
+        employee.ParentSupportDeductionAmount = 0;
+        employee.SpouseParentSupportDeductionAmount = 0;
+        employee.CurrentAddressMapUrl = string.Empty;
+    }
+
+    private static void RedactCompanyData(Employee employee)
+    {
+        employee.LotusNotesEmail = string.Empty;
+        employee.Company = string.Empty;
+        employee.Division = string.Empty;
+        employee.Section = string.Empty;
+        employee.EmploymentType = string.Empty;
+        employee.WorkLocation = string.Empty;
+        employee.EmployeeStatus = string.Empty;
+        employee.BuddyName = string.Empty;
+        employee.DirectPhone = string.Empty;
+        employee.MacAddress = string.Empty;
+        employee.ProductsResponsible = string.Empty;
+        employee.FunctionalSupervisorName = string.Empty;
+        employee.WorkSchedule = string.Empty;
+        employee.JobCode = string.Empty;
+        employee.BranchCode = string.Empty;
+        employee.AppointmentDate = null;
+        employee.ProvidentFundStartDate = null;
+        employee.WorkExperienceType = string.Empty;
+        employee.HasCompanyParking = null;
+        employee.PreviousCompany = string.Empty;
+        employee.PreviousPosition = string.Empty;
+        employee.PreviousWorkPeriod = string.Empty;
+        employee.PreviousWorkDetails = string.Empty;
+        employee.WorkHistory = [];
+        employee.CanTravelUpcountry = null;
+        employee.ExcludeAttendanceCalculation = false;
     }
 
     [HttpGet("{id:int}/personal-documents")]
@@ -391,6 +493,10 @@ public sealed class EmployeesController(
         if (!EmployeeCodeFormat.IsValid(employee.EmployeeCode))
             return BadRequest("รหัสพนักงานต้องเป็นตัวเลข 6 หลัก เช่น 004193");
 
+        if (string.Equals(employee.EmployeeCode, employee.SupervisorEmployeeId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(employee.EmployeeCode, employee.LeaveApproverEmployeeId, StringComparison.OrdinalIgnoreCase))
+            return BadRequest("ไม่สามารถเลือกพนักงานคนเดียวกันเป็นหัวหน้าหรือผู้อนุมัติลาของตนเองได้");
+
         if (string.IsNullOrWhiteSpace(employee.EmployeeCode) ||
             string.IsNullOrWhiteSpace(employee.FirstName) ||
             string.IsNullOrWhiteSpace(employee.LastName) ||
@@ -526,7 +632,9 @@ public sealed class EmployeesController(
                     company_name = @company, business_unit = @bu, division = @division,
                     department = @department, section_name = @section, position_name = @position,
                     job_code = @job, supervisor_name = @supervisor,
+                    supervisor_employee_id = @supervisor_employee_id,
                     leave_approver_name = @approver,
+                    leave_approver_employee_id = @leave_approver_employee_id,
                     functional_supervisor_name = @functional, buddy_name = @buddy,
                     employment_type = @employment, work_schedule = @schedule,
                     work_location = @location, employee_status = @status,
@@ -550,7 +658,10 @@ public sealed class EmployeesController(
                 Add(command, "division", submitted.Division); Add(command, "department", submitted.Department);
                 Add(command, "section", submitted.Section); Add(command, "position", submitted.Position);
                 Add(command, "job", submitted.JobCode); Add(command, "supervisor", submitted.SupervisorName);
-                Add(command, "approver", submitted.LeaveApproverName); Add(command, "functional", submitted.FunctionalSupervisorName);
+                Add(command, "supervisor_employee_id", submitted.SupervisorEmployeeId);
+                Add(command, "approver", submitted.LeaveApproverName);
+                Add(command, "leave_approver_employee_id", submitted.LeaveApproverEmployeeId);
+                Add(command, "functional", submitted.FunctionalSupervisorName);
                 Add(command, "buddy", submitted.BuddyName); Add(command, "employment", submitted.EmploymentType);
                 Add(command, "schedule", submitted.WorkSchedule); Add(command, "location", submitted.WorkLocation);
                 Add(command, "status", submitted.EmployeeStatus); Add(command, "extension", submitted.InternalExtension);
@@ -684,7 +795,8 @@ public sealed class EmployeesController(
         StartDate = D(reader, 39) ?? default, AppointmentDate = D(reader, 40),
         ProvidentFundStartDate = D(reader, 41), WorkExperienceType = S(reader, 42),
         HasCompanyParking = B(reader, 43), CanTravelUpcountry = B(reader, 44),
-        LotusNotesEmail = S(reader, 45), ExcludeAttendanceCalculation = reader.GetBoolean(46)
+        LotusNotesEmail = S(reader, 45), ExcludeAttendanceCalculation = reader.GetBoolean(46),
+        SupervisorEmployeeId = S(reader, 47), LeaveApproverEmployeeId = S(reader, 48)
     };
 
     private static async Task LoadPersonal(NpgsqlDataSource source, Employee employee, CancellationToken token)
@@ -692,7 +804,8 @@ public sealed class EmployeesController(
         const string sql = """
             SELECT religion, blood_type, residence_province, current_address,
                    id_card_address, house_registration_address,
-                   emergency_contact_name, emergency_contact_phone, emergency_contact_address
+                   emergency_contact_name, emergency_contact_phone, emergency_contact_address,
+                   residence_district, residence_subdistrict, residence_postal_code
             FROM public.employee_personal_info WHERE employee_id = @id
             """;
         await using var command = source.CreateCommand(sql);
@@ -704,6 +817,8 @@ public sealed class EmployeesController(
         employee.IdCardAddress = S(reader, 4); employee.HouseRegistrationAddress = S(reader, 5);
         employee.EmergencyContactName = S(reader, 6); employee.EmergencyContactPhone = S(reader, 7);
         employee.EmergencyContactAddress = S(reader, 8);
+        employee.ResidenceDistrict = S(reader, 9); employee.ResidenceSubdistrict = S(reader, 10);
+        employee.ResidencePostalCode = S(reader, 11);
     }
 
     private static async Task LoadFamily(NpgsqlDataSource source, Employee employee, CancellationToken token)
@@ -770,11 +885,11 @@ public sealed class EmployeesController(
             """;
         await using (var command = new NpgsqlCommand(basic,c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"title",e.Title); Add(command,"first",e.FirstName); Add(command,"last",e.LastName); Add(command,"thai",e.ThaiFullName); Add(command,"english",e.EnglishFullName); Add(command,"nickname",e.Nickname); Add(command,"lotus_notes_email",e.LotusNotesEmail); Add(command,"email",e.Email); Add(command,"mobile",e.PersonalMobile); Add(command,"home",e.HomePhone); Add(command,"image",e.ProfileImageDataUrl); await command.ExecuteNonQueryAsync(token); }
         const string company = """
-            INSERT INTO public.employee_company_info(employee_id,company_name,business_unit,division,department,section_name,position_name,job_code,supervisor_name,leave_approver_name,functional_supervisor_name,buddy_name,employment_type,work_schedule,work_location,employee_status,internal_extension,direct_phone,company_mobile,mac_address,branch_code,branch_name,responsibility_province,checklist_type,products_responsible,start_date,appointment_date,provident_fund_start_date,work_experience_type,has_company_parking,can_travel_upcountry,exclude_attendance_calculation)
-            VALUES(@id,@company,@bu,@division,@department,@section,@position,@job,@supervisor,@approver,@functional,@buddy,@employment,@schedule,@location,@status,@extension,@direct,@company_mobile,@mac,@branch_code,@branch_name,@province,@checklist,@products,@start,@appointment,@fund,@experience,@parking,@travel,@exclude_attendance)
+            INSERT INTO public.employee_company_info(employee_id,company_name,business_unit,division,department,section_name,position_name,job_code,supervisor_name,supervisor_employee_id,leave_approver_name,leave_approver_employee_id,functional_supervisor_name,buddy_name,employment_type,work_schedule,work_location,employee_status,internal_extension,direct_phone,company_mobile,mac_address,branch_code,branch_name,responsibility_province,checklist_type,products_responsible,start_date,appointment_date,provident_fund_start_date,work_experience_type,has_company_parking,can_travel_upcountry,exclude_attendance_calculation)
+            VALUES(@id,@company,@bu,@division,@department,@section,@position,@job,@supervisor,@supervisor_employee_id,@approver,@leave_approver_employee_id,@functional,@buddy,@employment,@schedule,@location,@status,@extension,@direct,@company_mobile,@mac,@branch_code,@branch_name,@province,@checklist,@products,@start,@appointment,@fund,@experience,@parking,@travel,@exclude_attendance)
             """;
-        await using (var command = new NpgsqlCommand(company,c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"company",e.Company); Add(command,"bu",e.BusinessUnit); Add(command,"division",e.Division); Add(command,"department",e.Department); Add(command,"section",e.Section); Add(command,"position",e.Position); Add(command,"job",e.JobCode); Add(command,"supervisor",e.SupervisorName); Add(command,"approver",e.LeaveApproverName); Add(command,"functional",e.FunctionalSupervisorName); Add(command,"buddy",e.BuddyName); Add(command,"employment",e.EmploymentType); Add(command,"schedule",e.WorkSchedule); Add(command,"location",e.WorkLocation); Add(command,"status",e.EmployeeStatus); Add(command,"extension",e.InternalExtension); Add(command,"direct",e.DirectPhone); Add(command,"company_mobile",e.CompanyMobile); Add(command,"mac",e.MacAddress); Add(command,"branch_code",e.BranchCode); Add(command,"branch_name",e.BranchName); Add(command,"province",e.ResponsibilityProvince); Add(command,"checklist",e.ChecklistType); Add(command,"products",e.ProductsResponsible); AddDate(command,"start",e.StartDate==default?null:e.StartDate); AddDate(command,"appointment",e.AppointmentDate); AddDate(command,"fund",e.ProvidentFundStartDate); Add(command,"experience",e.WorkExperienceType); AddBoolean(command,"parking",e.HasCompanyParking); AddBoolean(command,"travel",e.CanTravelUpcountry); command.Parameters.AddWithValue("exclude_attendance",e.ExcludeAttendanceCalculation); await command.ExecuteNonQueryAsync(token); }
-        await using (var command = new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,religion,blood_type,residence_province,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@religion,@blood,@province,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"religion",e.Religion); Add(command,"blood",e.BloodType); Add(command,"province",e.ResidenceProvince); Add(command,"current",e.CurrentAddress); Add(command,"id_address",e.IdCardAddress); Add(command,"house",e.HouseRegistrationAddress); Add(command,"emergency",e.EmergencyContactName); Add(command,"phone",e.EmergencyContactPhone); Add(command,"emergency_address",e.EmergencyContactAddress); await command.ExecuteNonQueryAsync(token); }
+        await using (var command = new NpgsqlCommand(company,c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"company",e.Company); Add(command,"bu",e.BusinessUnit); Add(command,"division",e.Division); Add(command,"department",e.Department); Add(command,"section",e.Section); Add(command,"position",e.Position); Add(command,"job",e.JobCode); Add(command,"supervisor",e.SupervisorName); Add(command,"supervisor_employee_id",e.SupervisorEmployeeId); Add(command,"approver",e.LeaveApproverName); Add(command,"leave_approver_employee_id",e.LeaveApproverEmployeeId); Add(command,"functional",e.FunctionalSupervisorName); Add(command,"buddy",e.BuddyName); Add(command,"employment",e.EmploymentType); Add(command,"schedule",e.WorkSchedule); Add(command,"location",e.WorkLocation); Add(command,"status",e.EmployeeStatus); Add(command,"extension",e.InternalExtension); Add(command,"direct",e.DirectPhone); Add(command,"company_mobile",e.CompanyMobile); Add(command,"mac",e.MacAddress); Add(command,"branch_code",e.BranchCode); Add(command,"branch_name",e.BranchName); Add(command,"province",e.ResponsibilityProvince); Add(command,"checklist",e.ChecklistType); Add(command,"products",e.ProductsResponsible); AddDate(command,"start",e.StartDate==default?null:e.StartDate); AddDate(command,"appointment",e.AppointmentDate); AddDate(command,"fund",e.ProvidentFundStartDate); Add(command,"experience",e.WorkExperienceType); AddBoolean(command,"parking",e.HasCompanyParking); AddBoolean(command,"travel",e.CanTravelUpcountry); command.Parameters.AddWithValue("exclude_attendance",e.ExcludeAttendanceCalculation); await command.ExecuteNonQueryAsync(token); }
+        await using (var command = new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"religion",e.Religion); Add(command,"blood",e.BloodType); Add(command,"province",e.ResidenceProvince); Add(command,"district",e.ResidenceDistrict); Add(command,"subdistrict",e.ResidenceSubdistrict); Add(command,"postal_code",e.ResidencePostalCode); Add(command,"current",e.CurrentAddress); Add(command,"id_address",e.IdCardAddress); Add(command,"house",e.HouseRegistrationAddress); Add(command,"emergency",e.EmergencyContactName); Add(command,"phone",e.EmergencyContactPhone); Add(command,"emergency_address",e.EmergencyContactAddress); await command.ExecuteNonQueryAsync(token); }
         await using (var command = new NpgsqlCommand("INSERT INTO public.employee_family_info(employee_id,marital_status,family_member_name,family_relationship,family_phone,family_occupation,current_address_map_url) VALUES(@id,@marital,@name,@relationship,@phone,@occupation,@map)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"marital",e.MaritalStatus); Add(command,"name",e.FamilyMemberName); Add(command,"relationship",e.FamilyRelationship); Add(command,"phone",e.FamilyPhone); Add(command,"occupation",e.FamilyOccupation); Add(command,"map",e.CurrentAddressMapUrl); await command.ExecuteNonQueryAsync(token); }
     }
 
@@ -811,6 +926,9 @@ public sealed class EmployeesController(
             "personal.religion" => "UPDATE public.employee_personal_info SET religion=@value WHERE employee_id=@id",
             "personal.bloodType" => "UPDATE public.employee_personal_info SET blood_type=@value WHERE employee_id=@id",
             "personal.residenceProvince" => "UPDATE public.employee_personal_info SET residence_province=@value WHERE employee_id=@id",
+            "personal.residenceDistrict" => "UPDATE public.employee_personal_info SET residence_district=@value WHERE employee_id=@id",
+            "personal.residenceSubdistrict" => "UPDATE public.employee_personal_info SET residence_subdistrict=@value WHERE employee_id=@id",
+            "personal.residencePostalCode" => "UPDATE public.employee_personal_info SET residence_postal_code=@value WHERE employee_id=@id",
             "personal.currentAddress" => "UPDATE public.employee_personal_info SET current_address=@value WHERE employee_id=@id",
             "personal.idCardAddress" => "UPDATE public.employee_personal_info SET id_card_address=@value WHERE employee_id=@id",
             "personal.houseRegistrationAddress" => "UPDATE public.employee_personal_info SET house_registration_address=@value WHERE employee_id=@id",
@@ -825,7 +943,9 @@ public sealed class EmployeesController(
             "internal.position" => "UPDATE public.employee_company_info SET position_name=@value WHERE employee_id=@id",
             "internal.jobCode" => "UPDATE public.employee_company_info SET job_code=@value WHERE employee_id=@id",
             "internal.supervisor" => "UPDATE public.employee_company_info SET supervisor_name=@value WHERE employee_id=@id",
+            "internal.supervisorEmployeeId" => "UPDATE public.employee_company_info SET supervisor_employee_id=@value WHERE employee_id=@id",
             "internal.leaveApprover" => "UPDATE public.employee_company_info SET leave_approver_name=@value WHERE employee_id=@id",
+            "internal.leaveApproverEmployeeId" => "UPDATE public.employee_company_info SET leave_approver_employee_id=@value WHERE employee_id=@id",
             "internal.functionalSupervisor" => "UPDATE public.employee_company_info SET functional_supervisor_name=@value WHERE employee_id=@id",
             "internal.buddy" => "UPDATE public.employee_company_info SET buddy_name=@value WHERE employee_id=@id",
             "internal.employmentType" => "UPDATE public.employee_company_info SET employment_type=@value WHERE employee_id=@id",
@@ -903,6 +1023,10 @@ public sealed class EmployeesController(
 
     private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return directEmployeeId;
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))

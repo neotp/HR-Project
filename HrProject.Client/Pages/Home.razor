@@ -160,15 +160,15 @@
                                         }
                                     </div>
                                 </div>
-                                <label>รหัสพนักงาน <span>*</span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="xxxxxx" /></label>
+                                <label><span class="field-label">รหัสพนักงาน <span class="required">*</span></span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="xxxxxx" /></label>
                                 <label>คำนำหน้าชื่อ<select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>ชื่อ <span>*</span><input @bind="newEmployee.FirstName" /></label>
-                                <label>นามสกุล <span>*</span><input @bind="newEmployee.LastName" /></label>
+                                <label><span class="field-label">ชื่อ <span class="required">*</span></span><input @bind="newEmployee.FirstName" /></label>
+                                <label><span class="field-label">นามสกุล <span class="required">*</span></span><input @bind="newEmployee.LastName" /></label>
                                 <label>ชื่อ-นามสกุล (ไทย)<input @bind="newEmployee.ThaiFullName" /></label>
                                 <label>ชื่อ-นามสกุล (อังกฤษ)<input @bind="newEmployee.EnglishFullName" /></label>
                                 <label>ชื่อเล่น<input @bind="newEmployee.Nickname" /></label>
                                 <label>Email for Lotus Notes<input @bind="newEmployee.LotusNotesEmail" /></label>
-                                <label>Email <span>*</span><input type="email" @bind="newEmployee.Email" /></label>
+                                <label><span class="field-label">Email <span class="required">*</span></span><input type="email" @bind="newEmployee.Email" /></label>
                                 <label>เบอร์มือถือส่วนตัว<input @bind="newEmployee.PersonalMobile" /></label>
                                 <label>โทรศัพท์บ้าน<input @bind="newEmployee.HomePhone" /></label>
                             </div>
@@ -177,8 +177,11 @@
                             <div class="create-form-grid">
                                 <label>ศาสนา<select @bind="newEmployee.Religion"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("RELIGION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>หมู่เลือด<select @bind="newEmployee.BloodType"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BLOOD_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>จังหวัดที่พักอาศัย<input @bind="newEmployee.ResidenceProvince" /></label>
-                                <label class="wide-field">ที่อยู่ปัจจุบัน<textarea rows="2" @bind="newEmployee.CurrentAddress"></textarea></label>
+                                <label class="wide-field">ที่อยู่<textarea rows="2" @bind="newEmployee.CurrentAddress" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
+                                <label>จังหวัด<select @bind="newEmployee.ResidenceProvince" @bind:after="ResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>อำเภอ / เขต<select @bind="newEmployee.ResidenceDistrict" @bind:after="ResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>ตำบล / แขวง<select @bind="newEmployee.ResidenceSubdistrict" @bind:after="ResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>รหัสไปรษณีย์<select @bind="newEmployee.ResidencePostalCode" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="2" @bind="newEmployee.IdCardAddress"></textarea></label>
                                 <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="2" @bind="newEmployee.HouseRegistrationAddress"></textarea></label>
                                 <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="newEmployee.EmergencyContactName" /></label>
@@ -191,12 +194,24 @@
                                 <label>บริษัท<select @bind="newEmployee.Company"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("COMPANY")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>Business Unit<select @bind="newEmployee.BusinessUnit" @bind:after="BusinessUnitChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BUSINESS_UNIT")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>ฝ่าย<input @bind="newEmployee.Division" /></label>
-                                <label>แผนก <span>*</span><select @bind="newEmployee.Department" disabled="@string.IsNullOrWhiteSpace(newEmployee.BusinessUnit)"><option value="">-- เลือก --</option>@foreach (var item in DepartmentOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label><span class="field-label">แผนก <span class="required">*</span></span><select @bind="newEmployee.Department" disabled="@string.IsNullOrWhiteSpace(newEmployee.BusinessUnit)"><option value="">-- เลือก --</option>@foreach (var item in DepartmentOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>ส่วนงาน<input @bind="newEmployee.Section" /></label>
-                                <label>ตำแหน่ง <span>*</span><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label><span class="field-label">ตำแหน่ง <span class="required">*</span></span><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>รหัสตำแหน่ง<input @bind="newEmployee.JobCode" /></label>
-                                <label>หัวหน้างาน<input @bind="newEmployee.SupervisorName" /></label>
-                                <label>Reporting To (Leave Approve)<input @bind="newEmployee.LeaveApproverName" /></label>
+                                <label>หัวหน้างาน
+                                    <EmployeeSearchSelect Items="@(employees ?? [])"
+                                                          Value="@newEmployee.SupervisorEmployeeId"
+                                                          ValueChanged="SelectNewSupervisor"
+                                                          ExcludeEmployeeCode="@newEmployee.EmployeeCode"
+                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" />
+                                </label>
+                                <label>Reporting To (Leave Approve)
+                                    <EmployeeSearchSelect Items="@(employees ?? [])"
+                                                          Value="@newEmployee.LeaveApproverEmployeeId"
+                                                          ValueChanged="SelectNewLeaveApprover"
+                                                          ExcludeEmployeeCode="@newEmployee.EmployeeCode"
+                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" />
+                                </label>
                                 <label>Buddy<input @bind="newEmployee.BuddyName" /></label>
                                 <label>ประเภทการจ้าง
                                     <select @bind="newEmployee.EmploymentType">
@@ -206,7 +221,7 @@
                                 </label>
                                 <label>เวลาทำงาน<select @bind="newEmployee.WorkSchedule"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_SCHEDULE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>สถานที่ทำงาน<select @bind="newEmployee.WorkLocation"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_LOCATION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>วันที่เริ่มงาน <span>*</span><DateOnlyPicker Value="@newEmployee.StartDate" ValueChanged="value => newEmployee.StartDate = value ?? newEmployee.StartDate" AriaLabel="วันที่เริ่มงาน" /></label>
+                                <label><span class="field-label">วันที่เริ่มงาน <span class="required">*</span></span><DateOnlyPicker Value="@newEmployee.StartDate" ValueChanged="value => newEmployee.StartDate = value ?? newEmployee.StartDate" AriaLabel="วันที่เริ่มงาน" /></label>
                                 <label>Ext. ภายใน<input @bind="newEmployee.InternalExtension" /></label>
                                 <label>เบอร์โทรสายตรง<input @bind="newEmployee.DirectPhone" /></label>
                                 <label>เบอร์มือถือบริษัท<input @bind="newEmployee.CompanyMobile" /></label>
@@ -458,6 +473,41 @@
         masterItems.Where(item => item.IsActive &&
             string.Equals(item.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase));
 
+    private IEnumerable<MasterDataItemDto> ResidenceDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", newEmployee.ResidenceProvince);
+    private IEnumerable<MasterDataItemDto> ResidenceSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", newEmployee.ResidenceDistrict, ResidenceDistrictOptions);
+    private IEnumerable<MasterDataItemDto> ResidencePostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", newEmployee.ResidenceSubdistrict, ResidenceSubdistrictOptions);
+
+    private IEnumerable<MasterDataItemDto> ChildAddressOptions(
+        string childCategory, string parentCategory, string parentName,
+        IEnumerable<MasterDataItemDto>? parents = null)
+    {
+        var parent = (parents ?? MasterOptions(parentCategory)).FirstOrDefault(item =>
+            string.Equals(item.NameTh, parentName, StringComparison.OrdinalIgnoreCase));
+        return parent is null ? [] : MasterOptions(childCategory).Where(item => item.ParentItemId == parent.Id);
+    }
+
+    private void ResidenceProvinceChanged()
+    {
+        newEmployee.ResidenceDistrict = string.Empty;
+        newEmployee.ResidenceSubdistrict = string.Empty;
+        newEmployee.ResidencePostalCode = string.Empty;
+    }
+
+    private void ResidenceDistrictChanged()
+    {
+        newEmployee.ResidenceSubdistrict = string.Empty;
+        newEmployee.ResidencePostalCode = string.Empty;
+    }
+
+    private void ResidenceSubdistrictChanged()
+    {
+        var postalCodes = ResidencePostalCodeOptions.ToList();
+        newEmployee.ResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+    }
+
     private IEnumerable<MasterDataItemDto> DepartmentOptions
     {
         get
@@ -477,6 +527,22 @@
                 item.NameTh, newEmployee.Department, StringComparison.OrdinalIgnoreCase)))
             newEmployee.Department = string.Empty;
     }
+
+    private void SelectNewSupervisor(string employeeCode)
+    {
+        newEmployee.SupervisorEmployeeId = employeeCode;
+        newEmployee.SupervisorName = EmployeeName(employeeCode);
+    }
+
+    private void SelectNewLeaveApprover(string employeeCode)
+    {
+        newEmployee.LeaveApproverEmployeeId = employeeCode;
+        newEmployee.LeaveApproverName = EmployeeName(employeeCode);
+    }
+
+    private string EmployeeName(string employeeCode) => (employees ?? [])
+        .FirstOrDefault(item => string.Equals(
+            item.EmployeeCode, employeeCode, StringComparison.OrdinalIgnoreCase))?.FullName ?? string.Empty;
 
     private void OpenEmployee(int id) => Navigation.NavigateTo($"/employees/{id}");
 

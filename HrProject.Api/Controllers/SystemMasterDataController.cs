@@ -1,12 +1,17 @@
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using System.Security.Claims;
 
 namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/system-master-data")]
-public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class SystemMasterDataController(
+    NpgsqlDataSource dataSource,
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     private static readonly MasterDataCategoryDto[] Categories =
     [
@@ -22,8 +27,12 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         new("TITLE", "คำนำหน้าชื่อ", 100),
         new("RELIGION", "ศาสนา", 110),
         new("BLOOD_TYPE", "กรุ๊ปเลือด", 120),
-        new("MARITAL_STATUS", "สถานภาพสมรส", 130)
-        ,new("ATTENDANCE_EVENT_TYPE", "ประเภท Event การมาทำงาน", 140, false, true)
+        new("MARITAL_STATUS", "สถานภาพสมรส", 130),
+        new("PROVINCE", "จังหวัด", 140),
+        new("DISTRICT", "อำเภอ / เขต", 150),
+        new("SUBDISTRICT", "ตำบล / แขวง", 160),
+        new("POSTAL_CODE", "รหัสไปรษณีย์", 170),
+        new("ATTENDANCE_EVENT_TYPE", "ประเภท Event การมาทำงาน", 180, false, true)
     ];
 
     [HttpGet("categories")]
@@ -180,17 +189,19 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         SaveMasterDataItemRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
         var category = request.CategoryCode?.Trim().ToUpperInvariant() ?? string.Empty;
         var code = request.ItemCode?.Trim().ToUpperInvariant() ?? string.Empty;
         if (!IsGenericCategory(category) || string.IsNullOrWhiteSpace(code) ||
             string.IsNullOrWhiteSpace(request.NameTh) || request.DisplayOrder < 0)
             return BadRequest("กรุณากรอกรหัส ชื่อ และลำดับให้ถูกต้อง");
 
-        var parentItemId = category == "DEPARTMENT" ? request.ParentItemId : null;
-        if (category == "DEPARTMENT" &&
+        var parentCategory = ParentCategory(category);
+        var parentItemId = parentCategory is null ? null : request.ParentItemId;
+        if (parentCategory is not null &&
             (!parentItemId.HasValue ||
-             !await IsActiveBusinessUnit(parentItemId.Value, cancellationToken)))
-            return BadRequest("กรุณาเลือก Business Unit ของแผนก");
+             !await IsActiveParent(parentItemId.Value, parentCategory, cancellationToken)))
+            return BadRequest($"กรุณาเลือกข้อมูลแม่ประเภท {parentCategory}");
 
         const string insertSql = """
             INSERT INTO public.system_master_items
@@ -233,6 +244,7 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         SaveLeaveTypeMasterRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
         var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.NameTh) ||
             request.DefaultHours < 0 || request.DefaultBonusDeductionPercent is < 0 or > 100)
@@ -284,6 +296,7 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         SaveAttendanceEventTypeMasterRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
         var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.NameTh) ||
             request.DisplayOrder < 0)
@@ -393,20 +406,60 @@ public sealed class SystemMasterDataController(NpgsqlDataSource dataSource) : Co
         Categories.Any(item => !item.IsLeaveType && !item.IsAttendanceEventType &&
             string.Equals(item.Code, category?.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    private async Task<bool> IsActiveBusinessUnit(long id, CancellationToken cancellationToken)
+    private static string? ParentCategory(string category) => category switch
+    {
+        "DEPARTMENT" => "BUSINESS_UNIT",
+        "DISTRICT" => "PROVINCE",
+        "SUBDISTRICT" => "DISTRICT",
+        "POSTAL_CODE" => "SUBDISTRICT",
+        _ => null
+    };
+
+    private async Task<bool> IsActiveParent(long id, string category, CancellationToken cancellationToken)
     {
         const string sql = """
             SELECT EXISTS
             (
                 SELECT 1 FROM public.system_master_items
-                WHERE id = @id AND category_code = 'BUSINESS_UNIT' AND is_active = TRUE
+                WHERE id = @id AND category_code = @category AND is_active = TRUE
             )
             """;
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("category", category);
         return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task<bool> CanSave(long? id, bool isActive, CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        var action = !id.HasValue ? "CREATE" : isActive ? "EDIT" : "DEACTIVATE";
+        return !string.IsNullOrWhiteSpace(employeeId) &&
+               await pageAccessService.HasAccess(employeeId, "SYSTEM_MASTER_DATA", cancellationToken) &&
+               await actionPermissionService.HasPermission(employeeId, "SYSTEM_MASTER_DATA", action, cancellationToken);
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var employeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(employeeId)) return employeeId;
+
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id AND entra_object_id = @object_id AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
 }

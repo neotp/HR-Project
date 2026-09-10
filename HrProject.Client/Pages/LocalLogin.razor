@@ -1,0 +1,104 @@
+@page "/local-login"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@inject LocalAuthSession LocalSession
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>เข้าสู่ระบบภายใน | HR Project</PageTitle>
+
+<main class="local-auth-page">
+    <section class="local-auth-card">
+        <img src="images/image.png" alt="SiS logo" />
+        <h1>HR Project</h1>
+        <p>เข้าสู่ระบบด้วยบัญชีภายใน</p>
+
+        <EditForm class="local-auth-form" Model="form" OnValidSubmit="Login">
+            <div class="form-field">
+                <label for="local-username">ชื่อผู้ใช้</label>
+                <InputText id="local-username" @bind-Value="form.Username"
+                           autocomplete="username" disabled="@isLoading" autofocus />
+            </div>
+            <div class="form-field">
+                <label for="local-password">รหัสผ่าน</label>
+                <InputText id="local-password" type="password" @bind-Value="form.Password"
+                           autocomplete="current-password" disabled="@isLoading" />
+            </div>
+            <div class="local-auth-help"><a href="forgot-password">ลืมรหัสผ่าน?</a></div>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="login-error" role="alert">@errorMessage</div>
+            }
+
+            <button class="local-auth-submit" type="submit"
+                    disabled="@(isLoading || string.IsNullOrWhiteSpace(form.Username) || string.IsNullOrWhiteSpace(form.Password))">
+                @if (isLoading)
+                {
+                    <span class="local-auth-spinner" aria-hidden="true"></span>
+                    <span>กำลังเข้าสู่ระบบ...</span>
+                }
+                else
+                {
+                    <span>เข้าสู่ระบบ</span>
+                }
+            </button>
+        </EditForm>
+
+        <div class="local-auth-divider"><span>หรือ</span></div>
+        <a class="local-auth-alternate" href="@MicrosoftLoginUrl">เข้าสู่ระบบด้วย Microsoft</a>
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private readonly LoginForm form = new();
+    private bool isLoading;
+    private string? errorMessage;
+    private string MicrosoftLoginUrl => "/login" + ReturnUrlQuery;
+    private string ReturnUrlQuery => IsSafeLocalUrl(ReturnUrl)
+        ? $"?returnUrl={Uri.EscapeDataString(ReturnUrl!)}"
+        : string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+            Navigation.NavigateTo(state.User.HasClaim("auth_source", "LOCAL") &&
+                                  state.User.HasClaim("must_change_password", "true")
+                ? "/account/security?required=true"
+                : IsSafeLocalUrl(ReturnUrl) ? ReturnUrl! : "/", replace: true);
+    }
+
+    private async Task Login()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            await LocalSession.LoginAsync(form.Username.Trim(), form.Password);
+            Navigation.NavigateTo(LocalSession.MustChangePassword
+                ? "/account/security?required=true"
+                : IsSafeLocalUrl(ReturnUrl) ? ReturnUrl! : "/", replace: true);
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static bool IsSafeLocalUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url) && url.StartsWith('/') &&
+        !url.StartsWith("//", StringComparison.Ordinal);
+
+    private sealed class LoginForm
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

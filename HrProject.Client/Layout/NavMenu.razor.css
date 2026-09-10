@@ -16,8 +16,39 @@
 .nav-scrollable { padding: 1.25rem .55rem; background: #1a2848; }
 .nav-backdrop { display: none; }
 .nav-menu { display: flex; flex: 1 0 auto; flex-direction: column; gap: .2rem; }
-.menu-section { margin: .35rem .1rem .45rem; color: #fff; font-size: .94rem; font-weight: 700; }
-.menu-section:not(:first-child) { margin-top: 1.35rem; }
+.menu-section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin: .35rem .1rem .3rem;
+    padding: .48rem .65rem;
+    color: #fff;
+    background: transparent;
+    border: 0;
+    border-radius: .5rem;
+    font-size: .94rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: background .18s ease;
+}
+.menu-section-toggle:not(:first-child) { margin-top: 1rem; }
+.menu-section-toggle:hover { background: rgba(255,255,255,.08); }
+.menu-section-toggle:focus-visible { outline: 2px solid #ff8a5b; outline-offset: 2px; }
+.section-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    color: #ff8a5b;
+    font-size: 1.05rem;
+    line-height: 1;
+    transition: transform .18s ease;
+}
+.section-chevron.is-collapsed { transform: rotate(-90deg); }
+.menu-section-items { display: flex; flex-direction: column; gap: .2rem; }
 .nav-menu ::deep .menu-link {
     display: flex; align-items: center; gap: .75rem; min-height: 2.75rem; padding: .65rem .75rem;
     color: #fff !important; border-radius: .55rem; font-size: .9rem; font-weight: 600; text-decoration: none !important;
@@ -36,7 +67,8 @@
     .nav-shell.desktop-collapsed .navbar-toggler { left: calc(78px - 15px); }
     .nav-shell.desktop-collapsed .navbar-toggler::after { content: '›'; }
     .nav-shell.desktop-collapsed .nav-scrollable { padding: 1.25rem .45rem; scrollbar-gutter: auto; }
-    .nav-shell.desktop-collapsed .menu-section { display: none; }
+    .nav-shell.desktop-collapsed .menu-section-toggle { display: none; }
+    .nav-shell.desktop-collapsed .menu-section-items { display: flex; gap: .55rem; }
     .nav-shell.desktop-collapsed .nav-menu { gap: .55rem; }
     .nav-shell.desktop-collapsed .nav-menu ::deep .menu-link {
         min-height: 2.75rem;

@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using HrProject.Api.Tools;
 using HrProject.Api.Services;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -728,6 +730,120 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-activity-hist
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-local-authentication", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "056_create_local_authentication.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created local authentication tables successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-local-accounts-page", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "057_add_local_accounts_page.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added local account management page and permissions successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-local-password-management", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "058_add_local_password_management.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added local password management workflow successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-manager-references", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "059_add_employee_manager_references.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added employee manager reference columns successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-request-edit-permission", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "060_add_employee_request_edit_permission.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added employee request-edit permission successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-structured-address", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "061_add_employee_structured_address.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added structured employee address fields successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--import-thailand-address-master", StringComparison.OrdinalIgnoreCase))
+{
+    const string sourceUrl = "https://raw.githubusercontent.com/open-admin-data/thailand-administrative-divisions/main/data/all-subdistrict.json";
+    using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+    var addressJson = await client.GetStringAsync(sourceUrl);
+    using var parsedAddress = System.Text.Json.JsonDocument.Parse(addressJson);
+    if (parsedAddress.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array ||
+        parsedAddress.RootElement.GetArrayLength() < 7000)
+        throw new InvalidOperationException("Thailand address source is incomplete.");
+
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "062_import_thailand_address_master.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    migrationCommand.CommandTimeout = 300;
+    migrationCommand.Parameters.AddWithValue("address_json", NpgsqlTypes.NpgsqlDbType.Jsonb, addressJson);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine($"Imported Thailand address master from {parsedAddress.RootElement.GetArrayLength():N0} subdistrict records successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-local-refresh-revoke-reason", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "063_add_local_refresh_revoke_reason.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added local refresh-token revoke reasons successfully.");
+    return;
+}
+
 // The database is hosted on another server. Keep pooled connections alive so a
 // firewall/NAT idle timeout does not hand a dead connector to background jobs.
 var pooledConnectionSettings = new NpgsqlConnectionStringBuilder(connectionString);
@@ -736,6 +852,9 @@ if (pooledConnectionSettings.KeepAlive == 0)
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pooledConnectionSettings.ConnectionString));
 builder.Services.AddSingleton<PageActionPermissionService>();
 builder.Services.AddSingleton<PageAccessService>();
+builder.Services.AddSingleton<LocalJwtService>();
+builder.Services.AddSingleton<IPasswordHasher<HrProject.Api.Controllers.LocalAuthenticationController.LocalUser>,
+    PasswordHasher<HrProject.Api.Controllers.LocalAuthenticationController.LocalUser>>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<MicrosoftGraphMailService>();
 builder.Services.AddSingleton<LeaveApprovalEmailService>();
@@ -751,8 +870,14 @@ var clientId = builder.Configuration["AzureAd:ClientId"]
     ?? throw new InvalidOperationException("AzureAd:ClientId is not configured.");
 var requiredScope = builder.Configuration["AzureAd:Scope"] ?? "users.read";
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+const string entraScheme = "EntraBearer";
+var localSigningKey = LocalJwtService.GetSigningKey(builder.Configuration);
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = entraScheme;
+        options.DefaultChallengeScheme = entraScheme;
+    })
+    .AddJwtBearer(entraScheme, options =>
     {
         options.Authority = $"https://login.microsoftonline.com/{tenantId}/v2.0";
         options.MapInboundClaims = false;
@@ -770,28 +895,48 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ],
             NameClaimType = "name"
         };
+    })
+    .AddJwtBearer(LocalJwtService.AuthenticationScheme, options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = LocalJwtService.Issuer,
+            ValidateAudience = true,
+            ValidAudience = LocalJwtService.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(localSigningKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+            NameClaimType = "name"
+        };
     });
 
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("HrApiScope", policy =>
     {
+        policy.AddAuthenticationSchemes(entraScheme, LocalJwtService.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
         policy.RequireAssertion(context =>
         {
             var scopes = context.User.FindFirst("scp")?.Value?
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
-            return scopes.Contains(requiredScope, StringComparer.OrdinalIgnoreCase) ||
+            return context.User.HasClaim("auth_source", "LOCAL") ||
+                   scopes.Contains(requiredScope, StringComparer.OrdinalIgnoreCase) ||
                    context.User.HasClaim("roles", "Users.Read");
         });
     });
-    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+    options.FallbackPolicy = new AuthorizationPolicyBuilder(
+            entraScheme, LocalJwtService.AuthenticationScheme)
         .RequireAuthenticatedUser()
         .RequireAssertion(context =>
         {
             var scopes = context.User.FindFirst("scp")?.Value?
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
-            return scopes.Contains(requiredScope, StringComparer.OrdinalIgnoreCase) ||
+            return context.User.HasClaim("auth_source", "LOCAL") ||
+                   scopes.Contains(requiredScope, StringComparer.OrdinalIgnoreCase) ||
                    context.User.HasClaim("roles", "Users.Read");
         })
         .Build();
@@ -799,7 +944,8 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("https://localhost:7169", "http://localhost:5043")
         .AllowAnyHeader()
-        .AllowAnyMethod()));
+        .AllowAnyMethod()
+        .AllowCredentials()));
 
 var app = builder.Build();
 

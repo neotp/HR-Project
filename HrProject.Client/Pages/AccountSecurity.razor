@@ -1,0 +1,81 @@
+@page "/account/security"
+@inject LocalAuthSession LocalSession
+@inject NavigationManager Navigation
+
+<PageTitle>ความปลอดภัยของบัญชี | HR Project</PageTitle>
+
+<section class="manage-page account-security-page">
+    <header class="page-header-card">
+        <div class="page-header-content"><div class="page-header-text">
+            <h1>ความปลอดภัยของบัญชี</h1>
+            <p>เปลี่ยนรหัสผ่านสำหรับบัญชี Local ของคุณ</p>
+        </div></div>
+    </header>
+    <section class="content-card security-card">
+        @if (Required || LocalSession.MustChangePassword)
+        {
+            <div class="security-alert">บัญชีนี้ใช้รหัสผ่านเริ่มต้น กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานส่วนอื่นของระบบ</div>
+        }
+        <div class="security-profile">
+            <div><span>ชื่อผู้ใช้</span><strong>@(LocalSession.Username ?? "-")</strong></div>
+            <div><span>พนักงาน</span><strong>@(LocalSession.CurrentUser?.EmployeeName ?? "-")</strong></div>
+        </div>
+        <EditForm Model="form" OnValidSubmit="Save" class="security-form">
+            <div class="security-field">
+                <label for="current-password"><span class="field-label">รหัสผ่านปัจจุบัน <span class="required">*</span></span></label>
+                <InputText id="current-password" type="password" @bind-Value="form.CurrentPassword" autocomplete="current-password" />
+            </div>
+            <div class="security-field">
+                <label for="new-password"><span class="field-label">รหัสผ่านใหม่ <span class="required">*</span></span></label>
+                <InputText id="new-password" type="password" @bind-Value="form.NewPassword" autocomplete="new-password" />
+                <small>อย่างน้อย 8 ตัวอักษร และต้องไม่ใช่รหัสผ่านเริ่มต้น</small>
+            </div>
+            <div class="security-field">
+                <label for="confirm-password"><span class="field-label">ยืนยันรหัสผ่านใหม่ <span class="required">*</span></span></label>
+                <InputText id="confirm-password" type="password" @bind-Value="form.ConfirmPassword" autocomplete="new-password" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <div class="account-message @(success ? "success" : "error")">@message</div>
+            }
+            <div class="security-actions">
+                <button class="security-submit" type="submit" disabled="@(!CanSave)">
+                    @if (isSaving) { <span class="security-spinner" aria-hidden="true"></span> }
+                    <span>@(isSaving ? "กำลังเปลี่ยนรหัสผ่าน..." : "เปลี่ยนรหัสผ่าน")</span>
+                </button>
+            </div>
+        </EditForm>
+    </section>
+</section>
+
+@code {
+    [SupplyParameterFromQuery] public bool Required { get; set; }
+    private readonly PasswordForm form = new();
+    private bool isSaving;
+    private bool success;
+    private string? message;
+    private bool CanSave => !isSaving && form.CurrentPassword.Length > 0 &&
+        form.NewPassword.Length >= 8 && form.NewPassword == form.ConfirmPassword;
+
+    private async Task Save()
+    {
+        isSaving = true; success = false; message = null;
+        try
+        {
+            await LocalSession.ChangePasswordAsync(form.CurrentPassword, form.NewPassword);
+            success = true; message = "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว";
+            form.CurrentPassword = form.NewPassword = form.ConfirmPassword = string.Empty;
+            await Task.Delay(500);
+            Navigation.NavigateTo("/", forceLoad: true, replace: true);
+        }
+        catch (Exception exception) { message = exception.Message; }
+        finally { isSaving = false; }
+    }
+
+    private sealed class PasswordForm
+    {
+        public string CurrentPassword { get; set; } = string.Empty;
+        public string NewPassword { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

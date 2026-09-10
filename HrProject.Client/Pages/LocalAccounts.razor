@@ -1,0 +1,316 @@
+@page "/local-accounts"
+@inject HttpClient Http
+@inject NavPendingRefreshState PendingRefreshState
+
+<PageTitle>จัดการบัญชี Local | HR Project</PageTitle>
+
+<section class="manage-page local-account-page">
+    <header class="page-header-card">
+        <div class="page-header-content"><div class="page-header-text">
+            <h1>จัดการบัญชี Local</h1>
+            <p>สร้างบัญชี รีเซ็ตรหัสผ่าน และควบคุมสถานะการเข้าใช้งานของพนักงาน</p>
+        </div></div>
+        @if (!isLoading && CanCreate)
+        {
+            <button class="create-account-button" type="button" @onclick="OpenCreateAccount">+ สร้างบัญชี</button>
+        }
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(message) && !isAccountModalOpen)
+    {
+        <div class="account-message @(success ? "success" : "error")" role="status">@message</div>
+    }
+
+    @if (isLoading)
+    {
+        <section class="content-card"><div class="account-state">กำลังโหลดข้อมูลบัญชี...</div></section>
+    }
+    else if (!string.IsNullOrWhiteSpace(loadError))
+    {
+        <section class="content-card"><div class="account-state error">@loadError</div></section>
+    }
+    else
+    {
+        @if (CanReset)
+        {
+            <section class="content-card reset-request-card">
+                <div class="content-card-header account-list-header">
+                    <span>คำขอรีเซ็ตรหัสผ่าน</span><small>@resetRequests.Count รายการ</small>
+                </div>
+                <div class="content-card-body table-responsive">
+                    <table class="account-table">
+                        <thead><tr><th>วันที่ขอ</th><th>รหัสพนักงาน</th><th>พนักงาน</th><th>ชื่อผู้ใช้</th><th>ดำเนินการ</th></tr></thead>
+                        <tbody>
+                            @if (resetRequests.Count == 0)
+                            {
+                                <tr><td colspan="5" class="empty-cell">ไม่มีคำขอรีเซ็ตรหัสผ่านที่รอดำเนินการ</td></tr>
+                            }
+                            @foreach (var request in resetRequests)
+                            {
+                                <tr><td>@request.RequestedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                                    <td>@EmployeeCodeFormat.Display(request.EmployeeId)</td><td><strong>@request.EmployeeName</strong></td>
+                                    <td>@request.Username</td><td class="row-actions"><button type="button" @onclick="() => SelectResetRequest(request)">รีเซ็ตรหัสผ่าน</button></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+
+        @if (CanView)
+        {
+            <section class="content-card">
+                <div class="content-card-header account-list-header">
+                    <span>รายการบัญชี Local</span><small>@accounts.Count รายการ</small>
+                </div>
+                <div class="content-card-body table-responsive">
+                    <table class="account-table">
+                        <thead><tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>ชื่อผู้ใช้</th><th>เข้าใช้ล่าสุด</th><th>สถานะ</th><th>ดำเนินการ</th></tr></thead>
+                        <tbody>
+                            @if (accounts.Count == 0)
+                            {
+                                <tr><td colspan="6" class="empty-cell">ยังไม่มีบัญชี Local</td></tr>
+                            }
+                            @foreach (var account in accounts)
+                            {
+                                <tr>
+                                    <td>@EmployeeCodeFormat.Display(account.EmployeeId)</td>
+                                    <td><strong>@account.EmployeeName</strong></td>
+                                    <td>@account.Username</td>
+                                    <td>@(account.LastLoginAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "-")</td>
+                                    <td><span class="status-pill @(account.IsActive ? "active" : "inactive")">@(account.IsActive ? "ใช้งาน" : "ระงับ")</span></td>
+                                    <td class="row-actions">
+                                        @if (CanReset)
+                                        {
+                                            <button type="button" @onclick="() => SelectAccount(account)">รีเซ็ตรหัสผ่าน</button>
+                                        }
+                                        @if (CanChangeStatus)
+                                        {
+                                            <button type="button" class="@(account.IsActive ? "danger" : "enable")"
+                                                    disabled="@isSavingStatus" @onclick="() => ConfirmStatusChange(account)">
+                                                @(account.IsActive ? "ระงับบัญชี" : "เปิดบัญชี")
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    }
+</section>
+
+@if (isAccountModalOpen)
+{
+    <div class="account-modal-backdrop" role="presentation">
+        <section class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+            <header class="account-modal-header">
+                <div><h2 id="account-modal-title">@(IsResetMode ? "รีเซ็ตรหัสผ่านบัญชี Local" : "สร้างบัญชี Local")</h2>
+                    <p>@(IsResetMode ? "รีเซ็ตรหัสผ่านของพนักงานกลับเป็นค่าเริ่มต้น" : "เลือกพนักงานและกำหนดชื่อผู้ใช้สำหรับเข้าระบบ")</p></div>
+                <button type="button" aria-label="ปิด" disabled="@isSaving" @onclick="CloseAccountModal">×</button>
+            </header>
+            <div class="account-modal-body account-form">
+                @if (IsResetMode)
+                {
+                    <label>พนักงาน
+                        <input value="@SelectedEmployeeLabel" disabled />
+                    </label>
+                }
+                else
+                {
+                    <label><span class="field-label">พนักงาน <span class="required">*</span></span>
+                        <EmployeeSearchSelect Items="AvailableEmployees" @bind-Value="employeeId"
+                                              @bind-Value:after="EmployeeChanged"
+                                              Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
+                    </label>
+                }
+                <label><span class="field-label">ชื่อผู้ใช้ <span class="required">*</span></span>
+                    <input @bind="username" disabled="@IsResetMode" autocomplete="off" maxlength="100" placeholder="ชื่อที่ใช้เข้าสู่ระบบ" />
+                </label>
+                <div class="default-password-note">รหัสผ่านเริ่มต้น <strong>P@@ssw0rdSiS</strong> และระบบจะบังคับให้เจ้าของบัญชีเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบ</div>
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <div class="account-message @(success ? "success" : "error")" role="status">@message</div>
+                }
+            </div>
+            <footer class="account-modal-footer">
+                <button class="btn modal-cancel" type="button" disabled="@isSaving" @onclick="CloseAccountModal">ยกเลิก</button>
+                <button class="btn primary" type="button" disabled="@(!CanSubmit)" @onclick="Save">
+                    @(isSaving ? "กำลังบันทึก..." : IsResetMode ? "รีเซ็ตรหัสผ่าน" : "สร้างบัญชี")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+<ConfirmActionDialog IsOpen="@(pendingStatusAccount is not null)"
+                     IsBusy="@isSavingStatus"
+                     Title="@(pendingStatusAccount?.IsActive == true ? "ยืนยันการระงับบัญชี" : "ยืนยันการเปิดบัญชี")"
+                     Message="@StatusConfirmationMessage"
+                     ConfirmText="@(pendingStatusAccount?.IsActive == true ? "ยืนยันระงับบัญชี" : "ยืนยันเปิดบัญชี")"
+                     BusyText="กำลังเปลี่ยนสถานะ..."
+                     Tone="@(pendingStatusAccount?.IsActive == true ? "danger" : "primary")"
+                     OnConfirm="ChangeStatus"
+                     OnCancel="CancelStatusChange" />
+
+@code {
+    private List<Employee> employees = [];
+    private List<LocalAccountDto> accounts = [];
+    private List<LocalPasswordResetRequestDto> resetRequests = [];
+    private HashSet<string> actions = new(StringComparer.OrdinalIgnoreCase);
+    private string employeeId = string.Empty;
+    private string username = string.Empty;
+    private bool isLoading = true;
+    private bool isSaving;
+    private bool isSavingStatus;
+    private bool isAccountModalOpen;
+    private bool isResetMode;
+    private bool success;
+    private LocalAccountDto? pendingStatusAccount;
+    private string? message;
+    private string? loadError;
+    private bool CanView => actions.Contains("VIEW_ACCOUNTS");
+    private bool CanCreate => actions.Contains("CREATE_ACCOUNT");
+    private bool CanReset => actions.Contains("RESET_PASSWORD");
+    private bool CanChangeStatus => actions.Contains("ENABLE_DISABLE_ACCOUNT");
+    private LocalAccountDto? SelectedAccount => accounts.FirstOrDefault(item =>
+        string.Equals(item.EmployeeId, employeeId, StringComparison.OrdinalIgnoreCase));
+    private bool IsResetMode => isResetMode;
+    private IReadOnlyList<Employee> AvailableEmployees => employees
+        .Where(employee => !accounts.Any(account => string.Equals(account.EmployeeId,
+            employee.EmployeeCode, StringComparison.OrdinalIgnoreCase))).ToList();
+    private string SelectedEmployeeLabel => SelectedAccount is null
+        ? EmployeeCodeFormat.Display(employeeId)
+        : $"{SelectedAccount.EmployeeName} ({EmployeeCodeFormat.Display(SelectedAccount.EmployeeId)})";
+    private bool CanSubmit => !isSaving && !string.IsNullOrWhiteSpace(employeeId) &&
+        !string.IsNullOrWhiteSpace(username) && (IsResetMode ? CanReset : CanCreate);
+    private string StatusConfirmationMessage => pendingStatusAccount is null
+        ? string.Empty
+        : pendingStatusAccount.IsActive
+            ? $"บัญชี {pendingStatusAccount.Username} จะไม่สามารถเข้าสู่ระบบ Local ได้ และ session ที่ค้างอยู่จะถูกยกเลิก"
+            : $"ต้องการเปิดบัญชี {pendingStatusAccount.Username} ให้กลับมาเข้าสู่ระบบ Local ได้หรือไม่";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (currentUser is null || string.IsNullOrWhiteSpace(currentUser.EmployeeId))
+                throw new InvalidOperationException("ไม่พบข้อมูลพนักงานของผู้ใช้งาน");
+            var result = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&pageKey=LOCAL_ACCOUNTS");
+            actions = result?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+            employees = await Http.GetFromJsonAsync<List<Employee>>("api/employees") ?? [];
+            await LoadAccounts();
+        }
+        catch (Exception exception) { loadError = $"โหลดข้อมูลไม่สำเร็จ: {exception.Message}"; }
+        finally { isLoading = false; }
+    }
+
+    private async Task LoadAccounts()
+    {
+        if (CanView) accounts = await Http.GetFromJsonAsync<List<LocalAccountDto>>("api/local-auth/accounts") ?? [];
+        if (CanReset) resetRequests = await Http.GetFromJsonAsync<List<LocalPasswordResetRequestDto>>(
+            "api/local-auth/password-reset-requests") ?? [];
+    }
+
+    private void EmployeeChanged()
+    {
+        var employee = employees.FirstOrDefault(item => string.Equals(
+            item.EmployeeCode, employeeId, StringComparison.OrdinalIgnoreCase));
+        username = employee?.EnglishFullName.Trim() ?? string.Empty;
+        message = null;
+    }
+
+    private void OpenCreateAccount()
+    {
+        employeeId = string.Empty;
+        username = string.Empty;
+        isResetMode = false;
+        success = false;
+        message = null;
+        isAccountModalOpen = true;
+    }
+
+    private void CloseAccountModal()
+    {
+        if (isSaving) return;
+        isAccountModalOpen = false;
+        employeeId = string.Empty;
+        username = string.Empty;
+    }
+
+    private void SelectAccount(LocalAccountDto account)
+    {
+        employeeId = account.EmployeeId;
+        username = account.Username;
+        message = null;
+        success = false;
+        isResetMode = true;
+        isAccountModalOpen = true;
+    }
+
+    private void SelectResetRequest(LocalPasswordResetRequestDto request)
+    {
+        employeeId = request.EmployeeId;
+        username = request.Username;
+        message = null;
+        success = false;
+        isResetMode = true;
+        isAccountModalOpen = true;
+    }
+
+    private async Task Save()
+    {
+        if (!CanSubmit) return;
+        isSaving = true; success = false; message = null;
+        try
+        {
+            var existed = SelectedAccount is not null;
+            var response = await Http.PostAsJsonAsync("api/local-auth/accounts",
+                new CreateLocalAccountRequest(employeeId, username.Trim()));
+            if (!response.IsSuccessStatusCode) { message = await ReadError(response, "บันทึกไม่สำเร็จ"); return; }
+            success = true;
+            message = existed ? "รีเซ็ตรหัสผ่านเรียบร้อยแล้ว" : "สร้างบัญชี Local เรียบร้อยแล้ว";
+            await LoadAccounts();
+            PendingRefreshState.RequestRefresh();
+            isAccountModalOpen = false;
+        }
+        catch (Exception exception) { message = $"บันทึกไม่สำเร็จ: {exception.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private void ConfirmStatusChange(LocalAccountDto account) => pendingStatusAccount = account;
+    private void CancelStatusChange()
+    {
+        if (!isSavingStatus) pendingStatusAccount = null;
+    }
+
+    private async Task ChangeStatus()
+    {
+        var account = pendingStatusAccount;
+        if (account is null) return;
+        isSavingStatus = true; success = false; message = null;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(
+                $"api/local-auth/accounts/{Uri.EscapeDataString(account.EmployeeId)}/status",
+                new SaveLocalAccountStatusRequest(!account.IsActive));
+            if (!response.IsSuccessStatusCode) { message = await ReadError(response, "เปลี่ยนสถานะไม่สำเร็จ"); return; }
+            success = true;
+            message = account.IsActive ? "ระงับบัญชีเรียบร้อยแล้ว" : "เปิดบัญชีเรียบร้อยแล้ว";
+            await LoadAccounts();
+            pendingStatusAccount = null;
+        }
+        catch (Exception exception) { message = $"เปลี่ยนสถานะไม่สำเร็จ: {exception.Message}"; }
+        finally { isSavingStatus = false; }
+    }
+
+    private static async Task<string> ReadError(HttpResponseMessage response, string fallback)
+    {
+        var body = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(body) ? $"{fallback} ({(int)response.StatusCode})" : body;
+    }
+}

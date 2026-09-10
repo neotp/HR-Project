@@ -45,6 +45,8 @@ public sealed class LeaveCancellationEmailService(
                        NULLIF(BTRIM(requester_basic.email_address), '') AS sender_email,
                        requester_company.supervisor_name,
                        requester_company.leave_approver_name,
+                       requester_company.supervisor_employee_id,
+                       requester_company.leave_approver_employee_id,
                        leave_type.name_th AS leave_type_name,
                        d.leave_date, d.start_time, d.leave_hours, d.leave_reason
                 FROM public.leave_documents d
@@ -78,7 +80,9 @@ public sealed class LeaveCancellationEmailService(
                    document.leave_hours, document.leave_reason, manager.email_address
             FROM document
             LEFT JOIN manager_directory manager
-              ON REGEXP_REPLACE(UPPER(BTRIM(COALESCE(document.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(manager.names)
+              ON UPPER(BTRIM(COALESCE(document.supervisor_employee_id, ''))) = UPPER(manager.employee_code)
+              OR UPPER(BTRIM(COALESCE(document.leave_approver_employee_id, ''))) = UPPER(manager.employee_code)
+              OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(document.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(manager.names)
               OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(document.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(manager.names)
               OR UPPER(BTRIM(COALESCE(document.supervisor_name, ''))) = UPPER(manager.employee_code)
               OR UPPER(BTRIM(COALESCE(document.leave_approver_name, ''))) = UPPER(manager.employee_code)

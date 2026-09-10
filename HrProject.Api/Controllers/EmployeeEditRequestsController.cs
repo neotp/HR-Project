@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Claims;
+using HrProject.Api.Services;
 using HrProject.Shared.Models;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
@@ -8,7 +10,10 @@ namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/employee-edit-requests")]
-public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class EmployeeEditRequestsController(
+    NpgsqlDataSource dataSource,
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     private static readonly HashSet<string> AllowedFields =
     [
@@ -16,10 +21,12 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         "lotusNotesEmail", "email", "personalMobile", "homePhone",
         "personal.nationalId", "personal.birthDate", "personal.gender",
         "personal.religion", "personal.bloodType", "personal.residenceProvince",
+        "personal.residenceDistrict", "personal.residenceSubdistrict", "personal.residencePostalCode",
         "personal.currentAddress", "personal.idCardAddress", "personal.houseRegistrationAddress",
         "personal.emergencyContactName", "personal.emergencyContactPhone", "personal.emergencyContactAddress",
         "internal.company", "internal.businessUnit", "internal.division", "internal.department", "internal.section",
-        "internal.position", "internal.jobCode", "internal.supervisor", "internal.leaveApprover",
+        "internal.position", "internal.jobCode", "internal.supervisor", "internal.supervisorEmployeeId",
+        "internal.leaveApprover", "internal.leaveApproverEmployeeId",
         "internal.functionalSupervisor", "internal.buddy", "internal.employmentType", "internal.workSchedule",
         "internal.workLocation", "internal.extension", "internal.directPhone", "internal.companyMobile",
         "internal.macAddress", "internal.branchCode", "internal.branchName", "internal.responsibilityProvince",
@@ -41,6 +48,15 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         [FromQuery] string? status,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var requestsOwnData = !string.IsNullOrWhiteSpace(employeeId) &&
+                              string.Equals(employeeId, actor, StringComparison.OrdinalIgnoreCase);
+        if (!requestsOwnData &&
+            (!await pageAccessService.HasAccess(actor, "EMPLOYEE_EDIT_REQUESTS", cancellationToken) ||
+             !await actionPermissionService.HasPermission(actor, "EMPLOYEE_EDIT_REQUESTS", "VIEW_ALL", cancellationToken)))
+            return Forbid();
+
         const string sql = """
             SELECT id, request_no, employee_id, employee_name,
                    changes_json::text, request_reason, status,
@@ -67,6 +83,11 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         CreateEmployeeEditRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        if (!string.Equals(actor, request.RequestedBy, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+
         var changes = request.Changes?
             .Where(change =>
                 AllowedFields.Contains(change.FieldKey) &&
@@ -85,6 +106,30 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
             string.IsNullOrWhiteSpace(request.RequestedByName))
         {
             return BadRequest("กรุณาระบุข้อมูลที่ต้องการแก้ไขและเหตุผลให้ครบถ้วน");
+        }
+
+        var isOwnRequest = string.Equals(
+            actor, request.EmployeeId, StringComparison.OrdinalIgnoreCase);
+        if (!isOwnRequest)
+        {
+            var canRequestForOthers = await actionPermissionService.HasPermission(
+                actor, "EMPLOYEES", "REQUEST_EDIT", cancellationToken);
+            var requiresCompanyPermission = changes.Any(change =>
+                change.FieldKey.StartsWith("internal.", StringComparison.OrdinalIgnoreCase) ||
+                change.FieldKey is "lotusNotesEmail" or "email" or "work.history");
+            var requiresPersonalPermission = changes.Any(change =>
+                !change.FieldKey.StartsWith("internal.", StringComparison.OrdinalIgnoreCase) &&
+                change.FieldKey is not ("lotusNotesEmail" or "email" or "work.history"));
+
+            var canRequestCompanyChange = !requiresCompanyPermission ||
+                await actionPermissionService.HasPermission(
+                    actor, "EMPLOYEES", "VIEW_COMPANY", cancellationToken);
+            var canRequestPersonalChange = !requiresPersonalPermission ||
+                await actionPermissionService.HasPermission(
+                    actor, "EMPLOYEES", "VIEW_PERSONAL", cancellationToken);
+
+            if (!canRequestForOthers || !canRequestCompanyChange || !canRequestPersonalChange)
+                return Forbid();
         }
 
         var profileImageChange = changes.FirstOrDefault(change =>
@@ -197,6 +242,13 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
         ReviewEmployeeEditRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        if (!string.Equals(actor, request.ReviewedBy, StringComparison.OrdinalIgnoreCase) ||
+            !await pageAccessService.HasAccess(actor, "EMPLOYEE_EDIT_REQUESTS", cancellationToken) ||
+            !await actionPermissionService.HasPermission(actor, "EMPLOYEE_EDIT_REQUESTS", action, cancellationToken))
+            return Forbid();
+
         if (id <= 0 ||
             string.IsNullOrWhiteSpace(request.ReviewedBy) ||
             string.IsNullOrWhiteSpace(request.ReviewedByName))
@@ -313,5 +365,26 @@ public sealed class EmployeeEditRequestsController(NpgsqlDataSource dataSource) 
             reader.GetString(6),
             reader.GetString(7),
             reader.GetFieldValue<DateTimeOffset>(8));
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var employeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(employeeId)) return employeeId;
+
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id AND entra_object_id = @object_id AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 }

@@ -108,8 +108,11 @@
                                 <DetailField Label="โทรศัพท์บ้าน" Value="@employee.HomePhone" />
                                 <DetailField Label="ศาสนา" Value="@employee.Religion" />
                                 <DetailField Label="หมู่เลือด" Value="@employee.BloodType" />
-                                <DetailField Label="จังหวัดที่พักอาศัย" Value="@employee.ResidenceProvince" />
-                                <DetailField Label="ที่อยู่ปัจจุบัน" Value="@employee.CurrentAddress" />
+                                <DetailField Label="ที่อยู่" Value="@employee.CurrentAddress" />
+                                <DetailField Label="ตำบล / แขวง" Value="@employee.ResidenceSubdistrict" />
+                                <DetailField Label="อำเภอ / เขต" Value="@employee.ResidenceDistrict" />
+                                <DetailField Label="จังหวัด" Value="@employee.ResidenceProvince" />
+                                <DetailField Label="รหัสไปรษณีย์" Value="@employee.ResidencePostalCode" />
                                 <DetailField Label="ที่อยู่ตามบัตรประชาชน" Value="@employee.IdCardAddress" />
                                 <DetailField Label="ที่อยู่ตามทะเบียนบ้าน" Value="@employee.HouseRegistrationAddress" />
                                 <DetailField Label="บุคคลติดต่อกรณีฉุกเฉิน" Value="@employee.EmergencyContactName" />
@@ -316,7 +319,11 @@
                                     <label>เพศ<select @bind="personalGender"><option value="">-- เลือก --</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option><option value="ไม่ระบุ">ไม่ระบุ</option></select></label>
                                     <label>ศาสนา<input @bind="personalReligion" /></label>
                                     <label>หมู่เลือด<input @bind="personalBloodType" /></label>
-                                    <label>จังหวัดที่พักอาศัย<input @bind="personalResidenceProvince" /></label>
+                                    <label class="wide-field">ที่อยู่<textarea rows="3" @bind="personalCurrentAddress" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
+                                    <label>จังหวัด<select @bind="personalResidenceProvince" @bind:after="PersonalResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                    <label>อำเภอ / เขต<select @bind="personalResidenceDistrict" @bind:after="PersonalResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                    <label>ตำบล / แขวง<select @bind="personalResidenceSubdistrict" @bind:after="PersonalResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                    <label>รหัสไปรษณีย์<select @bind="personalResidencePostalCode" disabled="@string.IsNullOrWhiteSpace(personalResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                     <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="3" @bind="personalIdCardAddress"></textarea></label>
                                     <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="3" @bind="personalHouseRegistrationAddress"></textarea></label>
                                 }
@@ -325,7 +332,6 @@
                                     <label>ชื่อเล่น<input @bind="proposedNickname" /></label>
                                     <label>เบอร์มือถือส่วนตัว<input @bind="proposedPersonalMobile" /></label>
                                     <label>โทรศัพท์บ้าน<input @bind="proposedHomePhone" /></label>
-                                    <label class="wide-field">ที่อยู่ปัจจุบัน<textarea rows="3" @bind="personalCurrentAddress"></textarea></label>
                                     <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="personalEmergencyContactName" /></label>
                                     <label>เบอร์ติดต่อฉุกเฉิน<input @bind="personalEmergencyContactPhone" /></label>
                                     <label class="wide-field">ที่อยู่ผู้ติดต่อฉุกเฉิน<textarea rows="3" @bind="personalEmergencyContactAddress"></textarea></label>
@@ -343,8 +349,20 @@
                                 <label>ส่วนงาน<input @bind="internalSection" /></label>
                                 <label>ตำแหน่ง<input @bind="internalPosition" /></label>
                                 <label>รหัสตำแหน่ง<input @bind="internalJobCode" /></label>
-                                <label>หัวหน้างาน<input @bind="internalSupervisorName" /></label>
-                                <label>Reporting To (Leave Approve)<input @bind="internalLeaveApproverName" /></label>
+                                <label>หัวหน้างาน
+                                    <EmployeeSearchSelect Items="employeeOptions"
+                                                          Value="@internalSupervisorEmployeeId"
+                                                          ValueChanged="SelectInternalSupervisor"
+                                                          ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
+                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" />
+                                </label>
+                                <label>Reporting To (Leave Approve)
+                                    <EmployeeSearchSelect Items="employeeOptions"
+                                                          Value="@internalLeaveApproverEmployeeId"
+                                                          ValueChanged="SelectInternalLeaveApprover"
+                                                          ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
+                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" />
+                                </label>
                                 <label>หัวหน้างาน (Functional Boss)<input @bind="internalFunctionalSupervisorName" /></label>
                                 <label>Buddy<input @bind="internalBuddyName" /></label>
                                 <label>ประเภทการจ้าง
@@ -510,6 +528,9 @@
     private string personalReligion = string.Empty;
     private string personalBloodType = string.Empty;
     private string personalResidenceProvince = string.Empty;
+    private string personalResidenceDistrict = string.Empty;
+    private string personalResidenceSubdistrict = string.Empty;
+    private string personalResidencePostalCode = string.Empty;
     private string personalCurrentAddress = string.Empty;
     private string personalIdCardAddress = string.Empty;
     private string personalHouseRegistrationAddress = string.Empty;
@@ -524,7 +545,9 @@
     private string internalPosition = string.Empty;
     private string internalJobCode = string.Empty;
     private string internalSupervisorName = string.Empty;
+    private string internalSupervisorEmployeeId = string.Empty;
     private string internalLeaveApproverName = string.Empty;
+    private string internalLeaveApproverEmployeeId = string.Empty;
     private string internalFunctionalSupervisorName = string.Empty;
     private string internalBuddyName = string.Empty;
     private string internalEmploymentType = string.Empty;
@@ -569,6 +592,8 @@
     private List<EmployeeEducationItem> editableEducationHistory = [];
     private List<EmployeeTrainingItem> editableTrainingHistory = [];
     private string editReason = string.Empty;
+    private List<Employee> employeeOptions = [];
+    private List<MasterDataItemDto> masterItems = [];
 
     private static readonly (string Key, string Label)[] Tabs =
     [
@@ -583,9 +608,17 @@
         ("change-history", "ประวัติการเปลี่ยนแปลง")
     ];
 
-    private IEnumerable<(string Key, string Label)> VisibleTabs =>
-        Tabs.Where(tab => (tab.Key != "documents" && tab.Key != "change-history") ||
-            allowedActions.Contains("VIEW_PERSONAL_DOCUMENTS"));
+    private bool IsOwnEmployee => employee is not null && currentUser is not null &&
+        string.Equals(employee.EmployeeCode, currentUser.EmployeeId, StringComparison.OrdinalIgnoreCase);
+    private IEnumerable<(string Key, string Label)> VisibleTabs => Tabs.Where(tab =>
+        tab.Key == "basic" ||
+        (IsOwnEmployee && tab.Key is not ("documents" or "change-history")) ||
+        (!IsOwnEmployee && tab.Key is "personal" or "education" or "training" or "family" &&
+            allowedActions.Contains("VIEW_PERSONAL")) ||
+        (!IsOwnEmployee && tab.Key is "internal" or "work" &&
+            allowedActions.Contains("VIEW_COMPANY")) ||
+        (tab.Key is "documents" or "change-history" &&
+            allowedActions.Contains("VIEW_PERSONAL_DOCUMENTS")));
 
     protected override async Task OnParametersSetAsync()
     {
@@ -596,7 +629,14 @@
         activeTab = "basic";
         try
         {
-            employee = await Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
+            var employeeTask = Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
+            var employeeOptionsTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
+            var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>("api/system-master-data/items/all");
+            await Task.WhenAll(employeeTask, employeeOptionsTask, masterItemsTask);
+            employee = await employeeTask;
+            employeeOptions = await employeeOptionsTask ?? [];
+            masterItems = await masterItemsTask ?? [];
+            ResolveLegacyManagerIds();
             try
             {
                 currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
@@ -654,6 +694,9 @@
         personalReligion = employee.Religion;
         personalBloodType = employee.BloodType;
         personalResidenceProvince = employee.ResidenceProvince;
+        personalResidenceDistrict = employee.ResidenceDistrict;
+        personalResidenceSubdistrict = employee.ResidenceSubdistrict;
+        personalResidencePostalCode = employee.ResidencePostalCode;
         personalCurrentAddress = employee.CurrentAddress;
         personalIdCardAddress = employee.IdCardAddress;
         personalHouseRegistrationAddress = employee.HouseRegistrationAddress;
@@ -668,7 +711,9 @@
         internalPosition = employee.Position;
         internalJobCode = employee.JobCode;
         internalSupervisorName = employee.SupervisorName;
+        internalSupervisorEmployeeId = employee.SupervisorEmployeeId;
         internalLeaveApproverName = employee.LeaveApproverName;
+        internalLeaveApproverEmployeeId = employee.LeaveApproverEmployeeId;
         internalFunctionalSupervisorName = employee.FunctionalSupervisorName;
         internalBuddyName = employee.BuddyName;
         internalEmploymentType = employee.EmploymentType;
@@ -752,7 +797,9 @@
                 employee.Position = internalPosition.Trim();
                 employee.JobCode = internalJobCode.Trim();
                 employee.SupervisorName = internalSupervisorName.Trim();
+                employee.SupervisorEmployeeId = internalSupervisorEmployeeId.Trim();
                 employee.LeaveApproverName = internalLeaveApproverName.Trim();
+                employee.LeaveApproverEmployeeId = internalLeaveApproverEmployeeId.Trim();
                 employee.FunctionalSupervisorName = internalFunctionalSupervisorName.Trim();
                 employee.BuddyName = internalBuddyName.Trim();
                 employee.EmploymentType = internalEmploymentType.Trim();
@@ -832,7 +879,10 @@
                 AddOptionalChange(changes, "personal.gender", "เพศ", personalGender);
                 AddChange(changes, "personal.religion", "ศาสนา", employee.Religion, personalReligion);
                 AddChange(changes, "personal.bloodType", "หมู่เลือด", employee.BloodType, personalBloodType);
-                AddChange(changes, "personal.residenceProvince", "จังหวัดที่พักอาศัย", employee.ResidenceProvince, personalResidenceProvince);
+                AddChange(changes, "personal.residenceProvince", "จังหวัด", employee.ResidenceProvince, personalResidenceProvince);
+                AddChange(changes, "personal.residenceDistrict", "อำเภอ / เขต", employee.ResidenceDistrict, personalResidenceDistrict);
+                AddChange(changes, "personal.residenceSubdistrict", "ตำบล / แขวง", employee.ResidenceSubdistrict, personalResidenceSubdistrict);
+                AddChange(changes, "personal.residencePostalCode", "รหัสไปรษณีย์", employee.ResidencePostalCode, personalResidencePostalCode);
                 AddChange(changes, "personal.idCardAddress", "ที่อยู่ตามบัตรประชาชน", employee.IdCardAddress, personalIdCardAddress);
                 AddChange(changes, "personal.houseRegistrationAddress", "ที่อยู่ตามทะเบียนบ้าน", employee.HouseRegistrationAddress, personalHouseRegistrationAddress);
                 AddChange(changes, "nickname", "ชื่อเล่น", employee.Nickname, proposedNickname);
@@ -854,7 +904,9 @@
                 AddChange(changes, "internal.position", "ตำแหน่ง", employee.Position, internalPosition);
                 AddChange(changes, "internal.jobCode", "รหัสตำแหน่ง", employee.JobCode, internalJobCode);
                 AddChange(changes, "internal.supervisor", "หัวหน้างาน", employee.SupervisorName, internalSupervisorName);
+                AddChange(changes, "internal.supervisorEmployeeId", "รหัสหัวหน้างาน", employee.SupervisorEmployeeId, internalSupervisorEmployeeId);
                 AddChange(changes, "internal.leaveApprover", "Reporting To (Leave Approve)", employee.LeaveApproverName, internalLeaveApproverName);
+                AddChange(changes, "internal.leaveApproverEmployeeId", "รหัสผู้อนุมัติลา", employee.LeaveApproverEmployeeId, internalLeaveApproverEmployeeId);
                 AddChange(changes, "internal.functionalSupervisor", "หัวหน้างาน (Functional Boss)", employee.FunctionalSupervisorName, internalFunctionalSupervisorName);
                 AddChange(changes, "internal.buddy", "Buddy", employee.BuddyName, internalBuddyName);
                 AddChange(changes, "internal.employmentType", "ประเภทการจ้าง", employee.EmploymentType, internalEmploymentType);
@@ -934,6 +986,77 @@
             isSubmittingEdit = false;
         }
     }
+
+    private void SelectInternalSupervisor(string employeeCode)
+    {
+        internalSupervisorEmployeeId = employeeCode;
+        internalSupervisorName = SelectedEmployeeName(employeeCode);
+    }
+
+    private void SelectInternalLeaveApprover(string employeeCode)
+    {
+        internalLeaveApproverEmployeeId = employeeCode;
+        internalLeaveApproverName = SelectedEmployeeName(employeeCode);
+    }
+
+    private string SelectedEmployeeName(string employeeCode) => employeeOptions
+        .FirstOrDefault(item => string.Equals(
+            item.EmployeeCode, employeeCode, StringComparison.OrdinalIgnoreCase))?.FullName ?? string.Empty;
+
+    private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) => masterItems
+        .Where(item => item.IsActive && string.Equals(item.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.DisplayOrder)
+        .ThenBy(item => item.NameTh);
+
+    private IEnumerable<MasterDataItemDto> PersonalResidenceDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", personalResidenceProvince);
+    private IEnumerable<MasterDataItemDto> PersonalResidenceSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", personalResidenceDistrict, PersonalResidenceDistrictOptions);
+    private IEnumerable<MasterDataItemDto> PersonalResidencePostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", personalResidenceSubdistrict, PersonalResidenceSubdistrictOptions);
+
+    private IEnumerable<MasterDataItemDto> ChildAddressOptions(
+        string childCategory, string parentCategory, string parentName,
+        IEnumerable<MasterDataItemDto>? parents = null)
+    {
+        var parent = (parents ?? MasterOptions(parentCategory)).FirstOrDefault(item =>
+            string.Equals(item.NameTh, parentName, StringComparison.OrdinalIgnoreCase));
+        return parent is null ? [] : MasterOptions(childCategory).Where(item => item.ParentItemId == parent.Id);
+    }
+
+    private void PersonalResidenceProvinceChanged()
+    {
+        personalResidenceDistrict = string.Empty;
+        personalResidenceSubdistrict = string.Empty;
+        personalResidencePostalCode = string.Empty;
+    }
+
+    private void PersonalResidenceDistrictChanged()
+    {
+        personalResidenceSubdistrict = string.Empty;
+        personalResidencePostalCode = string.Empty;
+    }
+
+    private void PersonalResidenceSubdistrictChanged()
+    {
+        var postalCodes = PersonalResidencePostalCodeOptions.ToList();
+        personalResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+    }
+
+    private void ResolveLegacyManagerIds()
+    {
+        if (employee is null) return;
+        if (string.IsNullOrWhiteSpace(employee.SupervisorEmployeeId))
+            employee.SupervisorEmployeeId = FindEmployeeCode(employee.SupervisorName);
+        if (string.IsNullOrWhiteSpace(employee.LeaveApproverEmployeeId))
+            employee.LeaveApproverEmployeeId = FindEmployeeCode(employee.LeaveApproverName);
+    }
+
+    private string FindEmployeeCode(string name) => employeeOptions.FirstOrDefault(item =>
+        string.Equals(item.EmployeeCode, name, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(item.FullName, name, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(item.ThaiFullName, name, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(item.EnglishFullName, name, StringComparison.OrdinalIgnoreCase))?.EmployeeCode ?? string.Empty;
 
     private static void AddChange(
         ICollection<EmployeeFieldChangeDto> changes,
@@ -1029,8 +1152,9 @@
     private static string BooleanText(bool? value) =>
         value?.ToString() ?? string.Empty;
 
-    private static bool CanRequestEdit(string tab) =>
-        tab is "personal" or "internal" or "work" or "education" or "training" or "family";
+    private bool CanRequestEdit(string tab) =>
+        (tab is "personal" or "internal" or "work" or "education" or "training" or "family") &&
+        (IsOwnEmployee || allowedActions.Contains("REQUEST_EDIT"));
 
     private static string TabLabel(string tab) =>
         Tabs.FirstOrDefault(item => item.Key == tab).Label ?? "ข้อมูลพนักงาน";

@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using HrProject.Shared.Models;
 using HrProject.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -7,6 +9,7 @@ namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/leave-quota-requests")]
+[Authorize(Policy = "HrApiScope")]
 public sealed class LeaveQuotaRequestsController(
     NpgsqlDataSource dataSource,
     PageActionPermissionService actionPermissionService) : ControllerBase
@@ -69,6 +72,14 @@ public sealed class LeaveQuotaRequestsController(
         {
             return BadRequest("กรุณากรอกข้อมูลคำขอเพิ่มโควต้าให้ครบถ้วน");
         }
+
+        var actorEmployeeId = await GetActorEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actorEmployeeId))
+            return Forbid();
+        if (!string.Equals(actorEmployeeId, request.RequestedBy, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+        if (!await AreDirectReports(actorEmployeeId, [request.EmployeeId.Trim()], cancellationToken))
+            return BadRequest("เลือกขอวันลาเพิ่มได้เฉพาะพนักงานที่มี Boss หรือ Reporting To (Leave Approve) เป็นคุณ");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -165,6 +176,19 @@ public sealed class LeaveQuotaRequestsController(
             string.IsNullOrWhiteSpace(request.RequestedByName))
         {
             return BadRequest("กรุณาเลือกพนักงานและกรอกข้อมูลคำขอให้ครบถ้วน");
+        }
+
+        var actorEmployeeId = await GetActorEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actorEmployeeId))
+            return Forbid();
+        if (!string.Equals(actorEmployeeId, request.RequestedBy, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+        if (!await AreDirectReports(
+                actorEmployeeId,
+                employeeRequests.Select(item => item.EmployeeId).ToArray(),
+                cancellationToken))
+        {
+            return BadRequest("เลือกขอวันลาเพิ่มได้เฉพาะพนักงานที่มี Boss หรือ Reporting To (Leave Approve) เป็นคุณ");
         }
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -427,6 +451,85 @@ public sealed class LeaveQuotaRequestsController(
 
         await transaction.CommitAsync(cancellationToken);
         return NoContent();
+    }
+
+    private async Task<string?> GetActorEmployeeId(CancellationToken cancellationToken)
+    {
+        var localEmployeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(localEmployeeId))
+            return localEmployeeId.Trim();
+
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))
+            return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id AND entra_object_id = @object_id
+              AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
+
+    private async Task<bool> AreDirectReports(
+        string managerEmployeeId,
+        IReadOnlyCollection<string> employeeIds,
+        CancellationToken cancellationToken)
+    {
+        if (employeeIds.Count == 0)
+            return false;
+
+        const string sql = """
+            WITH manager AS
+            (
+                SELECT e.id, e.employee_code,
+                       ARRAY_REMOVE(ARRAY[
+                           NULLIF(REGEXP_REPLACE(UPPER(BTRIM(COALESCE(b.full_name_th, ''))), '\s+', ' ', 'g'), ''),
+                           NULLIF(REGEXP_REPLACE(UPPER(BTRIM(COALESCE(b.full_name_en, ''))), '\s+', ' ', 'g'), ''),
+                           NULLIF(REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', b.first_name_th, b.last_name_th))), '\s+', ' ', 'g'), ''),
+                           NULLIF(REGEXP_REPLACE(UPPER(BTRIM(CONCAT_WS(' ', b.first_name_en, b.last_name_en))), '\s+', ' ', 'g'), '')
+                       ], NULL) AS names
+                FROM public.employees e
+                JOIN public.employee_basic_info b ON b.employee_id = e.id
+                WHERE UPPER(BTRIM(e.employee_code)) = UPPER(BTRIM(@manager_employee_id))
+                  AND e.is_active = TRUE
+                LIMIT 1
+            ), requested AS
+            (
+                SELECT DISTINCT BTRIM(value) AS employee_code
+                FROM UNNEST(@employee_ids::text[]) AS value
+                WHERE BTRIM(value) <> ''
+            )
+            SELECT COUNT(*) = 0
+            FROM requested r
+            WHERE NOT EXISTS
+            (
+                SELECT 1
+                FROM public.employees e
+                JOIN public.employee_company_info c ON c.employee_id = e.id
+                CROSS JOIN manager m
+                WHERE e.is_active = TRUE
+                  AND UPPER(BTRIM(e.employee_code)) = UPPER(r.employee_code)
+                  AND e.id <> m.id
+                  AND
+                  (
+                      UPPER(BTRIM(COALESCE(c.supervisor_employee_id, ''))) = UPPER(m.employee_code)
+                      OR UPPER(BTRIM(COALESCE(c.leave_approver_employee_id, ''))) = UPPER(m.employee_code)
+                      OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
+                      OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(c.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(m.names)
+                  )
+            )
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("manager_employee_id", managerEmployeeId);
+        command.Parameters.AddWithValue("employee_ids", employeeIds.ToArray());
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     private async Task<LeaveQuotaRequestDto?> FindById(long id, CancellationToken cancellationToken)

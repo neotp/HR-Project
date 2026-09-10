@@ -5,6 +5,11 @@ namespace HrProject.Client.Services;
 
 public sealed class PageAvailabilityState(HttpClient httpClient)
 {
+    private static readonly HashSet<string> PublicPageKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "LEAVE_DOCUMENTS", "LEAVE_ALL_DOCUMENTS", "ATTENDANCE",
+        "ATTENDANCE_RECORDS", "EMPLOYEES"
+    };
     private readonly SemaphoreSlim loadLock = new(1, 1);
     private IReadOnlyList<ApplicationPageAvailabilityDto> pages = [];
     private readonly Dictionary<string, CurrentPageAccessDto> currentAccess =
@@ -30,13 +35,11 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
         {
             pages = await httpClient.GetFromJsonAsync<List<ApplicationPageAvailabilityDto>>(
                 "api/page-permissions/availability", cancellationToken) ?? [];
+            currentAccess.Clear();
             try
             {
-                var accessTasks = new[]
-                    {
-                        "LEAVE_PENDING", "LEAVE_QUOTA_MOVEMENTS", "ATTENDANCE_REVIEWS",
-                        "EMPLOYEES_RESIGNED"
-                    }
+                var accessTasks = pages.Select(page => page.PageKey)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Select(pageKey => httpClient.GetFromJsonAsync<CurrentPageAccessDto>(
                         $"api/page-permissions/current-access/{pageKey}", cancellationToken))
                     .ToArray();
@@ -49,14 +52,12 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
             }
             catch
             {
-                currentAccess["LEAVE_PENDING"] = new CurrentPageAccessDto(
-                    "LEAVE_PENDING", false, false, false);
-                currentAccess["LEAVE_QUOTA_MOVEMENTS"] = new CurrentPageAccessDto(
-                    "LEAVE_QUOTA_MOVEMENTS", false, false, false);
-                currentAccess["ATTENDANCE_REVIEWS"] = new CurrentPageAccessDto(
-                    "ATTENDANCE_REVIEWS", false, false, false);
-                currentAccess["EMPLOYEES_RESIGNED"] = new CurrentPageAccessDto(
-                    "EMPLOYEES_RESIGNED", false, false, false);
+                foreach (var page in pages)
+                {
+                    var allowed = PublicPageKeys.Contains(page.PageKey);
+                    currentAccess[page.PageKey] = new CurrentPageAccessDto(
+                        page.PageKey, allowed, allowed, false);
+                }
             }
             IsLoaded = true;
         }
@@ -73,7 +74,8 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
             string.Equals(page.PageKey, pageKey, StringComparison.OrdinalIgnoreCase))?.IsEnabled != false;
 
     public bool HasAccess(string pageKey) =>
-        !IsLoaded || !currentAccess.TryGetValue(pageKey, out var access) || access.CanAccess;
+        !IsLoaded ? PublicPageKeys.Contains(pageKey) :
+        currentAccess.TryGetValue(pageKey, out var access) && access.CanAccess;
 
     public void UseOpenFallback()
     {
@@ -111,7 +113,8 @@ public sealed class PageAvailabilityState(HttpClient httpClient)
         if (configuredRoute == "/")
             return currentPath == "/";
 
-        return string.Equals(configuredRoute, currentPath, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(configuredRoute, currentPath, StringComparison.OrdinalIgnoreCase) ||
+               currentPath.StartsWith(configuredRoute + "/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePath(string path)

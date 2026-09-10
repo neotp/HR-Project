@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.Authentication.WebAssembly.Msal.Models;
 using HrProject.Client;
 using HrProject.Client.Services;
 
@@ -18,16 +20,23 @@ builder.Services.AddSingleton<LoadingState>();
 builder.Services.AddTransient<LoadingHttpMessageHandler>();
 builder.Services.AddSingleton<NavPendingRefreshState>();
 builder.Services.AddTransient<NavPendingRefreshHttpMessageHandler>();
+// HttpClientFactory constructs handlers in independent DI scopes. The local
+// session must be shared or foreground/background clients can race while
+// rotating the same refresh token and intermittently send requests without a
+// bearer token.
+builder.Services.AddSingleton<LocalAuthSession>();
+builder.Services.AddTransient<LocalOrMicrosoftAuthorizationMessageHandler>();
+
+builder.Services.AddHttpClient("HrApiAnonymous", client =>
+{
+    client.BaseAddress = new Uri($"{apiOrigin.TrimEnd('/')}/");
+});
 
 builder.Services.AddHttpClient("HrApi", client =>
 {
     client.BaseAddress = new Uri($"{apiOrigin.TrimEnd('/')}/");
 })
-.AddHttpMessageHandler(provider =>
-    provider.GetRequiredService<AuthorizationMessageHandler>()
-        .ConfigureHandler(
-            authorizedUrls: [apiOrigin.TrimEnd('/')],
-            scopes: [apiScope]))
+.AddHttpMessageHandler<LocalOrMicrosoftAuthorizationMessageHandler>()
 .AddHttpMessageHandler<NavPendingRefreshHttpMessageHandler>()
 .AddHttpMessageHandler<LoadingHttpMessageHandler>();
 
@@ -36,11 +45,7 @@ builder.Services.AddHttpClient("HrApiBackground", client =>
 {
     client.BaseAddress = new Uri($"{apiOrigin.TrimEnd('/')}/");
 })
-.AddHttpMessageHandler(provider =>
-    provider.GetRequiredService<AuthorizationMessageHandler>()
-        .ConfigureHandler(
-            authorizedUrls: [apiOrigin.TrimEnd('/')],
-            scopes: [apiScope]));
+.AddHttpMessageHandler<LocalOrMicrosoftAuthorizationMessageHandler>();
 
 builder.Services.AddScoped(provider =>
     provider.GetRequiredService<IHttpClientFactory>().CreateClient("HrApi"));
@@ -55,5 +60,14 @@ builder.Services.AddMsalAuthentication(options =>
         builder.HostEnvironment.BaseAddress.TrimEnd('/') +
         "/authentication/logout-callback";
 });
+
+// Keep Microsoft authentication available while allowing a local session to
+// become the active Blazor authentication state for /local-login users.
+builder.Services.AddScoped<RemoteAuthenticationService<RemoteAuthenticationState, RemoteUserAccount, MsalProviderOptions>>();
+builder.Services.AddScoped<IAccessTokenProvider>(provider =>
+    provider.GetRequiredService<RemoteAuthenticationService<RemoteAuthenticationState, RemoteUserAccount, MsalProviderOptions>>());
+builder.Services.AddScoped<IRemoteAuthenticationService<RemoteAuthenticationState>>(provider =>
+    provider.GetRequiredService<RemoteAuthenticationService<RemoteAuthenticationState, RemoteUserAccount, MsalProviderOptions>>());
+builder.Services.AddScoped<AuthenticationStateProvider, CompositeAuthenticationStateProvider>();
 
 await builder.Build().RunAsync();

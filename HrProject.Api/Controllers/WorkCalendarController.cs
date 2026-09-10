@@ -1,12 +1,17 @@
 using HrProject.Shared.Models;
+using HrProject.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using System.Security.Claims;
 
 namespace HrProject.Api.Controllers;
 
 [ApiController]
 [Route("api/work-calendar")]
-public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : ControllerBase
+public sealed class WorkCalendarController(
+    NpgsqlDataSource dataSource,
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     private static readonly string[] ValidDayTypes = ["PUBLIC_HOLIDAY", "WORKING_SATURDAY"];
 
@@ -38,6 +43,8 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
         SaveWorkCalendarDayRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await GetAuthorizedEditor(cancellationToken);
+        if (actor is null || !string.Equals(actor, request.ActionBy, StringComparison.OrdinalIgnoreCase)) return Forbid();
         var dayType = request.DayType.Trim().ToUpperInvariant();
         var validationError = Validate(
             request.CalendarDate,
@@ -90,6 +97,8 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
         SaveWorkCalendarDayRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await GetAuthorizedEditor(cancellationToken);
+        if (actor is null || !string.Equals(actor, request.ActionBy, StringComparison.OrdinalIgnoreCase)) return Forbid();
         var dayType = request.DayType.Trim().ToUpperInvariant();
         var validationError = Validate(
             request.CalendarDate,
@@ -158,6 +167,8 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
         SaveWorkCalendarDaysBatchRequest request,
         CancellationToken cancellationToken)
     {
+        var actor = await GetAuthorizedEditor(cancellationToken);
+        if (actor is null || !string.Equals(actor, request.ActionBy, StringComparison.OrdinalIgnoreCase)) return Forbid();
         var dayType = request.DayType.Trim().ToUpperInvariant();
         if (request.Items.Count == 0)
             return BadRequest("กรุณาเลือกอย่างน้อย 1 วัน");
@@ -218,6 +229,7 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
     {
+        if (await GetAuthorizedEditor(cancellationToken) is null) return Forbid();
         const string sql = "DELETE FROM public.work_calendar_days WHERE id = @id";
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("id", id);
@@ -269,4 +281,35 @@ public sealed class WorkCalendarController(NpgsqlDataSource dataSource) : Contro
         reader.GetString(5),
         reader.GetString(6),
         reader.GetFieldValue<DateTimeOffset>(7));
+
+    private async Task<string?> GetAuthorizedEditor(CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(employeeId) ||
+            !await pageAccessService.HasAccess(employeeId, "WORK_CALENDAR", cancellationToken) ||
+            !await actionPermissionService.HasPermission(employeeId, "WORK_CALENDAR", "MANAGE", cancellationToken))
+            return null;
+        return employeeId;
+    }
+
+    private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
+    {
+        var employeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(employeeId)) return employeeId;
+
+        var tenantId = User.FindFirstValue("tid");
+        var objectId = User.FindFirstValue("oid");
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
+
+        const string sql = """
+            SELECT employee_id
+            FROM public.microsoft_accounts
+            WHERE tenant_id = @tenant_id AND entra_object_id = @object_id AND is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("object_id", objectId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
 }

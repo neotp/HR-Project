@@ -11,7 +11,8 @@ namespace HrProject.Api.Controllers;
 [Route("api/work-calendar-templates")]
 public sealed class WorkCalendarTemplatesController(
     NpgsqlDataSource dataSource,
-    PageAccessService pageAccessService) : ControllerBase
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService) : ControllerBase
 {
     private static readonly HashSet<string> ValidTypes =
         new(StringComparer.OrdinalIgnoreCase) { "PUBLIC_HOLIDAY", "WORKING_SATURDAY" };
@@ -91,7 +92,7 @@ public sealed class WorkCalendarTemplatesController(
         typeCommand.Parameters.AddWithValue("id", id);
         var templateType = (string?)await typeCommand.ExecuteScalarAsync(cancellationToken);
         if (templateType is null) return NotFound();
-        if (!await pageAccessService.HasAccess(actor.Value.EmployeeId, "WORK_CALENDAR", cancellationToken))
+        if (!await CanManage(actor.Value.EmployeeId, cancellationToken))
             return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์จัดการ Template เอกสาร");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -143,10 +144,14 @@ public sealed class WorkCalendarTemplatesController(
         if (!ValidTypes.Contains(templateType)) return BadRequest("ประเภท Template ไม่ถูกต้อง");
         var actor = await GetAuthenticatedEmployee(token);
         if (actor is null) return Unauthorized();
-        return await pageAccessService.HasAccess(actor.Value.EmployeeId, "WORK_CALENDAR", token)
+        return await CanManage(actor.Value.EmployeeId, token)
             ? null
             : StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์จัดการ Template เอกสาร");
     }
+
+    private async Task<bool> CanManage(string employeeId, CancellationToken token) =>
+        await pageAccessService.HasAccess(employeeId, "WORK_CALENDAR", token) &&
+        await actionPermissionService.HasPermission(employeeId, "WORK_CALENDAR", "MANAGE", token);
 
     private static string? ValidateSettings(string name, WorkCalendarTemplateSettings settings)
     {
@@ -171,6 +176,10 @@ public sealed class WorkCalendarTemplatesController(
 
     private async Task<(string EmployeeId, string Name)?> GetAuthenticatedEmployee(CancellationToken token)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return (directEmployeeId, User.FindFirst("name")?.Value ?? directEmployeeId);
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;

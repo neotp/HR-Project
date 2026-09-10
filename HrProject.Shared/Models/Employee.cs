@@ -19,7 +19,9 @@ public sealed class Employee
     public string Division { get; set; } = string.Empty;
     public string Section { get; set; } = string.Empty;
     public string SupervisorName { get; set; } = string.Empty;
+    public string SupervisorEmployeeId { get; set; } = string.Empty;
     public string LeaveApproverName { get; set; } = string.Empty;
+    public string LeaveApproverEmployeeId { get; set; } = string.Empty;
     public string EmploymentType { get; set; } = string.Empty;
     public string WorkLocation { get; set; } = string.Empty;
     public string EmployeeStatus { get; set; } = string.Empty;
@@ -32,6 +34,9 @@ public sealed class Employee
     public string IdCardAddress { get; set; } = string.Empty;
     public string HouseRegistrationAddress { get; set; } = string.Empty;
     public string ResidenceProvince { get; set; } = string.Empty;
+    public string ResidenceDistrict { get; set; } = string.Empty;
+    public string ResidenceSubdistrict { get; set; } = string.Empty;
+    public string ResidencePostalCode { get; set; } = string.Empty;
     public string EmergencyContactName { get; set; } = string.Empty;
     public string EmergencyContactPhone { get; set; } = string.Empty;
     public string EmergencyContactAddress { get; set; } = string.Empty;

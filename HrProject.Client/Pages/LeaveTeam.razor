@@ -41,7 +41,7 @@
             else
             {
                 <div class="form-grid">
-                    <label class="full-width">เลือกลูกน้อง<span class="required">*</span>
+                    <label class="full-width"><span class="field-label">เลือกลูกน้อง<span class="required">*</span></span>
                         <div class="recipient-combobox">
                             <input type="text"
                                    value="@recipientSearchText"
@@ -104,7 +104,7 @@
                         </div>
                     }
 
-                    <label class="full-width">ประเภทการลา<span class="required">*</span>
+                    <label class="full-width"><span class="field-label">ประเภทการลา<span class="required">*</span></span>
                         <select @bind="leaveTypeId">
                             <option value="0">-- เลือกประเภทการลา --</option>
                             @foreach (var leaveType in leaveTypes)
@@ -113,7 +113,7 @@
                             }
                         </select>
                     </label>
-                    <label class="full-width">วันที่ขอลา<span class="required">*</span>
+                    <label class="full-width"><span class="field-label">วันที่ขอลา<span class="required">*</span></span>
                         <input value="@leaveDate.ToString("dd/MM/yyyy")" disabled />
                         <small>กำหนดเป็นวันที่บันทึกรายการและไม่สามารถแก้ไขได้</small>
                     </label>

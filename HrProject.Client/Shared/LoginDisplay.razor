@@ -1,10 +1,12 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject HttpClient Http
+@inject LocalAuthSession LocalSession
 
 <AuthorizeView>
     <Authorized>
-        <div class="signed-in-user">
+        <div class="signed-in-user @(isLocal ? "local-account-link" : null)" role="@(isLocal ? "button" : null)"
+             tabindex="@(isLocal ? "0" : null)" title="@(isLocal ? "เปิดการตั้งค่าบัญชี" : null)" @onclick="OpenAccountSecurity">
             <span class="user-avatar">@UserInitial</span>
             <div>
                 <strong>@DisplayName</strong>
@@ -23,6 +25,7 @@
 @code {
     private CurrentMicrosoftUserDto? currentUser;
     private string claimName = "Microsoft User";
+    private bool isLocal;
 
     private string DisplayName => currentUser?.EmployeeName ?? claimName;
     private string EmployeeLabel => currentUser is null
@@ -39,6 +42,7 @@
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         if (state.User.Identity?.IsAuthenticated != true)
             return;
+        isLocal = state.User.HasClaim("auth_source", "LOCAL");
 
         claimName = state.User.FindFirst("name")?.Value
             ?? state.User.FindFirst("preferred_username")?.Value
@@ -54,6 +58,21 @@
         }
     }
 
-    private void Logout() =>
+    private void OpenAccountSecurity()
+    {
+        if (isLocal) Navigation.NavigateTo("/account/security");
+    }
+
+    private async Task Logout()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.HasClaim("auth_source", "LOCAL"))
+        {
+            await LocalSession.LogoutAsync();
+            Navigation.NavigateTo("/local-login", replace: true);
+            return;
+        }
+
         Navigation.NavigateToLogout("authentication/logout");
+    }
 }

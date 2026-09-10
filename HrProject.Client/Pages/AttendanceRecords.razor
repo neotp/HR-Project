@@ -96,7 +96,7 @@
                 }
                 else
                 {
-                    <label class="response-field">ข้อโต้แย้ง <span class="required">*</span><textarea maxlength="4000" rows="5" @bind="responseText" placeholder="กรอกรายละเอียดหรือเหตุผลที่ต้องการโต้แย้ง"></textarea></label>
+                    <label class="response-field"><span class="field-label">ข้อโต้แย้ง <span class="required">*</span></span><textarea maxlength="4000" rows="5" @bind="responseText" placeholder="กรอกรายละเอียดหรือเหตุผลที่ต้องการโต้แย้ง"></textarea></label>
                     <div class="response-field"><span>เอกสารแนบ</span><div class="attachment-picker"><InputFile class="attachment-input" @key="attachmentInputVersion" OnChange="SelectResponseAttachments" multiple accept=".pdf,.jpg,.jpeg,.png" /></div>
                         <small class="attachment-help">แนบได้หลายไฟล์ สูงสุด 10 ไฟล์ และแต่ละไฟล์ต้องไม่เกิน 10 MB (PDF, JPG หรือ PNG)</small>
                         @if (responseAttachments.Count > 0) { <div class="selected-attachments">@foreach (var attachment in responseAttachments) { <span title="@attachment.FileName">@attachment.FileName <button type="button" aria-label="ลบไฟล์" @onclick="() => RemoveAttachment(attachment)">×</button></span> }</div> }

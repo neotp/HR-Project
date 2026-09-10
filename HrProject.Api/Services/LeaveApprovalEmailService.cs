@@ -51,7 +51,9 @@ public sealed class LeaveApprovalEmailService(
             (
                 SELECT NULLIF(BTRIM(b.email_address), '') AS sender_email,
                        c.supervisor_name,
-                       c.leave_approver_name
+                       c.leave_approver_name,
+                       c.supervisor_employee_id,
+                       c.leave_approver_employee_id
                 FROM public.employees e
                 JOIN public.employee_basic_info b ON b.employee_id = e.id
                 JOIN public.employee_company_info c ON c.employee_id = e.id
@@ -75,7 +77,9 @@ public sealed class LeaveApprovalEmailService(
             SELECT r.sender_email, d.email_address
             FROM requester r
             LEFT JOIN manager_directory d
-              ON REGEXP_REPLACE(UPPER(BTRIM(COALESCE(r.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(d.names)
+              ON UPPER(BTRIM(COALESCE(r.supervisor_employee_id, ''))) = UPPER(d.employee_code)
+              OR UPPER(BTRIM(COALESCE(r.leave_approver_employee_id, ''))) = UPPER(d.employee_code)
+              OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(r.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(d.names)
               OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(r.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(d.names)
               OR UPPER(BTRIM(COALESCE(r.supervisor_name, ''))) = UPPER(d.employee_code)
               OR UPPER(BTRIM(COALESCE(r.leave_approver_name, ''))) = UPPER(d.employee_code)

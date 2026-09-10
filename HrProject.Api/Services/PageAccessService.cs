@@ -41,7 +41,12 @@ public sealed class PageAccessService(NpgsqlDataSource dataSource)
                         AND role_permission.can_access = TRUE
                        WHERE member.employee_id = @employee_id
                    ) AS explicit_access,
-                   CASE WHEN page.page_key = 'LEAVE_PENDING' THEN EXISTS
+                   CASE
+                   WHEN page.page_key IN
+                        ('LEAVE_DOCUMENTS', 'LEAVE_ALL_DOCUMENTS', 'ATTENDANCE',
+                         'ATTENDANCE_RECORDS', 'EMPLOYEES') THEN TRUE
+                   WHEN page.page_key IN
+                        ('LEAVE_PENDING', 'LEAVE_TEAM', 'LEAVE_REQUEST_QUOTA') THEN EXISTS
                    (
                        SELECT 1
                        FROM public.employees subordinate
@@ -52,7 +57,9 @@ public sealed class PageAccessService(NpgsqlDataSource dataSource)
                          AND subordinate.id <> actor.id
                          AND
                          (
-                             REGEXP_REPLACE(UPPER(BTRIM(COALESCE(company.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(actor.names)
+                             UPPER(BTRIM(COALESCE(company.supervisor_employee_id, ''))) = UPPER(actor.employee_code)
+                             OR UPPER(BTRIM(COALESCE(company.leave_approver_employee_id, ''))) = UPPER(actor.employee_code)
+                             OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(company.supervisor_name, ''))), '\s+', ' ', 'g') = ANY(actor.names)
                              OR REGEXP_REPLACE(UPPER(BTRIM(COALESCE(company.leave_approver_name, ''))), '\s+', ' ', 'g') = ANY(actor.names)
                              OR UPPER(BTRIM(COALESCE(company.supervisor_name, ''))) = UPPER(actor.employee_code)
                              OR UPPER(BTRIM(COALESCE(company.leave_approver_name, ''))) = UPPER(actor.employee_code)

@@ -114,19 +114,33 @@
                     else
                     {
                         <table class="table master-table">
-                            <thead><tr><th>รหัส</th>@if (IsDepartment) { <th>Business Unit</th> }<th>ชื่อภาษาไทย</th><th>ชื่อภาษาอังกฤษ</th><th>ลำดับ</th><th>สถานะ</th><th></th></tr></thead>
+                            <thead>
+                                <tr>
+                                    <th>@(IsPostalCode ? "รหัสไปรษณีย์" : "รหัส")</th>
+                                    @if (HasParentCategory) { <th>@ParentCategoryLabel</th> }
+                                    @if (!IsPostalCode)
+                                    {
+                                        <th>ชื่อภาษาไทย</th>
+                                        <th>ชื่อภาษาอังกฤษ</th>
+                                    }
+                                    <th>ลำดับ</th><th>สถานะ</th><th></th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 @if (!PagedItems.Any())
                                 {
-                                    <tr><td colspan="@(IsDepartment ? 7 : 6)" class="master-state">ไม่พบข้อมูล</td></tr>
+                                    <tr><td colspan="@MasterItemColumnCount" class="master-state">ไม่พบข้อมูล</td></tr>
                                 }
                                 @foreach (var item in PagedItems)
                                 {
                                     <tr>
                                         <td><code>@item.ItemCode</code></td>
-                                        @if (IsDepartment) { <td><strong>@item.ParentItemName</strong></td> }
-                                        <td><strong>@item.NameTh</strong></td>
-                                        <td>@(item.NameEn ?? "-")</td>
+                                        @if (HasParentCategory) { <td><strong>@item.ParentItemName</strong></td> }
+                                        @if (!IsPostalCode)
+                                        {
+                                            <td><strong>@item.NameTh</strong></td>
+                                            <td>@(item.NameEn ?? "-")</td>
+                                        }
                                         <td>@item.DisplayOrder</td>
                                         <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
                                         <td><button class="master-edit-button" type="button" @onclick="() => StartEditItem(item)">แก้ไข</button></td>
@@ -155,13 +169,16 @@
             </header>
             <div class="master-modal-body">
                 <div class="master-form-grid">
-                    <label>รหัส *
-                        <input @bind="editCode" maxlength="100" placeholder="เช่น IS"
+                    <label>@(IsPostalCode ? "รหัสไปรษณีย์" : "รหัส") *
+                        <input @bind="editCode" maxlength="@(IsPostalCode ? 5 : 100)" placeholder="@(IsPostalCode ? "เช่น 10110" : "เช่น IS")"
                                disabled="@(IsAttendanceEventType && editingId.HasValue)" />
                     </label>
-                    <label>ชื่อภาษาไทย *
-                        <input @bind="editNameTh" maxlength="250" />
-                    </label>
+                    @if (!IsPostalCode)
+                    {
+                        <label>ชื่อภาษาไทย *
+                            <input @bind="editNameTh" maxlength="250" />
+                        </label>
+                    }
                     @if (IsLeaveType)
                     {
                         <label>จำนวนเริ่มต้น (ชั่วโมง) *
@@ -195,21 +212,24 @@
                     }
                     else
                     {
-                        @if (IsDepartment)
+                        @if (HasParentCategory)
                         {
-                            <label>Business Unit *
+                            <label>@ParentCategoryLabel *
                                 <select @bind="editParentItemId">
-                                    <option value="">-- เลือก Business Unit --</option>
-                                    @foreach (var businessUnit in businessUnits)
+                                    <option value="">-- เลือก @ParentCategoryLabel --</option>
+                                    @foreach (var parent in ParentOptions)
                                     {
-                                        <option value="@businessUnit.Id">@businessUnit.NameTh</option>
+                                        <option value="@parent.Id">@parent.NameTh</option>
                                     }
                                 </select>
                             </label>
                         }
-                        <label>ชื่อภาษาอังกฤษ
-                            <input @bind="editNameEn" maxlength="250" />
-                        </label>
+                        @if (!IsPostalCode)
+                        {
+                            <label>ชื่อภาษาอังกฤษ
+                                <input @bind="editNameEn" maxlength="250" />
+                            </label>
+                        }
                         <label>ลำดับแสดงผล
                             <input type="number" min="0" @bind="editDisplayOrder" />
                         </label>
@@ -237,7 +257,7 @@
 @code {
     private List<MasterDataCategoryDto> categories = [];
     private List<MasterDataItemDto> items = [];
-    private List<MasterDataItemDto> businessUnits = [];
+    private List<MasterDataItemDto> allMasterItems = [];
     private List<LeaveTypeMasterDto> leaveTypes = [];
     private List<AttendanceEventTypeMasterDto> attendanceEventTypes = [];
     private MasterDataCategoryDto? selectedCategory;
@@ -265,7 +285,27 @@
 
     private bool IsLeaveType => selectedCategory?.IsLeaveType == true;
     private bool IsAttendanceEventType => selectedCategory?.IsAttendanceEventType == true;
-    private bool IsDepartment => selectedCategory?.Code == "DEPARTMENT";
+    private bool IsPostalCode => string.Equals(selectedCategory?.Code, "POSTAL_CODE", StringComparison.OrdinalIgnoreCase);
+    private int MasterItemColumnCount => (HasParentCategory ? 1 : 0) + (IsPostalCode ? 4 : 6);
+    private string? ParentCategoryCode => selectedCategory?.Code switch
+    {
+        "DEPARTMENT" => "BUSINESS_UNIT",
+        "DISTRICT" => "PROVINCE",
+        "SUBDISTRICT" => "DISTRICT",
+        "POSTAL_CODE" => "SUBDISTRICT",
+        _ => null
+    };
+    private bool HasParentCategory => ParentCategoryCode is not null;
+    private string ParentCategoryLabel => ParentCategoryCode switch
+    {
+        "BUSINESS_UNIT" => "Business Unit",
+        "PROVINCE" => "จังหวัด",
+        "DISTRICT" => "อำเภอ / เขต",
+        "SUBDISTRICT" => "ตำบล / แขวง",
+        _ => "ข้อมูลแม่"
+    };
+    private IEnumerable<MasterDataItemDto> ParentOptions => allMasterItems.Where(item =>
+        item.IsActive && string.Equals(item.CategoryCode, ParentCategoryCode, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<MasterDataItemDto> FilteredItems => items.Where(item =>
         MatchesStatus(item.IsActive) &&
         (string.IsNullOrWhiteSpace(searchText) ||
@@ -298,8 +338,8 @@
         try
         {
             categories = await Http.GetFromJsonAsync<List<MasterDataCategoryDto>>("api/system-master-data/categories") ?? [];
-            businessUnits = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
-                "api/system-master-data/items?category=BUSINESS_UNIT&includeInactive=false") ?? [];
+            allMasterItems = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+                "api/system-master-data/items/all") ?? [];
             selectedCategory = categories.FirstOrDefault();
             await LoadData();
         }
@@ -404,9 +444,15 @@
 
     private async Task Save()
     {
-        if (selectedCategory is null || string.IsNullOrWhiteSpace(editCode) || string.IsNullOrWhiteSpace(editNameTh))
+        if (selectedCategory is null || string.IsNullOrWhiteSpace(editCode) || (!IsPostalCode && string.IsNullOrWhiteSpace(editNameTh)))
         {
-            saveError = "กรุณากรอกรหัสและชื่อให้ครบถ้วน";
+            saveError = IsPostalCode ? "กรุณากรอกรหัสไปรษณีย์" : "กรุณากรอกรหัสและชื่อให้ครบถ้วน";
+            return;
+        }
+
+        if (IsPostalCode && (editCode.Length != 5 || !editCode.All(char.IsDigit)))
+        {
+            saveError = "รหัสไปรษณีย์ต้องเป็นตัวเลข 5 หลัก";
             return;
         }
         isSaving = true;
@@ -437,17 +483,19 @@
             else
             {
                 long? parentItemId = null;
-                if (IsDepartment)
+                if (HasParentCategory)
                 {
                     if (!long.TryParse(editParentItemId, out var parsedParentId))
                     {
-                        saveError = "กรุณาเลือก Business Unit ของแผนก";
+                        saveError = $"กรุณาเลือก {ParentCategoryLabel}";
                         return;
                     }
                     parentItemId = parsedParentId;
                 }
+                var storedNameTh = IsPostalCode ? editCode.Trim() : editNameTh;
+                var storedNameEn = IsPostalCode ? editCode.Trim() : editNameEn;
                 var request = new SaveMasterDataItemRequest(
-                    selectedCategory.Code, editCode, editNameTh, editNameEn,
+                    selectedCategory.Code, editCode, storedNameTh, storedNameEn,
                     editDisplayOrder, editIsActive, parentItemId);
                 response = editingId.HasValue
                     ? await Http.PutAsJsonAsync($"api/system-master-data/items/{editingId.Value}", request)

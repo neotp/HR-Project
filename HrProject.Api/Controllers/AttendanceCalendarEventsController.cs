@@ -286,6 +286,10 @@ public sealed class AttendanceCalendarEventsController(
 
     private async Task<(string EmployeeId, string Name)?> GetAuthenticatedEmployee(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirst("employee_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return (directEmployeeId, User.FindFirst("name")?.Value ?? directEmployeeId);
+
         var tenantId = User.FindFirst("tid")?.Value;
         var objectId = User.FindFirst("oid")?.Value;
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;

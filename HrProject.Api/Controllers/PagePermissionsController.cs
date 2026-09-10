@@ -20,6 +20,7 @@ public sealed class PagePermissionsController(
     {
         if (string.IsNullOrWhiteSpace(employeeId))
             return BadRequest("กรุณาระบุพนักงาน");
+        if (!await HasPermissionsPageAccess(cancellationToken)) return Forbid();
 
         return Ok(await LoadPermissions(employeeId.Trim(), cancellationToken));
     }
@@ -30,6 +31,7 @@ public sealed class PagePermissionsController(
         SaveEmployeePagePermissionsRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACCESS", cancellationToken)) return Forbid();
         var permissions = request.Permissions?
             .GroupBy(item => item.PageId)
             .Select(group => group.Last())
@@ -90,6 +92,7 @@ public sealed class PagePermissionsController(
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(employeeId)) return BadRequest("กรุณาระบุพนักงาน");
+        if (!await HasPermissionsPageAccess(cancellationToken)) return Forbid();
         return Ok(await LoadActionPermissions(employeeId.Trim(), cancellationToken));
     }
 
@@ -101,6 +104,10 @@ public sealed class PagePermissionsController(
     {
         if (string.IsNullOrWhiteSpace(employeeId) || string.IsNullOrWhiteSpace(pageKey))
             return BadRequest("กรุณาระบุพนักงานและหน้าระบบ");
+        var actor = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actor) ||
+            !string.Equals(actor, employeeId.Trim(), StringComparison.OrdinalIgnoreCase))
+            return Forbid();
         var actions = await actionPermissionService.GetAllowedActions(
             employeeId.Trim(), pageKey.Trim().ToUpperInvariant(), cancellationToken);
         return Ok(new CurrentPageActionPermissionsDto(pageKey.Trim().ToUpperInvariant(), actions));
@@ -136,6 +143,7 @@ public sealed class PagePermissionsController(
         SaveApplicationPageAvailabilityRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACCESS", cancellationToken)) return Forbid();
         var pages = request.Pages?
             .GroupBy(item => item.PageId)
             .Select(group => group.Last())
@@ -191,6 +199,7 @@ public sealed class PagePermissionsController(
         SaveEmployeePageActionPermissionsRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManagePermissions("MANAGE_PAGE_ACTIONS", cancellationToken)) return Forbid();
         var permissions = request.Permissions?
             .GroupBy(item => item.ActionId)
             .Select(group => group.Last())
@@ -333,6 +342,10 @@ public sealed class PagePermissionsController(
 
     private async Task<string?> ResolveAuthenticatedEmployeeId(CancellationToken cancellationToken)
     {
+        var directEmployeeId = User.FindFirstValue("employee_id");
+        if (!string.IsNullOrWhiteSpace(directEmployeeId))
+            return directEmployeeId;
+
         var tenantId = User.FindFirstValue("tid");
         var objectId = User.FindFirstValue("oid");
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))
@@ -350,5 +363,20 @@ public sealed class PagePermissionsController(
         command.Parameters.AddWithValue("tenant_id", tenantId);
         command.Parameters.AddWithValue("object_id", objectId);
         return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
+
+    private async Task<bool> CanManagePermissions(string actionKey, CancellationToken token)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(token);
+        return !string.IsNullOrWhiteSpace(employeeId) &&
+               await pageAccessService.HasAccess(employeeId, "PERMISSIONS", token) &&
+               await actionPermissionService.HasPermission(employeeId, "PERMISSIONS", actionKey, token);
+    }
+
+    private async Task<bool> HasPermissionsPageAccess(CancellationToken token)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(token);
+        return !string.IsNullOrWhiteSpace(employeeId) &&
+               await pageAccessService.HasAccess(employeeId, "PERMISSIONS", token);
     }
 }

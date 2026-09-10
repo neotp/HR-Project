@@ -43,6 +43,7 @@
     [Parameter] public string Value { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string ExcludeEmployeeCode { get; set; } = string.Empty;
     [Parameter] public string Placeholder { get; set; } = "พิมพ์ชื่อ รหัส หรืออีเมลพนักงาน";
 
     private string searchText = string.Empty;
@@ -55,9 +56,13 @@
         {
             var term = searchText.Trim();
             return Items
+                .Where(employee => !string.Equals(
+                    employee.EmployeeCode, ExcludeEmployeeCode, StringComparison.OrdinalIgnoreCase))
                 .Where(employee => term.Length == 0 ||
                     employee.EmployeeCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     employee.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    employee.ThaiFullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    employee.EnglishFullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     employee.Email.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     employee.LotusNotesEmail.Contains(term, StringComparison.OrdinalIgnoreCase))
                 .Take(50);
@@ -103,7 +108,7 @@
 
     private static string EmployeeDetails(Employee employee)
     {
-        var details = new[] { employee.Department, employee.Email }
+        var details = new[] { employee.EnglishFullName, employee.Department, employee.Email }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         var text = string.Join(" · ", details);
         return text.Length == 0 ? string.Empty : $" · {text}";
