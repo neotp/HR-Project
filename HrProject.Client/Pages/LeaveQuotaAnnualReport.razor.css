@@ -1,0 +1,36 @@
+.annual-quota-page { display: flex; flex-direction: column; gap: 1.2rem; }
+.annual-export-button { min-height: 2.65rem; padding: .65rem 1.15rem; color: #fff; border: 0; border-radius: .5rem; background: #ff6b35; font-weight: 800; }
+.annual-export-button:disabled { opacity: .5; cursor: not-allowed; }
+.annual-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1rem; }
+.annual-summary-grid article { padding: 1rem 1.15rem; border: 1px solid #dbe3ef; border-left: 4px solid #2563eb; border-radius: .7rem; background: #fff; box-shadow: 0 4px 12px rgba(15,23,42,.06); }
+.annual-summary-grid span { display: block; margin-bottom: .4rem; color: #64748b; font-size: .82rem; font-weight: 700; }
+.annual-summary-grid strong { color: #172554; font-size: 1.35rem; }
+.annual-summary-grid .excess { border-left-color: #f97316; background: #fffaf5; }
+.annual-summary-grid .excess strong { color: #c2410c; }
+.annual-criteria-card { overflow: visible; }
+.annual-criteria-grid { display: grid; grid-template-columns: 2fr 1.35fr .8fr 1.35fr auto; gap: .9rem; align-items: end; }
+.annual-criteria-grid label { display: flex; flex-direction: column; gap: .4rem; color: #334155; font-size: .82rem; font-weight: 700; }
+.annual-criteria-grid input[type="search"], .annual-criteria-grid select { min-height: 2.55rem; padding: .5rem .65rem; border: 1px solid #cbd5e1; border-radius: .45rem; background: #fff; }
+.annual-criteria-grid .annual-check { min-height: 2.55rem; flex-direction: row; align-items: center; padding: .55rem .7rem; border: 1px solid #cbd5e1; border-radius: .45rem; background: #fff; }
+.annual-check input { width: 1rem; height: 1rem; accent-color: #ff6b35; }
+.annual-loading { min-height: 9rem; display: flex; align-items: center; justify-content: center; gap: .75rem; color: #64748b; }
+.annual-spinner { width: 1.45rem; height: 1.45rem; border: 3px solid #dbeafe; border-top-color: #2563eb; border-radius: 50%; animation: annual-spin .7s linear infinite; }
+@keyframes annual-spin { to { transform: rotate(360deg); } }
+.annual-report-table th, .annual-report-table td { white-space: nowrap; }
+.annual-added { color: #047857; font-weight: 800; }
+.annual-current { color: #0369a1; font-weight: 800; }
+.annual-excess-pill { display: inline-flex; min-width: 3.2rem; justify-content: center; padding: .25rem .55rem; color: #64748b; border-radius: 999px; background: #f1f5f9; font-weight: 800; }
+.annual-excess-pill.has-excess { color: #c2410c; background: #ffedd5; }
+.annual-employee-row { cursor: pointer; transition: background-color .16s ease, box-shadow .16s ease; }
+.annual-employee-row:hover, .annual-employee-row:focus-visible { background: #f8fbff; box-shadow: inset 3px 0 #2563eb; outline: none; }
+.annual-view-link { color: #2563eb; font-size: .82rem; font-weight: 800; }
+.annual-employee-banner { display: flex; flex-direction: column; gap: .9rem; padding: 1rem 1.15rem; border: 1px solid #dbe3ef; border-radius: .75rem; background: linear-gradient(135deg,#f8fbff 0%,#fff 65%); box-shadow: 0 4px 12px rgba(15,23,42,.06); }
+.annual-back-link { width: fit-content; padding: 0; color: #2563eb; border: 0; background: transparent; font-weight: 800; cursor: pointer; }
+.annual-back-link:hover { text-decoration: underline; }
+.annual-profile-summary { display: flex; align-items: center; gap: .9rem; }
+.annual-avatar { width: 3rem; height: 3rem; display: grid; place-items: center; flex: 0 0 auto; color: #fff; border-radius: 50%; background: linear-gradient(135deg,#172554,#2563eb); font-size: 1.15rem; font-weight: 900; }
+.annual-profile-summary span, .annual-profile-summary p { color: #64748b; font-size: .82rem; font-weight: 700; }
+.annual-profile-summary h2 { margin: .1rem 0; color: #172554; font-size: 1.2rem; }
+.annual-profile-summary p { margin: 0; }
+@media (max-width: 1100px) { .annual-summary-grid { grid-template-columns: repeat(2,1fr); } .annual-criteria-grid { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 680px) { .annual-summary-grid, .annual-criteria-grid { grid-template-columns: 1fr; } }

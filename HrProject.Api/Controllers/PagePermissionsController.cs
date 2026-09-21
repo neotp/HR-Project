@@ -133,6 +133,27 @@ public sealed class PagePermissionsController(
             access.GrantedByExplicitPermission));
     }
 
+    [HttpGet("current-access")]
+    public async Task<ActionResult<IReadOnlyList<CurrentPageAccessDto>>> GetAllCurrentAccess(
+        CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(employeeId)) return Unauthorized();
+
+        var pages = await LoadAvailability(cancellationToken);
+        var accessTasks = pages
+            .Select(async page =>
+            {
+                var access = await pageAccessService.GetAccess(
+                    employeeId, page.PageKey, cancellationToken);
+                return new CurrentPageAccessDto(
+                    page.PageKey, access.CanAccess, access.GrantedByBusinessRule,
+                    access.GrantedByExplicitPermission);
+            })
+            .ToArray();
+        return Ok(await Task.WhenAll(accessTasks));
+    }
+
     [HttpGet("availability")]
     public async Task<ActionResult<IReadOnlyList<ApplicationPageAvailabilityDto>>> GetAvailability(
         CancellationToken cancellationToken) =>

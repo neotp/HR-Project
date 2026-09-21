@@ -140,6 +140,110 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-company-calendar-outlo
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-event-outlook", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "075_create_attendance_event_outlook_sync.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance event Outlook synchronization queue successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-comments", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "076_create_leave_document_comments.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave document comments and email notification queue successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-comment-participants", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "077_create_leave_comment_participants.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created persistent leave comment participants successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-comment-recipient-types", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "078_expand_leave_comment_recipient_types.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Expanded leave comment recipient types successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-comment-attachments", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "079_create_leave_comment_attachments.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave comment image attachments successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-recruit-document-links", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "080_create_employee_recruit_document_links.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created employee Recruit document links successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-comments", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "081_create_attendance_comments.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance comments successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-quota-request-comments", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "082_create_leave_quota_request_comments.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created leave quota request comments successfully.");
+    return;
+}
+
 if (args.Length >= 1 && string.Equals(args[0], "--verify-attendance-pipeline", StringComparison.OrdinalIgnoreCase))
 {
     await using var verifyDataSource = NpgsqlDataSource.Create(connectionString);
@@ -844,6 +948,149 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-local-refresh-revoke-r
     return;
 }
 
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-leave-quota-annual-rollover", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "064_create_leave_quota_annual_rollover.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created annual leave quota rollover ledger and report page successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-tax-deductions", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "065_create_employee_tax_deductions.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created yearly employee tax deduction declarations and HR report page successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-lotus-notes-employee-outbox", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "066_create_lotus_notes_employee_outbox.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created Lotus Notes employee outbox and admin permission page successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-lotus-notes-employee-edit-outbox", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "067_extend_lotus_notes_outbox_for_employee_edits.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Extended Lotus Notes outbox for approved employee edit requests successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-review-email-notification", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "068_add_attendance_review_email_notification_permission.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added attendance review email notification permission successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-workflow-email-notifications", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "069_add_workflow_email_notification_permissions.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added workflow email notification permissions successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-export-permission", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "070_add_employee_export_permission.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Added employee export permission successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-responsibility-provinces", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "071_create_employee_responsibility_provinces.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created employee and Pre-Employee responsibility province relations successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-response-issues", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "072_create_attendance_response_issues.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created attendance response issue-level review successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-brands", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "073_create_employee_brands.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created Brand master data and employee Brand assignments successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-comm-groups", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "074_create_employee_comm_groups.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Created Comm.Group master data and employee Comm.Group assignments successfully.");
+    return;
+}
+
 // The database is hosted on another server. Keep pooled connections alive so a
 // firewall/NAT idle timeout does not hand a dead connector to background jobs.
 var pooledConnectionSettings = new NpgsqlConnectionStringBuilder(connectionString);
@@ -852,6 +1099,8 @@ if (pooledConnectionSettings.KeepAlive == 0)
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pooledConnectionSettings.ConnectionString));
 builder.Services.AddSingleton<PageActionPermissionService>();
 builder.Services.AddSingleton<PageAccessService>();
+builder.Services.AddSingleton<LeaveQuotaAnnualRolloverService>();
+builder.Services.AddHostedService<LeaveQuotaAnnualRolloverWorker>();
 builder.Services.AddSingleton<LocalJwtService>();
 builder.Services.AddSingleton<IPasswordHasher<HrProject.Api.Controllers.LocalAuthenticationController.LocalUser>,
     PasswordHasher<HrProject.Api.Controllers.LocalAuthenticationController.LocalUser>>();
@@ -860,10 +1109,18 @@ builder.Services.AddSingleton<MicrosoftGraphMailService>();
 builder.Services.AddSingleton<LeaveApprovalEmailService>();
 builder.Services.AddSingleton<LeaveDecisionEmailService>();
 builder.Services.AddSingleton<LeaveCancellationEmailService>();
+builder.Services.AddSingleton<AttendanceReviewEmailNotificationService>();
+builder.Services.AddSingleton<WorkflowEmailNotificationService>();
 builder.Services.AddSingleton<OutlookCalendarSyncService>();
 builder.Services.AddHostedService<OutlookCalendarRetryWorker>();
 builder.Services.AddSingleton<CompanyCalendarOutlookSyncService>();
 builder.Services.AddHostedService<CompanyCalendarOutlookRetryWorker>();
+builder.Services.AddSingleton<AttendanceEventOutlookSyncService>();
+builder.Services.AddHostedService<AttendanceEventOutlookRetryWorker>();
+builder.Services.AddSingleton<LeaveCommentEmailService>();
+builder.Services.AddHostedService<LeaveCommentEmailRetryWorker>();
+builder.Services.AddSingleton<LotusNotesOutboxSignal>();
+builder.Services.AddHostedService<LotusNotesEmployeeOutboxWorker>();
 var tenantId = builder.Configuration["AzureAd:TenantId"]
     ?? throw new InvalidOperationException("AzureAd:TenantId is not configured.");
 var clientId = builder.Configuration["AzureAd:ClientId"]

@@ -13,6 +13,7 @@ public sealed record LeaveApprovalEmailItem(
 public sealed class LeaveApprovalEmailService(
     NpgsqlDataSource dataSource,
     MicrosoftGraphMailService mailService,
+    WorkflowEmailNotificationService workflowNotificationService,
     IConfiguration configuration)
 {
     public async Task SendAsync(
@@ -74,7 +75,7 @@ public sealed class LeaveApprovalEmailService(
                 JOIN public.employee_basic_info b ON b.employee_id = e.id
                 WHERE e.is_active = TRUE
             )
-            SELECT r.sender_email, d.email_address
+            SELECT r.sender_email, d.employee_code, d.email_address
             FROM requester r
             LEFT JOIN manager_directory d
               ON UPPER(BTRIM(COALESCE(r.supervisor_employee_id, ''))) = UPPER(d.employee_code)
@@ -86,7 +87,7 @@ public sealed class LeaveApprovalEmailService(
             """;
 
         string? senderEmail = null;
-        var recipients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recipientEmployeeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("employee_code", creatorEmployeeId.Trim());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -94,14 +95,11 @@ public sealed class LeaveApprovalEmailService(
         {
             if (!reader.IsDBNull(0))
                 senderEmail = reader.GetString(0);
-            if (!reader.IsDBNull(1))
-            {
-                var email = reader.GetString(1);
-                if (email.Contains('@', StringComparison.Ordinal))
-                    recipients.Add(email);
-            }
+            if (!reader.IsDBNull(1)) recipientEmployeeIds.Add(reader.GetString(1));
         }
 
+        var recipients = await workflowNotificationService.GetRecipientEmailsAsync(
+            "LEAVE_PENDING", recipientEmployeeIds, cancellationToken);
         if (!string.IsNullOrWhiteSpace(senderEmail))
             recipients.Remove(senderEmail);
         return new MailAddresses(senderEmail, recipients.ToArray());

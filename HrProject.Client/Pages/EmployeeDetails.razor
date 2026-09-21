@@ -92,6 +92,8 @@
                                 <DetailField Label="Branch" Value="@DisplayValue(employee.BranchName)" />
                                 <DetailField Label="Province of Residence (จังหวัดที่อาศัยอยู่)" Value="@DisplayValue(employee.ResidenceProvince)" />
                                 <DetailField Label="Province of Responsibility (จังหวัดที่ให้ดูแล)" Value="@DisplayValue(employee.ResponsibilityProvince)" />
+                                <DetailField Label="Brand" Value="@DisplayValue(employee.Brand)" />
+                                <DetailField Label="Comm.Group" Value="@DisplayValue(employee.CommGroup)" />
                                 <DetailField Label="ประเภท Checklist" Value="@DisplayValue(employee.ChecklistType)" />
                             </div>
                         </section>
@@ -219,26 +221,7 @@
                         </section>
                         break;
                     case "family":
-                        <section aria-labelledby="family-title">
-                            <h2 id="family-title">บันทึกค่าลดหย่อนภาษี</h2>
-                            <div class="detail-grid">
-                                <DetailField Label="สถานะภาพการสมรส" Value="@employee.MaritalStatus" />
-                                <DetailField Label="จดทะเบียนสมรส" Value="@BooleanText(employee.IsMarriageRegistered, "จดทะเบียน", "ไม่ได้จดทะเบียน")" />
-                                <DetailField Label="คำนำหน้าคู่สมรส" Value="@employee.SpouseTitle" />
-                                <DetailField Label="ชื่อ-นามสกุลคู่สมรส" Value="@employee.SpouseName" />
-                                <DetailField Label="วันที่สมรส" Value="@FormatDate(employee.MarriageDate)" />
-                                <DetailField Label="คู่สมรสมีรายได้" Value="@BooleanText(employee.SpouseHasIncome, "มีรายได้", "ไม่มีรายได้")" />
-                                <DetailField Label="เลขบัตรประชาชนคู่สมรส" Value="@employee.SpouseNationalId" />
-                                <DetailField Label="Passport ID คู่สมรส" Value="@employee.SpousePassportId" />
-                                <DetailField Label="ชื่อใน Passport" Value="@employee.SpousePassportName" />
-                                <DetailField Label="จำนวนบุตร (ไม่ศึกษา)" Value="@($"{employee.UneducatedChildCount} คน")" />
-                                <DetailField Label="จำนวนบุตร (ศึกษา)" Value="@($"{employee.StudyingChildCount} คน")" />
-                                <DetailField Label="เบี้ยประกันชีวิต" Value="@MoneyText(employee.LifeInsuranceAmount)" />
-                                <DetailField Label="ลดหย่อนบิดามารดาผู้มีเงินได้" Value="@MoneyText(employee.ParentSupportDeductionAmount)" />
-                                <DetailField Label="ลดหย่อนบิดามารดาคู่สมรส" Value="@MoneyText(employee.SpouseParentSupportDeductionAmount)" />
-                                <DetailField Label="URL แผนที่อยู่ปัจจุบัน" Value="@employee.CurrentAddressMapUrl" />
-                            </div>
-                        </section>
+                        <EmployeeTaxDeductionEditor EmployeeId="@employee.Id" IsOwner="@IsOwnEmployee" />
                         break;
                     case "documents":
                         <section class="personal-documents-section" aria-labelledby="documents-title">
@@ -250,6 +233,16 @@
                                 <span class="confidential-badge">ข้อมูลลับ</span>
                             </div>
                             <EmployeePersonalDocuments EmployeeId="@employee.Id" />
+                        </section>
+                        <section class="personal-documents-section recruit-documents-section" aria-labelledby="recruit-documents-title">
+                            <div class="personal-documents-heading">
+                                <div>
+                                    <h2 id="recruit-documents-title">เอกสาร Recruit</h2>
+                                    <p>ลิงก์เอกสารจากกระบวนการสรรหา กดที่รายการเพื่อเปิดเอกสารใน Browser แท็บใหม่</p>
+                                </div>
+                                <span class="confidential-badge">ข้อมูลลับ</span>
+                            </div>
+                            <EmployeeRecruitDocumentLinks EmployeeId="@employee.Id" />
                         </section>
                         break;
                     case "change-history":
@@ -382,7 +375,7 @@
                                 <label>MAC Address<input @bind="internalMacAddress" /></label>
                                 <label>รหัสสาขา<input @bind="internalBranchCode" /></label>
                                 <label>ชื่อสาขา<input @bind="internalBranchName" /></label>
-                                <label>จังหวัดที่ให้ดูแล<input @bind="internalResponsibilityProvince" /></label>
+                                <label>Province of Responsibility (จังหวัดที่ให้ดูแล)<MasterDataMultiSelect Items="@(MasterOptions("PROVINCE").ToList())" Values="@internalResponsibilityProvinces" ValuesChanged="SetInternalResponsibilityProvinces" Placeholder="-- เลือกหรือพิมพ์ค้นหาจังหวัด --" /></label>
                                 <label>ประเภท Checklist<input @bind="internalChecklistType" /></label>
                                 <label>สินค้าที่ให้ขาย<input @bind="internalProductsResponsible" /></label>
                                 <label>วันที่เริ่มงาน<DateOnlyPicker Value="@proposedStartDate" ValueChanged="value => proposedStartDate = value ?? proposedStartDate" AriaLabel="วันที่เริ่มงาน" /></label>
@@ -559,7 +552,7 @@
     private string internalMacAddress = string.Empty;
     private string internalBranchCode = string.Empty;
     private string internalBranchName = string.Empty;
-    private string internalResponsibilityProvince = string.Empty;
+    private List<string> internalResponsibilityProvinces = [];
     private string internalChecklistType = string.Empty;
     private string internalProductsResponsible = string.Empty;
     private DateOnly? internalAppointmentDate;
@@ -629,14 +622,7 @@
         activeTab = "basic";
         try
         {
-            var employeeTask = Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
-            var employeeOptionsTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
-            var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>("api/system-master-data/items/all");
-            await Task.WhenAll(employeeTask, employeeOptionsTask, masterItemsTask);
-            employee = await employeeTask;
-            employeeOptions = await employeeOptionsTask ?? [];
-            masterItems = await masterItemsTask ?? [];
-            ResolveLegacyManagerIds();
+            employee = await Http.GetFromJsonAsync<Employee>($"api/employees/{Id}");
             try
             {
                 currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
@@ -667,13 +653,24 @@
             ? "/employees/resigned"
             : "/");
 
-    private void OpenEditor()
+    private async Task OpenEditor()
     {
         if (employee is null)
             return;
 
         if (!CanRequestEdit(activeTab))
             return;
+
+        if (employeeOptions.Count == 0 || masterItems.Count == 0)
+        {
+            var employeeOptionsTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
+            var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+                "api/system-master-data/items/all");
+            await Task.WhenAll(employeeOptionsTask, masterItemsTask);
+            employeeOptions = await employeeOptionsTask ?? [];
+            masterItems = await masterItemsTask ?? [];
+            ResolveLegacyManagerIds();
+        }
 
         proposedTitle = employee.Title;
         proposedFirstName = employee.FirstName;
@@ -725,7 +722,9 @@
         internalMacAddress = employee.MacAddress;
         internalBranchCode = employee.BranchCode;
         internalBranchName = employee.BranchName;
-        internalResponsibilityProvince = employee.ResponsibilityProvince;
+        internalResponsibilityProvinces = employee.ResponsibilityProvinces.Count > 0
+            ? [.. employee.ResponsibilityProvinces]
+            : SplitProvinceValues(employee.ResponsibilityProvince);
         internalChecklistType = employee.ChecklistType;
         internalProductsResponsible = employee.ProductsResponsible;
         internalAppointmentDate = employee.AppointmentDate;
@@ -811,7 +810,8 @@
                 employee.MacAddress = internalMacAddress.Trim();
                 employee.BranchCode = internalBranchCode.Trim();
                 employee.BranchName = internalBranchName.Trim();
-                employee.ResponsibilityProvince = internalResponsibilityProvince.Trim();
+                employee.ResponsibilityProvinces = [.. internalResponsibilityProvinces];
+                employee.ResponsibilityProvince = JoinProvinceValues(internalResponsibilityProvinces);
                 employee.ChecklistType = internalChecklistType.Trim();
                 employee.ProductsResponsible = internalProductsResponsible.Trim();
                 employee.StartDate = proposedStartDate;
@@ -918,7 +918,7 @@
                 AddChange(changes, "internal.macAddress", "MAC Address", employee.MacAddress, internalMacAddress);
                 AddChange(changes, "internal.branchCode", "รหัสสาขา", employee.BranchCode, internalBranchCode);
                 AddChange(changes, "internal.branchName", "ชื่อสาขา", employee.BranchName, internalBranchName);
-                AddChange(changes, "internal.responsibilityProvince", "จังหวัดที่ให้ดูแล", employee.ResponsibilityProvince, internalResponsibilityProvince);
+                AddChange(changes, "internal.responsibilityProvince", "Province of Responsibility (จังหวัดที่ให้ดูแล)", employee.ResponsibilityProvince, JoinProvinceValues(internalResponsibilityProvinces));
                 AddChange(changes, "internal.checklistType", "ประเภท Checklist", employee.ChecklistType, internalChecklistType);
                 AddChange(changes, "internal.productsResponsible", "สินค้าที่ให้ขาย", employee.ProductsResponsible, internalProductsResponsible);
                 AddChange(changes, "internal.startDate", "วันที่เริ่มงาน", DateText(employee.StartDate), DateText(proposedStartDate));
@@ -1153,7 +1153,7 @@
         value?.ToString() ?? string.Empty;
 
     private bool CanRequestEdit(string tab) =>
-        (tab is "personal" or "internal" or "work" or "education" or "training" or "family") &&
+        (tab is "personal" or "internal" or "work" or "education" or "training") &&
         (IsOwnEmployee || allowedActions.Contains("REQUEST_EDIT"));
 
     private static string TabLabel(string tab) =>
@@ -1167,8 +1167,10 @@
         "work" => "การเพิ่ม แก้ไข หรือลบประวัติการทำงานต้องขออนุมัติ",
         "education" => "การเพิ่ม แก้ไข หรือลบประวัติการศึกษาต้องขออนุมัติ",
         "training" => "การเพิ่ม แก้ไข หรือลบประวัติการอบรมต้องขออนุมัติ",
-        "family" => "การแก้ไขข้อมูลค่าลดหย่อนภาษีต้องขออนุมัติ",
-        "documents" => "ผู้ที่ได้รับสิทธิ์จากหน้าจัดการสิทธิ์สามารถดู เพิ่ม และพรีวิวเอกสารส่วนตัวได้",
+        "family" => IsOwnEmployee
+            ? "ข้อมูลส่วนนี้เจ้าของข้อมูลบันทึกได้เองโดยตรงและแยกเก็บตามปีภาษี"
+            : "แสดงข้อมูลค่าลดหย่อนตามสิทธิ์ที่ได้รับ โดยผู้ดูข้อมูลไม่สามารถแก้ไขแทนเจ้าของได้",
+        "documents" => "ผู้ที่ได้รับสิทธิ์จากหน้าจัดการสิทธิ์สามารถดูและจัดการเอกสารส่วนตัว รวมถึงลิงก์เอกสาร Recruit ได้",
         "change-history" => "แสดงคำขอแก้ไข ฟิลด์ที่เปลี่ยน ผู้ดำเนินการ และวันเวลาทั้งหมด",
         _ => string.Empty
     };
@@ -1179,6 +1181,19 @@
         var last = string.IsNullOrWhiteSpace(value.LastName) ? string.Empty : value.LastName[..1];
         return $"{first}{last}".ToUpperInvariant();
     }
+
+    private void SetInternalResponsibilityProvinces(List<string> values) =>
+        internalResponsibilityProvinces = [.. values];
+
+    private static List<string> SplitProvinceValues(string? value) =>
+        (value ?? string.Empty)
+            .Split([',', '|', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string JoinProvinceValues(IEnumerable<string> values) =>
+        string.Join(", ", values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
 
     private static string DisplayValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "-" : value;

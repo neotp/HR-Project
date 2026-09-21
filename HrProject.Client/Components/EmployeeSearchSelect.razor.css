@@ -48,6 +48,16 @@
     box-shadow: 0 12px 28px rgba(15,23,42,.18);
 }
 
+.employee-combobox.inline-options .employee-options {
+    position: relative;
+    z-index: auto;
+    top: auto;
+    right: auto;
+    left: auto;
+    margin-top: .3rem;
+    max-height: 16rem;
+}
+
 .employee-option {
     width: 100%;
     display: grid;

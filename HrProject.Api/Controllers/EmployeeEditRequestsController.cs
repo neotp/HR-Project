@@ -13,7 +13,11 @@ namespace HrProject.Api.Controllers;
 public sealed class EmployeeEditRequestsController(
     NpgsqlDataSource dataSource,
     PageAccessService pageAccessService,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    IConfiguration configuration,
+    LotusNotesOutboxSignal lotusNotesOutboxSignal,
+    WorkflowEmailNotificationService workflowNotificationService,
+    ILogger<EmployeeEditRequestsController> logger) : ControllerBase
 {
     private static readonly HashSet<string> AllowedFields =
     [
@@ -208,6 +212,19 @@ public sealed class EmployeeEditRequestsController(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        try
+        {
+            await workflowNotificationService.SendAsync(
+                "EMPLOYEE_EDIT_REQUESTS", actor,
+                "มีคำขอแก้ไขข้อมูลพนักงานรอตรวจสอบ",
+                $"เลขที่คำขอ {requestNo}\nพนักงาน: {request.EmployeeName.Trim()} ({request.EmployeeId.Trim()})\nเหตุผล: {request.RequestReason.Trim()}",
+                "/employees/edit-requests", CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception,
+                "Employee edit request {RequestId} was saved but email notification failed", id);
+        }
         var created = await FindById(id, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, created);
     }
@@ -317,8 +334,69 @@ public sealed class EmployeeEditRequestsController(
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
+        var queuedForLotusNotes = false;
+        if (newStatus == "APPROVED")
+        {
+            var employeeId = await EmployeesController.ApplyApprovedChanges(
+                connection, transaction, pendingRequest.EmployeeId,
+                pendingRequest.Changes, cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return Conflict("ไม่พบข้อมูลพนักงานสำหรับปรับปรุง จึงยังไม่ได้อนุมัติคำขอ");
+            }
 
+            var identity = await GetLotusNotesIdentity(
+                connection, transaction, employeeId.Value, cancellationToken);
+            var changesThaiNameParts = pendingRequest.Changes.Any(change =>
+                change.FieldKey is "firstName" or "lastName");
+            var explicitlyChangesThaiFullName = pendingRequest.Changes.Any(change =>
+                change.FieldKey == "thaiFullName");
+            var resolvedThaiFullName = changesThaiNameParts && !explicitlyChangesThaiFullName
+                ? $"{identity.FirstName} {identity.LastName}".Trim()
+                : identity.EmployeeName;
+            var payload = LotusNotesEmployeePayloadBuilder.BuildApprovedChanges(
+                pendingRequest.Changes, resolvedThaiFullName);
+
+            if (payload is not null)
+            {
+                if (identity.NationalId.Length != 13 ||
+                    identity.NationalId.Any(character => !char.IsAsciiDigit(character)))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return Conflict("ไม่สามารถอนุมัติได้ เนื่องจากพนักงานไม่มีเลขบัตรประชาชน 13 หลักสำหรับใช้เป็น Key ของ Lotus Notes");
+                }
+
+                const string outboxSql = """
+                    INSERT INTO public.lotus_notes_employee_outbox
+                        (employee_edit_request_id, employee_id, employee_code, employee_name,
+                         database_name, external_key, payload, status)
+                    VALUES
+                        (@request_id, @employee_id, @employee_code, @employee_name,
+                         @database_name, @external_key, @payload::jsonb, 'PENDING')
+                    """;
+                await using var outboxCommand = new NpgsqlCommand(outboxSql, connection, transaction);
+                outboxCommand.Parameters.AddWithValue("request_id", id);
+                outboxCommand.Parameters.AddWithValue("employee_id", employeeId.Value);
+                outboxCommand.Parameters.AddWithValue("employee_code", pendingRequest.EmployeeId);
+                outboxCommand.Parameters.AddWithValue("employee_name", resolvedThaiFullName);
+                outboxCommand.Parameters.AddWithValue("database_name",
+                    Environment.GetEnvironmentVariable("LOTUS_NOTES_DATABASE") ??
+                    configuration["LotusNotes:Database"] ?? "Employee");
+                outboxCommand.Parameters.AddWithValue("external_key", identity.NationalId);
+                outboxCommand.Parameters.AddWithValue("payload", payload);
+                await outboxCommand.ExecuteNonQueryAsync(cancellationToken);
+                queuedForLotusNotes = true;
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        if (queuedForLotusNotes)
+            lotusNotesOutboxSignal.Notify();
+
+        return Ok(await FindById(id, cancellationToken));
+
+        /* Previous non-atomic update flow retained temporarily for migration context.
         if (newStatus == "APPROVED" &&
             !await EmployeesController.ApplyApprovedChanges(
                 dataSource,
@@ -329,8 +407,40 @@ public sealed class EmployeeEditRequestsController(
             return Conflict("อนุมัติเอกสารแล้ว แต่ไม่พบข้อมูลพนักงานสำหรับปรับปรุง");
         }
 
-        return Ok(await FindById(id, cancellationToken));
+        return Ok(await FindById(id, cancellationToken)); */
     }
+
+    private static async Task<LotusNotesEmployeeIdentity> GetLotusNotesIdentity(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        long employeeId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT COALESCE(BTRIM(personal.national_id), ''),
+                   COALESCE(BTRIM(basic.first_name_th), ''),
+                   COALESCE(BTRIM(basic.last_name_th), ''),
+                   COALESCE(NULLIF(BTRIM(basic.full_name_th), ''),
+                            BTRIM(CONCAT_WS(' ', basic.first_name_th, basic.last_name_th)), '')
+            FROM public.employees employee
+            LEFT JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
+            LEFT JOIN public.employee_personal_info personal ON personal.employee_id = employee.id
+            WHERE employee.id = @employee_id
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("employee_id", employeeId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("Employee disappeared while applying an approved edit request.");
+        return new LotusNotesEmployeeIdentity(
+            reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+    }
+
+    private sealed record LotusNotesEmployeeIdentity(
+        string NationalId,
+        string FirstName,
+        string LastName,
+        string EmployeeName);
 
     private async Task<EmployeeEditRequestDto?> FindById(
         long id,

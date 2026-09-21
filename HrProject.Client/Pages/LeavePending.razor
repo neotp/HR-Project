@@ -103,14 +103,21 @@
                             {
                                 @foreach (var document in PagedDocuments)
                                 {
-                                    <tr>
+                                    <tr class="@(expandedCommentDocumentId == document.Id ? "comment-row-open" : null)">
                                         <td class="select-column">
                                             <input type="checkbox" aria-label="เลือก @document.DocumentNo"
                                                    disabled="@(!CanApprove(document))"
                                                    checked="@selectedIds.Contains(document.Id)"
                                                    @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" />
                                         </td>
-                                        <td><LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
+                                        <td>
+                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
+                                                    aria-expanded="@(expandedCommentDocumentId == document.Id)"
+                                                    @onclick="() => ToggleComments(document.Id)">
+                                                <span class="comment-chevron">›</span>
+                                            </button>
+                                            <LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
+                                        </td>
                                         <td>@document.CreatorName</td>
                                         <td>@document.CreatorDepartment</td>
                                         <td>@document.LeaveTypeName</td>
@@ -120,6 +127,15 @@
                                         <td>@document.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
                                         <td><span class="status-pill pending" data-status="PENDING_APPROVAL">รออนุมัติ</span></td>
                                     </tr>
+                                    @if (expandedCommentDocumentId == document.Id)
+                                    {
+                                        <tr class="comment-detail-row">
+                                            <td colspan="10">
+                                                <LeaveCommentThread Document="document" CurrentEmployeeId="@(currentUser?.EmployeeId ?? string.Empty)"
+                                                                    CommentCountChanged="count => UpdateCommentCount(document.Id, count)" />
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             }
                         </tbody>
@@ -217,6 +233,9 @@
     [SupplyParameterFromQuery(Name = "action")]
     public string? DeepLinkRequestedAction { get; set; }
 
+    [SupplyParameterFromQuery(Name = "openComments")]
+    public bool OpenRequestedComments { get; set; }
+
     private string searchText = string.Empty;
     private readonly HashSet<string> selectedLeaveTypes = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<CriteriaFilterOption> LeaveTypeFilterOptions => leaveTypes.Select(x => new CriteriaFilterOption(x.NameTh, x.NameTh)).ToList();
@@ -245,11 +264,21 @@
     private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
     private List<LeaveDocumentDto> documents = [];
     private List<LeaveDocumentDto> filteredDocuments = [];
+    private long? expandedCommentDocumentId;
     private int currentPage = 1;
     private int pageSize = 10;
     private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
         .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
         .Take(pageSize);
+
+    private void ToggleComments(long documentId) =>
+        expandedCommentDocumentId = expandedCommentDocumentId == documentId ? null : documentId;
+
+    private void UpdateCommentCount(long documentId, int count)
+    {
+        documents = documents.Select(item => item.Id == documentId ? item with { CommentCount = count } : item).ToList();
+        filteredDocuments = filteredDocuments.Select(item => item.Id == documentId ? item with { CommentCount = count } : item).ToList();
+    }
     private LeaveDocumentDto? selectedDocument;
     private string? deepLinkAction;
     private List<LeaveDocumentDto> PageSelectableDocuments => PagedDocuments.Where(item => CanApprove(item) || CanReject(item)).ToList();
@@ -298,11 +327,22 @@
 
                 if (targetDocument is not null)
                 {
-                    deepLinkAction = targetDocument.Status == "PENDING_APPROVAL" &&
-                                     DeepLinkRequestedAction?.ToLowerInvariant() is "approve" or "reject"
-                        ? DeepLinkRequestedAction.ToLowerInvariant()
-                        : null;
-                    await OpenDocument(targetDocument);
+                    if (OpenRequestedComments)
+                    {
+                        searchText = targetDocument.DocumentNo;
+                        selectedLeaveTypes.Clear();
+                        startDate = endDate = null;
+                        Search();
+                        expandedCommentDocumentId = targetDocument.Id;
+                    }
+                    else
+                    {
+                        deepLinkAction = targetDocument.Status == "PENDING_APPROVAL" &&
+                                         DeepLinkRequestedAction?.ToLowerInvariant() is "approve" or "reject"
+                            ? DeepLinkRequestedAction.ToLowerInvariant()
+                            : null;
+                        await OpenDocument(targetDocument);
+                    }
                 }
                 else
                 {

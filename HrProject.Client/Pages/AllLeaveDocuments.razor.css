@@ -44,3 +44,11 @@
 @media (max-width: 1100px) { .criteria-grid { grid-template-columns: repeat(3,minmax(135px,1fr)); } }
 @media (max-width: 720px) { .criteria-grid, .form-grid, .bonus-form-grid { grid-template-columns: 1fr; }.full-width, .bonus-reason { grid-column: auto; }.page-header-content { align-items: flex-start; flex-direction: column; }.readonly-badge { align-self: flex-start; } }
 @media (max-width:720px) { .document-modal-footer { flex-wrap:wrap; }.btn-history { width:100%; margin-right:0; } }
+.all-documents-table td:first-child { white-space: nowrap; }
+.comment-toggle { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; gap: .15rem; margin-right: .35rem; padding: 0; color: #475569; background: #f8fafc; border: 1px solid #dbe3ee; border-radius: .4rem; cursor: pointer; vertical-align: middle; }
+.comment-toggle:hover { color: #f06432; background: #fff7ed; border-color: #fdba74; }
+.comment-chevron { display: inline-block; font-size: 1.35rem; line-height: 1; transition: transform .16s ease; }
+.comment-toggle[aria-expanded="true"] .comment-chevron { transform: rotate(90deg); }
+.comment-toggle small { min-width: .9rem; height: .9rem; display: grid; place-items: center; padding: 0 .18rem; color: #fff; background: #f06432; border-radius: 999px; font-size: .58rem; }
+.comment-row-open td { background: #fffaf7; }
+.comment-detail-row > td { padding: 0 !important; background: #f8fafc !important; }

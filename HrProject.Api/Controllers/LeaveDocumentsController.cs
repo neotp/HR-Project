@@ -17,6 +17,7 @@ public sealed class LeaveDocumentsController(
     LeaveDecisionEmailService decisionEmailService,
     LeaveCancellationEmailService cancellationEmailService,
     OutlookCalendarSyncService outlookCalendarSyncService,
+    WorkflowEmailNotificationService workflowNotificationService,
     ILogger<LeaveDocumentsController> logger) : ControllerBase
 {
     [HttpGet]
@@ -26,6 +27,8 @@ public sealed class LeaveDocumentsController(
         [FromQuery] string? actingEmployeeId,
         [FromQuery] string? status,
         [FromQuery] bool viewAll,
+        [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate,
         CancellationToken cancellationToken)
     {
         var restrictPendingToApprover = false;
@@ -100,7 +103,9 @@ public sealed class LeaveDocumentsController(
                    d.leave_hours, d.leave_reason, d.status, d.created_at,
                    d.has_medical_certificate,
                    COALESCE(@acting_employee_id IN
-                       (d.approver_employee_id, reporting_approver.employee_code, upper_reporting_approver.employee_code), FALSE)
+                       (d.approver_employee_id, reporting_approver.employee_code, upper_reporting_approver.employee_code), FALSE),
+                   (SELECT COUNT(*)::INT FROM public.leave_document_comments comment
+                    WHERE comment.leave_document_id = d.id)
             FROM public.leave_documents d
             JOIN public.leave_types t ON t.id = d.leave_type_id
             LEFT JOIN public.employees creator_employee
@@ -148,6 +153,8 @@ public sealed class LeaveDocumentsController(
             WHERE (@creator_employee_id IS NULL OR d.creator_employee_id = @creator_employee_id)
               AND (@approver_employee_id IS NULL OR d.approver_employee_id = @approver_employee_id)
               AND (@status IS NULL OR d.status = @status)
+              AND (@start_date IS NULL OR d.leave_date >= @start_date)
+              AND (@end_date IS NULL OR d.leave_date <= @end_date)
               AND (NOT @restrict_pending OR @acting_employee_id IN
                   (d.approver_employee_id, reporting_approver.employee_code, upper_reporting_approver.employee_code))
             ORDER BY d.created_at DESC
@@ -164,10 +171,16 @@ public sealed class LeaveDocumentsController(
             command.Parameters.Add(new NpgsqlParameter<string?>("approver_employee_id", approverEmployeeId));
             command.Parameters.Add(new NpgsqlParameter<string?>("acting_employee_id", actingEmployeeId));
             command.Parameters.Add(new NpgsqlParameter<string?>("status", status));
+            command.Parameters.Add(new NpgsqlParameter<DateOnly?>("start_date", startDate));
+            command.Parameters.Add(new NpgsqlParameter<DateOnly?>("end_date", endDate));
             command.Parameters.AddWithValue("restrict_pending", restrictPendingToApprover);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
-                result.Add(ReadDocument(reader) with { CanCurrentUserReview = reader.GetBoolean(18) });
+                result.Add(ReadDocument(reader) with
+                {
+                    CanCurrentUserReview = reader.GetBoolean(18),
+                    CommentCount = reader.GetInt32(19)
+                });
         }
 
         for (var index = 0; index < result.Count; index++)
@@ -1062,6 +1075,11 @@ public sealed class LeaveDocumentsController(
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+        await SendWorkflowNotificationSafely(
+            "LEAVE_REVISIONS", request.ActionBy,
+            "มีคำขอยกเลิกเอกสารการลารอตรวจสอบ",
+            $"เอกสาร: {documentNo}\nผู้ขอ: {request.ActionByName}\nเหตุผล: {request.Remark.Trim()}",
+            "/leave/revisions");
         return NoContent();
     }
 
@@ -1232,6 +1250,11 @@ public sealed class LeaveDocumentsController(
         var details = $"ขอแก้ไข: {changedDetails}{addedFileDetails}; เหตุผล: {request.RequestReason.Trim()}";
         await InsertHistory(connection, transaction, id, action, details, request.RequestedBy, request.RequestedByName, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await SendWorkflowNotificationSafely(
+            "LEAVE_REVISIONS", request.RequestedBy,
+            "มีคำขอแก้ไขเอกสารการลารอตรวจสอบ",
+            $"ผู้ขอ: {request.RequestedByName}\n{details}",
+            "/leave/revisions");
         return NoContent();
     }
 
@@ -2000,6 +2023,25 @@ public sealed class LeaveDocumentsController(
                 "Leave approval email failed for employee {EmployeeId}, documents {DocumentNumbers}",
                 creatorEmployeeId,
                 string.Join(", ", items.Select(item => item.DocumentNo)));
+        }
+    }
+
+    private async Task SendWorkflowNotificationSafely(
+        string pageKey,
+        string senderEmployeeId,
+        string title,
+        string details,
+        string route)
+    {
+        try
+        {
+            await workflowNotificationService.SendAsync(
+                pageKey, senderEmployeeId, title, details, route, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception,
+                "Workflow item for {PageKey} was saved but email notification failed", pageKey);
         }
     }
 

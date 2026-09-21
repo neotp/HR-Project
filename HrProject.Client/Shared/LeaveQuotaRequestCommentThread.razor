@@ -1,0 +1,145 @@
+@inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
+
+<section class="quota-comment-thread">
+    <header class="quota-comment-header">
+        <div><h3>ความคิดเห็นและการตอบกลับ</h3><p>บทสนทนาสำหรับคำขอเพิ่มวันลารายการนี้</p></div>
+        <span>@comments.Count ข้อความ</span>
+    </header>
+
+    <div id="@TimelineId" class="quota-comment-list" aria-live="polite">
+        @if (isLoading)
+        {
+            <div class="quota-comment-state"><i></i>กำลังโหลดความคิดเห็น...</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(loadError))
+        {
+            <div class="quota-comment-state error">@loadError <button type="button" @onclick="LoadComments">ลองใหม่</button></div>
+        }
+        else if (comments.Count == 0)
+        {
+            <div class="quota-comment-state">ยังไม่มีความคิดเห็น เริ่มการสนทนาได้จากช่องด้านล่าง</div>
+        }
+        else
+        {
+            @foreach (var comment in comments)
+            {
+                <article class="quota-comment-item">
+                    <span class="quota-comment-avatar" aria-hidden="true">@Initial(comment.CommentedByName)</span>
+                    <div>
+                        <header><strong>@comment.CommentedByName</strong><time>@comment.CommentedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</time></header>
+                        <p>@comment.CommentText</p>
+                    </div>
+                </article>
+            }
+        }
+    </div>
+
+    @if (CanComment)
+    {
+        <div class="quota-comment-composer">
+            <label for="@EditorId">Comment / Response <span>*</span></label>
+            <textarea id="@EditorId" rows="3" maxlength="4000" disabled="@isSaving"
+                      @bind="commentText" @bind:event="oninput"
+                      placeholder="พิมพ์ความคิดเห็นหรือข้อความตอบกลับ..."></textarea>
+            @if (!string.IsNullOrWhiteSpace(saveError))
+            {
+                <div class="quota-comment-save-error">@saveError</div>
+            }
+            <div class="quota-comment-actions">
+                <small>@commentText.Length.ToString("N0") / 4,000</small>
+                <button type="button" disabled="@(isSaving || string.IsNullOrWhiteSpace(commentText))" @onclick="SubmitComment">
+                    @(isSaving ? "กำลังส่ง..." : "ส่งความคิดเห็น")
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="quota-comment-readonly">คุณสามารถอ่านความคิดเห็นได้ แต่ไม่มีสิทธิ์ตอบกลับคำขอนี้</div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public long LeaveQuotaRequestId { get; set; }
+    [Parameter] public bool CanComment { get; set; }
+
+    private readonly List<LeaveQuotaRequestCommentDto> comments = [];
+    private long loadedRequestId;
+    private string commentText = string.Empty;
+    private string? loadError;
+    private string? saveError;
+    private bool isLoading;
+    private bool isSaving;
+    private bool scrollToLatest;
+    private string TimelineId => $"leave-quota-comments-{LeaveQuotaRequestId}";
+    private string EditorId => $"leave-quota-comment-editor-{LeaveQuotaRequestId}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (LeaveQuotaRequestId <= 0 || loadedRequestId == LeaveQuotaRequestId) return;
+        loadedRequestId = LeaveQuotaRequestId;
+        await LoadComments();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!scrollToLatest) return;
+        scrollToLatest = false;
+        await JS.InvokeVoidAsync("hrScroll.toBottom", TimelineId, false);
+    }
+
+    private async Task LoadComments()
+    {
+        isLoading = true;
+        loadError = null;
+        comments.Clear();
+        try
+        {
+            var http = HttpClientFactory.CreateClient("HrApiBackground");
+            var result = await http.GetFromJsonAsync<List<LeaveQuotaRequestCommentDto>>(
+                $"api/leave-quota-requests/{LeaveQuotaRequestId}/comments");
+            if (result is not null) comments.AddRange(result);
+            scrollToLatest = true;
+        }
+        catch (Exception exception)
+        {
+            loadError = $"โหลดความคิดเห็นไม่สำเร็จ: {exception.Message}";
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task SubmitComment()
+    {
+        var text = commentText.Trim();
+        if (isSaving || string.IsNullOrWhiteSpace(text)) return;
+        isSaving = true;
+        saveError = null;
+        try
+        {
+            var http = HttpClientFactory.CreateClient("HrApiBackground");
+            var response = await http.PostAsJsonAsync(
+                $"api/leave-quota-requests/{LeaveQuotaRequestId}/comments",
+                new AddLeaveQuotaRequestCommentRequest(text));
+            if (!response.IsSuccessStatusCode)
+            {
+                var detail = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                saveError = string.IsNullOrWhiteSpace(detail) ? "ส่งความคิดเห็นไม่สำเร็จ" : detail;
+                return;
+            }
+
+            var saved = await response.Content.ReadFromJsonAsync<LeaveQuotaRequestCommentDto>();
+            if (saved is not null) comments.Add(saved);
+            commentText = string.Empty;
+            scrollToLatest = true;
+        }
+        catch (Exception exception)
+        {
+            saveError = $"ส่งความคิดเห็นไม่สำเร็จ: {exception.Message}";
+        }
+        finally { isSaving = false; }
+    }
+
+    private static string Initial(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString();
+}

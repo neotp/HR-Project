@@ -338,8 +338,6 @@
         try
         {
             categories = await Http.GetFromJsonAsync<List<MasterDataCategoryDto>>("api/system-master-data/categories") ?? [];
-            allMasterItems = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
-                "api/system-master-data/items/all") ?? [];
             selectedCategory = categories.FirstOrDefault();
             await LoadData();
         }
@@ -388,8 +386,9 @@
         }
     }
 
-    private void StartCreate()
+    private async Task StartCreate()
     {
+        await EnsureParentOptionsLoaded();
         editingId = null;
         editCode = editNameTh = editNameEn = string.Empty;
         editDisplayOrder = 0;
@@ -403,8 +402,9 @@
         isEditorOpen = true;
     }
 
-    private void StartEditItem(MasterDataItemDto item)
+    private async Task StartEditItem(MasterDataItemDto item)
     {
+        await EnsureParentOptionsLoaded();
         editingId = item.Id;
         editCode = item.ItemCode;
         editNameTh = item.NameTh;
@@ -414,6 +414,18 @@
         editParentItemId = item.ParentItemId?.ToString() ?? string.Empty;
         saveError = null;
         isEditorOpen = true;
+    }
+
+    private async Task EnsureParentOptionsLoaded()
+    {
+        if (!HasParentCategory || string.IsNullOrWhiteSpace(ParentCategoryCode)) return;
+        if (allMasterItems.Any(item =>
+                string.Equals(item.CategoryCode, ParentCategoryCode, StringComparison.OrdinalIgnoreCase))) return;
+
+        var parentItems = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
+            $"api/system-master-data/items?category={Uri.EscapeDataString(ParentCategoryCode)}&includeInactive=true") ?? [];
+        var knownIds = allMasterItems.Select(item => item.Id).ToHashSet();
+        allMasterItems.AddRange(parentItems.Where(item => knownIds.Add(item.Id)));
     }
 
     private void StartEditLeaveType(LeaveTypeMasterDto item)

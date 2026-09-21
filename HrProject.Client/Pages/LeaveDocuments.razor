@@ -5,6 +5,9 @@
 @code {
     [Parameter, SupplyParameterFromQuery(Name = "documentId")]
     public long? RequestedDocumentId { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "openComments")]
+    public bool OpenRequestedComments { get; set; }
 }
 
 <PageTitle>เอกสารการลา | HR Project</PageTitle>
@@ -28,14 +31,14 @@
             <span class="quota-year">ปี @DateTime.Today.Year</span>
         </div>
         <div class="content-card-body">
-            @if (myLeaveQuotas.Count == 0)
+            @if (DisplayedLeaveQuotas.Count == 0)
             {
                 <div class="quota-empty">ยังไม่มีการกำหนดโควต้าวันลาสำหรับปีนี้</div>
             }
             else
             {
                 <div class="my-quota-grid">
-                    @foreach (var quota in myLeaveQuotas)
+                    @foreach (var quota in DisplayedLeaveQuotas)
                     {
                         <article class="my-quota-item">
                             <h2>@quota.LeaveTypeName</h2>
@@ -126,8 +129,15 @@
                         {
                             @foreach (var document in PagedDocuments)
                             {
-                                <tr>
-                                        <td><LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview></td>
+                                <tr class="@(expandedCommentDocumentId == document.Id ? "comment-row-open" : null)">
+                                    <td>
+                                        <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
+                                                aria-expanded="@(expandedCommentDocumentId == document.Id)"
+                                                @onclick="() => ToggleComments(document.Id)">
+                                            <span class="comment-chevron">›</span>
+                                        </button>
+                                        <LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
+                                    </td>
                                     <td>@document.LeaveTypeName</td>
                                     <td>@document.LeaveDate.ToString("dd/MM/yyyy")</td>
                                     <td>@document.StartTime.ToString("HH:mm")</td>
@@ -135,6 +145,15 @@
                                     <td><span class="reason-cell" title="@document.LeaveReason">@document.LeaveReason</span></td>
                                     <td><span class="status-pill @StatusClass(DisplayStatus(document))" data-status="@DisplayStatus(document)">@StatusText(DisplayStatus(document))</span></td>
                                 </tr>
+                                @if (expandedCommentDocumentId == document.Id)
+                                {
+                                    <tr class="comment-detail-row">
+                                        <td colspan="7">
+                                            <LeaveCommentThread Document="document" CurrentEmployeeId="@CurrentEmployeeId"
+                                                                CommentCountChanged="count => UpdateCommentCount(document.Id, count)" />
+                                        </td>
+                                    </tr>
+                                }
                             }
                         }
                     </tbody>
@@ -657,6 +676,10 @@
     private List<LeaveTypeDto> leaveTypes = [];
     private List<MasterDataItemDto> leaveKinds = [];
     private List<LeaveQuotaDto> myLeaveQuotas = [];
+    private List<LeaveQuotaDto> DisplayedLeaveQuotas => myLeaveQuotas
+        .Where(quota => quota.LeaveTypeName is "ลาพักร้อน" or "ลาป่วย")
+        .OrderBy(quota => quota.LeaveTypeName == "ลาพักร้อน" ? 0 : 1)
+        .ToList();
     private List<LeaveDocumentDto> documents = [];
     private bool hasOpenedRequestedDocument;
     private CurrentMicrosoftUserDto? currentUser;
@@ -667,11 +690,21 @@
         ? currentUser.LeaveApproverName
         : currentUser?.SupervisorName ?? string.Empty;
     private List<LeaveDocumentDto> filteredDocuments = [];
+    private long? expandedCommentDocumentId;
     private int currentPage = 1;
     private int pageSize = 10;
     private IEnumerable<LeaveDocumentDto> PagedDocuments => filteredDocuments
         .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredDocuments.Count / (double)pageSize))) - 1) * pageSize)
         .Take(pageSize);
+
+    private void ToggleComments(long documentId) =>
+        expandedCommentDocumentId = expandedCommentDocumentId == documentId ? null : documentId;
+
+    private void UpdateCommentCount(long documentId, int count)
+    {
+        documents = documents.Select(item => item.Id == documentId ? item with { CommentCount = count } : item).ToList();
+        filteredDocuments = filteredDocuments.Select(item => item.Id == documentId ? item with { CommentCount = count } : item).ToList();
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -704,7 +737,17 @@
             hasOpenedRequestedDocument = true;
             var requestedDocument = documents.FirstOrDefault(document => document.Id == requestedId);
             if (requestedDocument is not null)
-                await OpenDocument(requestedDocument);
+            {
+                searchText = requestedDocument.DocumentNo;
+                selectedLeaveTypes.Clear();
+                selectedStatuses.Clear();
+                startDate = endDate = null;
+                Search();
+                if (OpenRequestedComments)
+                    expandedCommentDocumentId = requestedId;
+                else
+                    await OpenDocument(requestedDocument);
+            }
         }
     }
 

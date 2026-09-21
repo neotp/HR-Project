@@ -38,6 +38,14 @@
 .status-pill { display: inline-block; padding: .25rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; }
 .document-number { padding: 0; color: #2563eb; background: transparent; border: 0; font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .document-number:hover { color: #1d4ed8; }
+.leave-table td:first-child { white-space: nowrap; }
+.comment-toggle { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; gap: .15rem; margin-right: .35rem; padding: 0; color: #475569; background: #f8fafc; border: 1px solid #dbe3ee; border-radius: .4rem; cursor: pointer; vertical-align: middle; }
+.comment-toggle:hover { color: #f06432; background: #fff7ed; border-color: #fdba74; }
+.comment-chevron { display: inline-block; font-size: 1.35rem; line-height: 1; transition: transform .16s ease; }
+.comment-toggle[aria-expanded="true"] .comment-chevron { transform: rotate(90deg); }
+.comment-toggle small { min-width: .9rem; height: .9rem; display: grid; place-items: center; padding: 0 .18rem; color: #fff; background: #f06432; border-radius: 999px; font-size: .58rem; }
+.comment-row-open td { background: #fffaf7; }
+.comment-detail-row > td { padding: 0 !important; background: #f8fafc !important; }
 .leave-table { min-width: 1050px; }
 .reason-cell { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill.approved { color: #047857; background: #d1fae5; border-color: #a7f3d0; }

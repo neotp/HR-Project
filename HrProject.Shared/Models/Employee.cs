@@ -28,6 +28,8 @@ public sealed class Employee
     public string ProfileImageDataUrl { get; set; } = string.Empty;
     public string PersonalMobile { get; set; } = string.Empty;
     public string HomePhone { get; set; } = string.Empty;
+    public string NationalId { get; set; } = string.Empty;
+    public DateOnly? BirthDate { get; set; }
     public string Religion { get; set; } = string.Empty;
     public string BloodType { get; set; } = string.Empty;
     public string CurrentAddress { get; set; } = string.Empty;
@@ -49,6 +51,11 @@ public sealed class Employee
     public string ProductsResponsible { get; set; } = string.Empty;
     public string FunctionalSupervisorName { get; set; } = string.Empty;
     public string ResponsibilityProvince { get; set; } = string.Empty;
+    public List<string> ResponsibilityProvinces { get; set; } = [];
+    public string Brand { get; set; } = string.Empty;
+    public List<string> Brands { get; set; } = [];
+    public string CommGroup { get; set; } = string.Empty;
+    public List<string> CommGroups { get; set; } = [];
     public string ChecklistType { get; set; } = string.Empty;
     public string WorkSchedule { get; set; } = string.Empty;
     public string JobCode { get; set; } = string.Empty;
@@ -123,3 +130,5 @@ public sealed class EmployeeEducationItem
     public string Major { get; set; } = string.Empty;
     public string GraduationYear { get; set; } = string.Empty;
 }
+
+public sealed record EmployeeExportSelectionRequest(IReadOnlyList<int> EmployeeIds);

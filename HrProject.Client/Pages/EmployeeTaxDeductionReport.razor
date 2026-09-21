@@ -1,0 +1,156 @@
+@page "/employees/tax-deductions"
+@using System.Net.Http.Json
+@using System.Text
+@using HrProject.Shared.Models
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>รายงานค่าลดหย่อนภาษีพนักงาน | HR Project</PageTitle>
+
+<section class="manage-page tax-report-page">
+    <header class="tax-report-header">
+        <div><h1>รายงานค่าลดหย่อนภาษีพนักงาน</h1><p>ติดตามการกรอกข้อมูลรายปีและ Export ข้อมูลสำหรับ HR</p></div>
+        @if (canExport)
+        {
+            <button class="export-button" disabled="@(isLoading || filtered.Count == 0)" @onclick="ExportCsv">Export CSV</button>
+        }
+    </header>
+
+    <section class="tax-summary">
+        <article><span>พนักงานที่มีข้อมูล</span><strong>@rows.Count</strong></article>
+        <article class="confirmed"><span>ยืนยันแล้ว</span><strong>@rows.Count(x => x.Status == "CONFIRMED")</strong></article>
+        <article class="draft"><span>แบบร่าง</span><strong>@rows.Count(x => x.Id is not null && x.Status == "DRAFT")</strong></article>
+    </section>
+
+    <section class="content-card report-filter">
+        <label>ค้นหา<input placeholder="รหัส ชื่อพนักงาน หรือแผนก" @bind="search" @bind:event="oninput" /></label>
+        <label>สถานะ<select @bind="status"><option value="ALL">ทั้งหมด</option><option value="CONFIRMED">ยืนยันแล้ว</option><option value="DRAFT">แบบร่าง</option></select></label>
+        <label>ปีภาษี<select @bind="selectedYear" @bind:after="Load"><option>@(DateTime.Today.Year + 1)</option><option>@DateTime.Today.Year</option>@for (var y=DateTime.Today.Year-1;y>=DateTime.Today.Year-5;y--){<option>@y</option>}</select></label>
+    </section>
+
+    <section class="content-card report-table-card">
+        @if (isLoading)
+        {
+            <div class="report-state"><span class="report-spinner"></span>กำลังโหลดข้อมูลให้ครบถ้วน...</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(error))
+        {
+            <div class="report-state error">@error</div>
+        }
+        else
+        {
+            <div class="report-count">@filtered.Count รายการ</div>
+            <div class="report-table-scroll">
+                <table>
+                    <thead><tr><th>รหัสพนักงาน</th><th>พนักงาน</th><th>แผนก</th><th>ปีภาษี</th><th>สถานะ</th><th>แก้ไขล่าสุด</th><th></th></tr></thead>
+                    <tbody>
+                    @if (filtered.Count == 0) { <tr><td colspan="7" class="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr> }
+                    @foreach (var row in filtered)
+                    {
+                        <tr>
+                            <td>@EmployeeCodeFormat.Display(row.EmployeeCode)</td>
+                            <td><button class="employee-link" @onclick="() => OpenDetail(row)">@row.EmployeeName</button></td>
+                            <td>@Display(row.Department)</td><td>@row.TaxYear</td>
+                            <td><span class="row-status @StatusClass(row)">@StatusText(row)</span></td>
+                            <td>@FormatDate(row.UpdatedAt)</td>
+                            <td><button class="detail-button" @onclick="() => OpenDetail(row)">ดูรายละเอียด</button></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</section>
+
+@if (selected is not null)
+{
+    <div class="report-overlay" @onclick="CloseDetail">
+        <section class="report-dialog" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <header><div><h2>@selected.EmployeeName</h2><p>@EmployeeCodeFormat.Display(selected.EmployeeCode) · ปีภาษี @selected.TaxYear</p></div><button @onclick="CloseDetail">×</button></header>
+            <div class="dialog-status"><span class="row-status @StatusClass(selected)">@StatusText(selected)</span><span>แก้ไขล่าสุด @FormatDate(selected.UpdatedAt)</span></div>
+            <div class="dialog-grid">
+                <DetailField Label="สถานภาพการสมรส" Value="@Display(selected.MaritalStatus)" />
+                <DetailField Label="ชื่อคู่สมรส" Value="@Display(selected.SpouseName)" />
+                <DetailField Label="จำนวนบุตร" Value="@($"{selected.ChildCount} คน")" />
+                <DetailField Label="ผู้พิการในอุปการะ" Value="@($"{selected.DisabledDependentCount} คน")" />
+                <DetailField Label="เบี้ยประกันชีวิต" Value="@Money(selected.LifeInsuranceAmount)" />
+                <DetailField Label="เบี้ยประกันสุขภาพ" Value="@Money(selected.HealthInsuranceAmount)" />
+                <DetailField Label="กองทุนสำรองเลี้ยงชีพ" Value="@Money(selected.ProvidentFundAmount)" />
+                <DetailField Label="กองทุนเพื่อการเกษียณ" Value="@Money(selected.RetirementFundAmount)" />
+                <DetailField Label="ประกันสังคม" Value="@Money(selected.SocialSecurityAmount)" />
+                <DetailField Label="เงินลงทุนที่ใช้สิทธิ" Value="@Money(selected.InvestmentDeductionAmount)" />
+                <DetailField Label="เงินบริจาค" Value="@Money(selected.DonationAmount)" />
+                <DetailField Label="รายการอื่น" Value="@($"{Display(selected.OtherDeductionDescription)} · {Money(selected.OtherDeductionAmount)}")" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(selected.Note)) { <div class="dialog-note"><strong>หมายเหตุ</strong><p>@selected.Note</p></div> }
+        </section>
+    </div>
+}
+
+@code {
+    private List<EmployeeTaxDeductionDto> rows=[];
+    private List<EmployeeTaxDeductionDto> filtered => rows.Where(x =>
+        (string.IsNullOrWhiteSpace(search) || $"{x.EmployeeCode} {x.EmployeeName} {x.Department}".Contains(search.Trim(),StringComparison.OrdinalIgnoreCase)) &&
+        (status=="ALL" || x.Status==status)).ToList();
+    private int selectedYear=DateTime.Today.Year;
+    private string search=string.Empty;
+    private string status="ALL";
+    private bool isLoading=true;
+    private bool canExport;
+    private string? error;
+    private EmployeeTaxDeductionDto? selected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var user=await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (!string.IsNullOrWhiteSpace(user?.EmployeeId))
+            {
+                var permissions=await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(user.EmployeeId)}&pageKey=EMPLOYEE_TAX_DEDUCTION_REPORT");
+                canExport=permissions?.AllowedActions.Contains("EXPORT",StringComparer.OrdinalIgnoreCase)==true;
+            }
+        }
+        catch { canExport=false; }
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        isLoading=true; error=null;
+        try { rows=await Http.GetFromJsonAsync<List<EmployeeTaxDeductionDto>>($"api/employee-tax-deductions/report?year={selectedYear}") ?? []; }
+        catch(HttpRequestException ex){ error=ex.StatusCode==System.Net.HttpStatusCode.Forbidden?"คุณไม่มีสิทธิ์ดูรายงานนี้":"โหลดรายงานไม่สำเร็จ กรุณาลองใหม่"; }
+        finally { isLoading=false; }
+    }
+    private void OpenDetail(EmployeeTaxDeductionDto row)=>selected=row;
+    private void CloseDetail()=>selected=null;
+    private static string StatusText(EmployeeTaxDeductionDto x)=>x.Id is null?"ยังไม่บันทึก":x.Status=="CONFIRMED"?"ยืนยันแล้ว":"แบบร่าง";
+    private static string StatusClass(EmployeeTaxDeductionDto x)=>x.Id is null?"missing":x.Status=="CONFIRMED"?"confirmed":"draft";
+    private static string Display(string? value)=>string.IsNullOrWhiteSpace(value)?"-":value;
+    private static string Money(decimal value)=>$"{value:N2} บาท";
+    private static string FormatDate(DateTimeOffset? value)=>value?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")??"-";
+    private static string Csv(string? value) => "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
+    private async Task ExportCsv()
+    {
+        if(!canExport)return;
+        var lines = new List<string>
+        {
+            "รหัสพนักงาน,ชื่อพนักงาน,แผนก,ปีภาษี,สถานะ,สถานภาพสมรส,ชื่อคู่สมรส,จำนวนบุตร,บุตรเกิดตั้งแต่ปี 2561,ผู้พิการในอุปการะ,อุปการะบิดา,อุปการะมารดา,อุปการะบิดาคู่สมรส,อุปการะมารดาคู่สมรส,ประกันชีวิต,ประกันสุขภาพ,ประกันสุขภาพบิดามารดา,กองทุนสำรองเลี้ยงชีพ,กองทุนเกษียณ,ประกันสังคม,เงินลงทุน,เงินบริจาค,รายการอื่น,จำนวนเงินอื่น,หมายเหตุ,แก้ไขล่าสุด,ยืนยันล่าสุด"
+        };
+        lines.AddRange(filtered.Select(x => string.Join(",", new[]
+        {
+            Csv(x.EmployeeCode), Csv(x.EmployeeName), Csv(x.Department), x.TaxYear.ToString(), Csv(StatusText(x)),
+            Csv(x.MaritalStatus), Csv(x.SpouseName), x.ChildCount.ToString(), x.ChildBornFrom2018Count.ToString(),
+            x.DisabledDependentCount.ToString(), x.SupportsFather ? "1" : "0", x.SupportsMother ? "1" : "0",
+            x.SupportsSpouseFather ? "1" : "0", x.SupportsSpouseMother ? "1" : "0",
+            x.LifeInsuranceAmount.ToString("0.00"), x.HealthInsuranceAmount.ToString("0.00"),
+            x.ParentHealthInsuranceAmount.ToString("0.00"), x.ProvidentFundAmount.ToString("0.00"),
+            x.RetirementFundAmount.ToString("0.00"), x.SocialSecurityAmount.ToString("0.00"),
+            x.InvestmentDeductionAmount.ToString("0.00"), x.DonationAmount.ToString("0.00"),
+            Csv(x.OtherDeductionDescription), x.OtherDeductionAmount.ToString("0.00"), Csv(x.Note),
+            Csv(FormatDate(x.UpdatedAt)), Csv(FormatDate(x.ConfirmedAt))
+        })));
+        await JS.InvokeVoidAsync("hrDownload.downloadText",$"employee-tax-deductions-{selectedYear}.csv","\uFEFF"+string.Join("\r\n",lines),"text/csv;charset=utf-8");
+    }
+}

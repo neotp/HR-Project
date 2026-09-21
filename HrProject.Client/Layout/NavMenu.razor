@@ -23,6 +23,43 @@
 
 <div class="@NavMenuCssClass nav-scrollable" @onclick="CloseNavMenu">
     <nav class="nav-menu">
+        @if (PageAvailability.HasAccess("PRE_EMPLOYEES"))
+        {
+            <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("recruitment")'
+                    @onclick:stopPropagation="true" @onclick='() => ToggleGroup("recruitment")'>
+                <span>การรับเข้าทำงาน</span><span class='@ChevronClass("recruitment")'>⌄</span>
+            </button>
+            @if (IsGroupExpanded("recruitment"))
+            {
+                <div class="menu-section-items">
+                    <NavLink class="@MenuClass("PRE_EMPLOYEES")" href="recruitment/pre-employees"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M19 8v6M16 11h6"/></svg>Pre-Employee @MaintenanceLabel("PRE_EMPLOYEES") @PendingBadge("PRE_EMPLOYEES")</NavLink>
+                </div>
+            }
+        }
+
+        <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("employees")'
+                @onclick:stopPropagation="true" @onclick='() => ToggleGroup("employees")'>
+            <span>พนักงาน</span><span class='@ChevronClass("employees")'>⌄</span>
+        </button>
+        @if (IsGroupExpanded("employees"))
+        {
+        <div class="menu-section-items">
+        <NavLink class="@MenuClass("EMPLOYEES")" href="" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>ข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEES")</NavLink>
+        @if (PageAvailability.HasAccess("EMPLOYEES_RESIGNED"))
+        {
+            <NavLink class="@MenuClass("EMPLOYEES_RESIGNED")" href="employees/resigned"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M17 9h5M19.5 6.5v5"/></svg>พนักงานที่ลาออก @MaintenanceLabel("EMPLOYEES_RESIGNED")</NavLink>
+        }
+        @if (PageAvailability.HasAccess("EMPLOYEE_EDIT_REQUESTS"))
+        {
+            <NavLink class="@MenuClass("EMPLOYEE_EDIT_REQUESTS")" href="employees/edit-requests"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEE_EDIT_REQUESTS") @PendingBadge("EMPLOYEE_EDIT_REQUESTS")</NavLink>
+        }
+        @if (PageAvailability.HasAccess("EMPLOYEE_TAX_DEDUCTION_REPORT"))
+        {
+            <NavLink class="@MenuClass("EMPLOYEE_TAX_DEDUCTION_REPORT")" href="employees/tax-deductions"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 3h16v18H4z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>รายงานค่าลดหย่อนภาษี @MaintenanceLabel("EMPLOYEE_TAX_DEDUCTION_REPORT")</NavLink>
+        }
+        </div>
+        }
+
         <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("leave")'
                 @onclick:stopPropagation="true" @onclick='() => ToggleGroup("leave")'>
             <span>การลา</span><span class='@ChevronClass("leave")'>⌄</span>
@@ -56,6 +93,10 @@
         {
             <NavLink class="@MenuClass("LEAVE_QUOTA_MOVEMENTS")" href="leave/quota-movements"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><path d="m15 3 3 3-3 3M9 15l-3 3 3 3"/></svg>Movement โควต้าวันลา @MaintenanceLabel("LEAVE_QUOTA_MOVEMENTS")</NavLink>
         }
+        @if (PageAvailability.HasAccess("LEAVE_QUOTA_ANNUAL_REPORT"))
+        {
+            <NavLink class="@MenuClass("LEAVE_QUOTA_ANNUAL_REPORT")" href="leave/quota-annual-report"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 3h16v18H4z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>รายงานโควต้าวันลาประจำปี @MaintenanceLabel("LEAVE_QUOTA_ANNUAL_REPORT")</NavLink>
+        }
         </div>
         }
 
@@ -79,41 +120,8 @@
         </div>
         }
 
-        @if (PageAvailability.HasAccess("PRE_EMPLOYEES"))
-        {
-            <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("recruitment")'
-                    @onclick:stopPropagation="true" @onclick='() => ToggleGroup("recruitment")'>
-                <span>การรับเข้าทำงาน</span><span class='@ChevronClass("recruitment")'>⌄</span>
-            </button>
-            @if (IsGroupExpanded("recruitment"))
-            {
-                <div class="menu-section-items">
-                    <NavLink class="@MenuClass("PRE_EMPLOYEES")" href="recruitment/pre-employees"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M19 8v6M16 11h6"/></svg>Pre-Employee @MaintenanceLabel("PRE_EMPLOYEES") @PendingBadge("PRE_EMPLOYEES")</NavLink>
-                </div>
-            }
-        }
-
-        <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("employees")'
-                @onclick:stopPropagation="true" @onclick='() => ToggleGroup("employees")'>
-            <span>พนักงาน</span><span class='@ChevronClass("employees")'>⌄</span>
-        </button>
-        @if (IsGroupExpanded("employees"))
-        {
-        <div class="menu-section-items">
-        <NavLink class="@MenuClass("EMPLOYEES")" href="" Match="NavLinkMatch.All"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>ข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEES")</NavLink>
-        @if (PageAvailability.HasAccess("EMPLOYEES_RESIGNED"))
-        {
-            <NavLink class="@MenuClass("EMPLOYEES_RESIGNED")" href="employees/resigned"><svg class="menu-icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M17 9h5M19.5 6.5v5"/></svg>พนักงานที่ลาออก @MaintenanceLabel("EMPLOYEES_RESIGNED")</NavLink>
-        }
-        @if (PageAvailability.HasAccess("EMPLOYEE_EDIT_REQUESTS"))
-        {
-            <NavLink class="@MenuClass("EMPLOYEE_EDIT_REQUESTS")" href="employees/edit-requests"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>ขอแก้ไขข้อมูลพนักงาน @MaintenanceLabel("EMPLOYEE_EDIT_REQUESTS") @PendingBadge("EMPLOYEE_EDIT_REQUESTS")</NavLink>
-        }
-        </div>
-        }
-
         @if (PageAvailability.HasAccess("PERMISSIONS") || PageAvailability.HasAccess("LOCAL_ACCOUNTS") ||
-             PageAvailability.HasAccess("SYSTEM_MASTER_DATA"))
+             PageAvailability.HasAccess("SYSTEM_MASTER_DATA") || PageAvailability.HasAccess("LOTUS_NOTES_EMPLOYEE_SYNC"))
         {
             <button class="menu-section-toggle" type="button" aria-expanded='@IsGroupExpanded("system")'
                     @onclick:stopPropagation="true" @onclick='() => ToggleGroup("system")'>
@@ -133,6 +141,10 @@
             @if (PageAvailability.HasAccess("SYSTEM_MASTER_DATA"))
             {
                 <NavLink class="@MenuClass("SYSTEM_MASTER_DATA")" href="system/master-data"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>จัดการข้อมูลพื้นฐานระบบ @MaintenanceLabel("SYSTEM_MASTER_DATA")</NavLink>
+            }
+            @if (PageAvailability.HasAccess("LOTUS_NOTES_EMPLOYEE_SYNC"))
+            {
+                <NavLink class="@MenuClass("LOTUS_NOTES_EMPLOYEE_SYNC")" href="system/lotus-notes-sync"><svg class="menu-icon" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 8 8 5 8-5M17 3l2 2-2 2"/></svg>ติดตามการส่ง Lotus Notes @MaintenanceLabel("LOTUS_NOTES_EMPLOYEE_SYNC")</NavLink>
             }
             </div>
             }
@@ -210,6 +222,30 @@
 
         try
         {
+            try
+            {
+                var counts = await backgroundHttp.GetFromJsonAsync<NavigationPendingCountsDto>(
+                    "api/navigation/pending-counts", disposeToken.Token);
+                if (counts is not null)
+                {
+                    pendingCounts.Clear();
+                    pendingCounts["LEAVE_PENDING"] = counts.LeavePending;
+                    pendingCounts["LEAVE_REVISIONS"] = counts.LeaveRevisions;
+                    pendingCounts["LEAVE_REQUEST_QUOTA"] = counts.LeaveQuotaRequests;
+                    pendingCounts["ATTENDANCE_REVIEWS"] = counts.AttendanceReviews;
+                    pendingCounts["EMPLOYEE_EDIT_REQUESTS"] = counts.EmployeeEditRequests;
+                    pendingCounts["PRE_EMPLOYEES"] = counts.PreEmployees;
+                    pendingCounts["LOCAL_ACCOUNTS"] = counts.LocalPasswordResetRequests;
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+            }
+            catch when (!disposeToken.IsCancellationRequested)
+            {
+                // Keep the proven legacy queries as a safe fallback while the new
+                // count-only endpoint is unavailable during a rolling deployment.
+            }
+
             if (string.IsNullOrWhiteSpace(currentEmployeeId))
             {
                 var user = await backgroundHttp.GetFromJsonAsync<CurrentMicrosoftUserDto>(
@@ -385,7 +421,11 @@
     private void HandlePendingRefreshRequested() =>
         _ = InvokeAsync(RefreshPendingCountsAsync);
 
-    private void HandleAvailabilityChanged() => _ = InvokeAsync(StateHasChanged);
+    private void HandleAvailabilityChanged() => _ = InvokeAsync(async () =>
+    {
+        StateHasChanged();
+        await RefreshPendingCountsAsync();
+    });
 
     private async Task ToggleNavMenu()
     {

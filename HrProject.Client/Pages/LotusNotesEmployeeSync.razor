@@ -1,0 +1,149 @@
+@page "/system/lotus-notes-sync"
+@using System.Text.Json
+@inject HttpClient Http
+@inject LoadingState LoadingState
+
+<PageTitle>ติดตามการส่งพนักงานไป Lotus Notes | HR Project</PageTitle>
+
+<section class="manage-page lotus-sync-page">
+    <header class="page-header-card">
+        <div class="page-header-content"><div class="page-header-text">
+            <h1>ติดตามการส่งพนักงานไป Lotus Notes</h1>
+            <p>ตรวจสอบข้อมูลที่รอส่ง รายการที่ Gateway รับแล้ว และรายการที่ต้องให้ผู้ดูแลส่งซ้ำ</p>
+        </div></div>
+        <button class="lotus-refresh" type="button" disabled="@isLoading" @onclick="Load">รีเฟรช</button>
+    </header>
+
+    <section class="lotus-summary-grid">
+        <article class="pending"><span>Pending</span><strong>@items.Count(x => x.Status == "PENDING")</strong></article>
+        <article class="processing"><span>กำลังส่ง</span><strong>@items.Count(x => x.Status == "PROCESSING")</strong></article>
+        <article class="success"><span>Success</span><strong>@items.Count(x => x.Status == "SUCCESS")</strong></article>
+        <article class="failed"><span>Failed</span><strong>@items.Count(x => x.Status == "FAILED")</strong></article>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header">ค้นหารายการ</div>
+        <div class="content-card-body lotus-criteria">
+            <label>คำค้นหา<input type="search" placeholder="รหัสหรือชื่อพนักงาน" @bind="search" @bind:event="oninput" @bind:after="ResetPage" /></label>
+            <label>สถานะ<select @bind="status" @bind:after="ResetPage"><option value="">ทั้งหมด</option><option value="PENDING">Pending</option><option value="PROCESSING">กำลังส่ง</option><option value="SUCCESS">Success</option><option value="FAILED">Failed</option></select></label>
+            <button type="button" class="lotus-clear" @onclick="Clear">ล้างข้อมูล</button>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="content-card-header lotus-list-title"><span>รายการส่งข้อมูล</span><small>@Filtered.Count รายการ</small></div>
+        <div class="content-card-body">
+            @if (isLoading)
+            {
+                <div class="lotus-state"><span class="lotus-spinner"></span>กำลังโหลดรายการ...</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                <div class="lotus-state error">@error</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="lotus-table">
+                        <thead><tr><th>วันที่สร้าง</th><th>รหัสพนักงาน</th><th>พนักงาน</th><th>Key</th><th>สถานะ</th><th>จำนวนครั้ง</th><th>ส่งล่าสุด</th><th>ดำเนินการ</th></tr></thead>
+                        <tbody>
+                        @if (Paged.Count == 0)
+                        {
+                            <tr><td colspan="8" class="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>
+                        }
+                        @foreach (var item in Paged)
+                        {
+                            <tr>
+                                <td>@Local(item.CreatedAt)</td><td>@EmployeeCodeFormat.Display(item.EmployeeCode)</td><td><strong>@Display(item.EmployeeName)</strong></td>
+                                <td class="external-key">@MaskKey(item.ExternalKey)</td><td><span class="lotus-status @item.Status.ToLowerInvariant()">@StatusText(item.Status)</span></td>
+                                <td>@item.AttemptCount</td><td>@(item.LastAttemptAt.HasValue ? Local(item.LastAttemptAt.Value) : "-")</td>
+                                <td class="lotus-actions"><button type="button" @onclick="() => OpenDetail(item)">ดูรายละเอียด</button>
+                                    @if (item.Status == "FAILED" && canRetry) { <button type="button" class="retry" @onclick="() => AskRetry(item)">Retry</button> }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+                <Pagination TotalItems="@Filtered.Count" @bind-CurrentPage="page" @bind-PageSize="pageSize" />
+            }
+        </div>
+    </section>
+</section>
+
+@if (detail is not null)
+{
+    <div class="lotus-modal-backdrop" @onclick="CloseDetail">
+        <section class="lotus-modal" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <header><div><h2>รายละเอียดการส่ง Lotus Notes</h2><p>@detail.EmployeeName · @EmployeeCodeFormat.Display(detail.EmployeeCode)</p></div><button type="button" @onclick="CloseDetail">×</button></header>
+            <div class="lotus-modal-body">
+                <dl><div><dt>Database</dt><dd>@detail.DatabaseName</dd></div><div><dt>Key</dt><dd>@detail.ExternalKey</dd></div><div><dt>สถานะ</dt><dd><span class="lotus-status @detail.Status.ToLowerInvariant()">@StatusText(detail.Status)</span></dd></div><div><dt>จำนวนครั้งที่ส่ง</dt><dd>@detail.AttemptCount</dd></div></dl>
+                @if (!string.IsNullOrWhiteSpace(detail.LastError)) { <div class="lotus-error-box"><strong>ข้อผิดพลาดล่าสุด</strong><pre>@detail.LastError</pre></div> }
+                @if (!string.IsNullOrWhiteSpace(detail.ResponseSummary)) { <div class="lotus-response-box"><strong>คำตอบจาก Gateway</strong><pre>@detail.ResponseSummary</pre></div> }
+                <div class="lotus-payload"><strong>Data ที่ส่ง</strong><pre>@Pretty(detail.Payload)</pre></div>
+            </div>
+            <footer><button type="button" @onclick="CloseDetail">ปิด</button>@if (detail.Status == "FAILED" && canRetry) { <button class="retry" type="button" @onclick="() => AskRetry(detail)">Retry</button> }</footer>
+        </section>
+    </div>
+}
+
+<ConfirmActionDialog IsOpen="@(retryItem is not null)" IsBusy="@isRetrying"
+                     Title="ยืนยันการส่งข้อมูลซ้ำ" Message="@RetryMessage"
+                     ConfirmText="ยืนยัน Retry" BusyText="กำลังนำกลับเข้าคิว..." Tone="primary"
+                     OnConfirm="Retry" OnCancel="CancelRetry" />
+
+@code {
+    private List<LotusNotesSyncItemDto> items = [];
+    private string search = string.Empty, status = string.Empty;
+    private string? error;
+    private bool isLoading = true, isRetrying, canRetry;
+    private int page = 1, pageSize = 10;
+    private LotusNotesSyncItemDto? detail, retryItem;
+    private List<LotusNotesSyncItemDto> Filtered => items.Where(x =>
+        (string.IsNullOrWhiteSpace(status) || x.Status == status) &&
+        (string.IsNullOrWhiteSpace(search) || x.EmployeeCode.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+         x.EmployeeName.Contains(search, StringComparison.OrdinalIgnoreCase))).ToList();
+    private List<LotusNotesSyncItemDto> Paged => Filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+    private string RetryMessage => retryItem is null ? string.Empty : $"นำข้อมูลของ {retryItem.EmployeeName} กลับเข้า Pending เพื่อให้ worker ส่งไป Gateway อีกครั้งหรือไม่";
+
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load()
+    {
+        using var loading = LoadingState.BeginRequest();
+        isLoading = true; error = null;
+        try
+        {
+            var me = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+            if (string.IsNullOrWhiteSpace(me?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงาน");
+            var permission = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(me.EmployeeId)}&pageKey=LOTUS_NOTES_EMPLOYEE_SYNC");
+            canRetry = permission?.AllowedActions.Contains("RETRY") == true;
+            items = await Http.GetFromJsonAsync<List<LotusNotesSyncItemDto>>("api/lotus-notes-employee-sync") ?? [];
+        }
+        catch (Exception exception) { error = $"โหลดรายการไม่สำเร็จ: {exception.Message}"; }
+        finally { isLoading = false; }
+    }
+    private void OpenDetail(LotusNotesSyncItemDto value) => detail = value;
+    private void CloseDetail() => detail = null;
+    private void AskRetry(LotusNotesSyncItemDto value) { retryItem = value; detail = null; }
+    private void CancelRetry() { if (!isRetrying) retryItem = null; }
+    private async Task Retry()
+    {
+        if (retryItem is null || isRetrying) return;
+        isRetrying = true;
+        try
+        {
+            var response = await Http.PostAsync($"api/lotus-notes-employee-sync/{retryItem.Id}/retry", null);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException((await response.Content.ReadAsStringAsync()).Trim('"'));
+            retryItem = null; await Load();
+        }
+        catch (Exception exception) { error = $"Retry ไม่สำเร็จ: {exception.Message}"; retryItem = null; }
+        finally { isRetrying = false; }
+    }
+    private void Clear() { search = status = string.Empty; page = 1; }
+    private void ResetPage() => page = 1;
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Local(DateTimeOffset value) => value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss");
+    private static string MaskKey(string value) => value.Length <= 4 ? value : new string('•', value.Length - 4) + value[^4..];
+    private static string StatusText(string value) => value switch { "PENDING" => "Pending", "PROCESSING" => "กำลังส่ง", "SUCCESS" => "Success", "FAILED" => "Failed", _ => value };
+    private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
+}

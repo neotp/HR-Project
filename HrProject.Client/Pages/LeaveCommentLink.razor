@@ -1,0 +1,28 @@
+@page "/leave/comment-link/{CommentId:long}"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>กำลังเปิดความคิดเห็น | HR Project</PageTitle>
+
+<div class="page-loading" role="status">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <span>กำลังตรวจสอบสิทธิ์และเปิดเอกสาร...</span>
+</div>
+
+@code {
+    [Parameter] public long CommentId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var destination = await Http.GetFromJsonAsync<LeaveCommentLinkDestinationDto>(
+                $"api/leave-comment-links/{CommentId}");
+            Navigation.NavigateTo(destination?.Url ?? "/leave/all-documents", replace: true);
+        }
+        catch
+        {
+            Navigation.NavigateTo("/leave/all-documents", replace: true);
+        }
+    }
+}

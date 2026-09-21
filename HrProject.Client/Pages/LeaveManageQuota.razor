@@ -10,79 +10,110 @@
                 <h1>จัดการโควต้าวันลา</h1>
                 <p>กำหนดและแก้ไขจำนวนชั่วโมงลาของพนักงาน</p>
             </div>
-            <button class="btn btn-create" type="button" @onclick="StartCreate">+ กำหนดโควต้า</button>
+            @if (selectedEmployee is not null)
+            {
+                <button class="btn btn-create" type="button" @onclick="StartCreate">+ กำหนดโควต้า</button>
+            }
         </div>
     </header>
 
-    <section class="content-card">
-        <div class="content-card-header">
-            โควต้าวันลาพนักงาน
-            <span class="result-count">@filteredQuotas.Count รายการ</span>
-        </div>
-        <div class="content-card-body">
-            @if (isLoading)
-            {
-                <div class="state-message">กำลังโหลดข้อมูลโควต้า...</div>
-            }
-            else if (!string.IsNullOrWhiteSpace(loadError))
-            {
-                <div class="state-message error">@loadError</div>
-            }
-            else
-            {
-                <div class="quota-search-grid">
-                    <label>
-                        ชื่อพนักงาน
-                        <input type="search" placeholder="ค้นหาชื่อหรือรหัสพนักงาน"
-                               @bind="EmployeeSearch" @bind:event="oninput" />
-                    </label>
-                    <label>
-                        ประเภทการลา
-                        <input type="search" placeholder="ค้นหาประเภทการลา"
-                               @bind="LeaveTypeSearch" @bind:event="oninput" />
-                    </label>
-                </div>
+    @if (selectedEmployee is null)
+    {
+        <section class="content-card quota-criteria-card">
+            <div class="content-card-header">ค้นหาพนักงาน</div>
+            <div class="content-card-body quota-search-grid">
+                <label>รหัสหรือชื่อพนักงาน
+                    <input type="search" placeholder="ค้นหารหัสหรือชื่อพนักงาน" @bind="EmployeeSearch" @bind:event="oninput" />
+                </label>
+                <label>แผนก
+                    <input type="search" placeholder="ค้นหาแผนก" @bind="DepartmentSearch" @bind:event="oninput" />
+                </label>
+            </div>
+        </section>
+
+        <section class="content-card">
+            <div class="content-card-header">รายชื่อพนักงาน <span class="result-count">@filteredEmployees.Count รายการ</span></div>
+            <div class="content-card-body">
+                @if (isLoading)
+                {
+                    <div class="quota-loading"><span class="quota-spinner"></span><span>กำลังโหลดข้อมูลโควต้า...</span></div>
+                }
+                else if (!string.IsNullOrWhiteSpace(loadError))
+                {
+                    <div class="state-message error">@loadError</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table employee-table quota-employee-table">
+                            <thead><tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>ประเภทลา</th><th>โควต้ารวม (ชั่วโมง)</th><th>คงเหลือ (ชั่วโมง)</th><th></th></tr></thead>
+                            <tbody>
+                                @if (filteredEmployees.Count == 0)
+                                {
+                                    <tr><td colspan="8" class="no-results">ไม่พบข้อมูลพนักงานตามเงื่อนไข</td></tr>
+                                }
+                                @foreach (var employee in PagedEmployees)
+                                {
+                                    var employeeQuotas = QuotasFor(employee.EmployeeCode).ToList();
+                                    <tr class="quota-employee-row" tabindex="0" @onclick="() => OpenEmployee(employee)" @onkeydown="args => HandleEmployeeRowKey(args, employee)">
+                                        <td>@EmployeeCodeFormat.Display(employee.EmployeeCode)</td><td><strong>@employee.FullName</strong></td>
+                                        <td>@Display(employee.Department)</td><td>@Display(employee.Position)</td>
+                                        <td>@employeeQuotas.Count</td><td>@employeeQuotas.Sum(x => x.QuotaHours).ToString("0.##")</td>
+                                        <td><strong class="remaining">@employeeQuotas.Sum(x => x.RemainingHours).ToString("0.##")</strong></td>
+                                        <td><span class="quota-view-link">ดูรายละเอียด ›</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@filteredEmployees.Count" @bind-CurrentPage="employeePage" @bind-PageSize="pageSize" />
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="quota-employee-banner">
+            <button class="quota-back-link" type="button" @onclick="BackToEmployees">‹ กลับหน้ารายชื่อพนักงาน</button>
+            <div class="quota-profile-summary">
+                <div class="quota-avatar">@EmployeeInitial</div>
+                <div><span>@EmployeeCodeFormat.Display(selectedEmployee.EmployeeCode)</span><h2>@selectedEmployee.FullName</h2><p>@Display(selectedEmployee.Department) · @Display(selectedEmployee.Position)</p></div>
+            </div>
+        </section>
+
+        <section class="content-card quota-criteria-card">
+            <div class="content-card-header">ค้นหาโควต้า</div>
+            <div class="content-card-body quota-detail-search">
+                <label>ประเภทการลา
+                    <input type="search" placeholder="ค้นหาประเภทการลา" @bind="LeaveTypeSearch" @bind:event="oninput" />
+                </label>
+            </div>
+        </section>
+
+        <section class="content-card">
+            <div class="content-card-header">โควต้าวันลาของ @selectedEmployee.FullName <span class="result-count">@filteredQuotas.Count รายการ</span></div>
+            <div class="content-card-body">
                 <div class="table-responsive">
                     <table class="table employee-table quota-table">
-                        <thead>
-                            <tr>
-                                <th>ชื่อพนักงาน</th>
-                                <th>ประเภทการลา</th>
-                                <th>จำนวนคงเหลือ (ชั่วโมง)</th>
-                                <th>จำนวนใช้ไปแล้ว (ชั่วโมง)</th>
-                                <th></th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>ประเภทการลา</th><th>โควต้ารวม (ชั่วโมง)</th><th>ใช้ไปแล้ว (ชั่วโมง)</th><th>จำนวนคงเหลือ (ชั่วโมง)</th><th></th></tr></thead>
                         <tbody>
                             @if (filteredQuotas.Count == 0)
                             {
-                                <tr><td colspan="5" class="no-results">ไม่พบข้อมูลโควต้าที่ตรงกับคำค้นหา</td></tr>
+                                <tr><td colspan="5" class="no-results">ยังไม่มีโควต้าหรือไม่พบข้อมูลที่ตรงกับคำค้นหา</td></tr>
                             }
-                            else
+                            @foreach (var quota in PagedQuotas)
                             {
-                                @foreach (var quota in PagedQuotas)
-                                {
-                                    <tr>
-                                        <td>@EmployeeName(quota.EmployeeId)</td>
-                                        <td>@quota.LeaveTypeName</td>
-                                        <td><strong class="remaining">@quota.RemainingHours.ToString("0.##")</strong></td>
-                                        <td>@quota.UsedHours.ToString("0.##")</td>
-                                        <td>
-                                            <div class="quota-row-actions">
-                                                <button class="btn-edit" type="button" @onclick="() => StartEdit(quota)">แก้ไข</button>
-                                                <button class="btn-delete" type="button" @onclick="() => RequestDelete(quota)">ลบ</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
+                                <tr><td><strong>@quota.LeaveTypeName</strong></td><td>@quota.QuotaHours.ToString("0.##")</td><td>@quota.UsedHours.ToString("0.##")</td><td><strong class="remaining">@quota.RemainingHours.ToString("0.##")</strong></td>
+                                    <td><div class="quota-row-actions"><button class="btn-edit" type="button" @onclick="() => StartEdit(quota)">แก้ไข</button><button class="btn-delete" type="button" @onclick="() => RequestDelete(quota)">ลบ</button></div></td>
+                                </tr>
                             }
                         </tbody>
                     </table>
                 </div>
-                <Pagination TotalItems="@filteredQuotas.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
-            }
-        </div>
-    </section>
+                <Pagination TotalItems="@filteredQuotas.Count" @bind-CurrentPage="quotaPage" @bind-PageSize="pageSize" />
+            </div>
+        </section>
+    }
 </section>
 
 @if (isEditing)
@@ -101,7 +132,7 @@
                     <label>ชื่อพนักงาน
                         <EmployeeSearchSelect Items="employees"
                                               @bind-Value="quotaEmployeeId"
-                                              Disabled="@editingQuotaId.HasValue" />
+                                              Disabled="@(editingQuotaId.HasValue || selectedEmployee is not null)" />
                     </label>
                     <label>ประเภทการลา
                         <select @bind="quotaLeaveTypeId" disabled="@editingQuotaId.HasValue">
@@ -171,19 +202,31 @@
     private string? saveError;
     private string? deleteError;
     private List<Employee> employees = [];
+    private List<Employee> filteredEmployees = [];
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveQuotaDto> quotas = [];
     private List<LeaveQuotaDto> filteredQuotas = [];
     private Dictionary<string, string> employeeNames = new(StringComparer.OrdinalIgnoreCase);
     private string employeeSearch = string.Empty;
+    private string departmentSearch = string.Empty;
     private string leaveTypeSearch = string.Empty;
+    private Employee? selectedEmployee;
     private string EmployeeSearch
     {
         get => employeeSearch;
         set
         {
             employeeSearch = value;
-            ApplyFilters();
+            ApplyEmployeeFilters();
+        }
+    }
+    private string DepartmentSearch
+    {
+        get => departmentSearch;
+        set
+        {
+            departmentSearch = value;
+            ApplyEmployeeFilters();
         }
     }
     private string LeaveTypeSearch
@@ -195,10 +238,14 @@
             ApplyFilters();
         }
     }
-    private int currentPage = 1;
+    private int employeePage = 1;
+    private int quotaPage = 1;
     private int pageSize = 10;
+    private IEnumerable<Employee> PagedEmployees => filteredEmployees
+        .Skip((Math.Clamp(employeePage, 1, Math.Max(1, (int)Math.Ceiling(filteredEmployees.Count / (double)pageSize))) - 1) * pageSize)
+        .Take(pageSize);
     private IEnumerable<LeaveQuotaDto> PagedQuotas => filteredQuotas
-        .Skip((Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filteredQuotas.Count / (double)pageSize))) - 1) * pageSize)
+        .Skip((Math.Clamp(quotaPage, 1, Math.Max(1, (int)Math.Ceiling(filteredQuotas.Count / (double)pageSize))) - 1) * pageSize)
         .Take(pageSize);
     private long? editingQuotaId;
     private string quotaEmployeeId = string.Empty;
@@ -208,6 +255,8 @@
     private LeaveQuotaDto? deletingQuota;
     private CurrentMicrosoftUserDto? currentUser;
     private decimal RemainingPreview => quotaHours - usedHours;
+    private string EmployeeInitial => string.IsNullOrWhiteSpace(selectedEmployee?.FullName)
+        ? "?" : selectedEmployee.FullName.Trim()[0].ToString();
 
     protected override async Task OnInitializedAsync()
     {
@@ -221,6 +270,7 @@
                 StringComparer.OrdinalIgnoreCase);
             leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
             await ReloadQuotas();
+            ApplyEmployeeFilters();
         }
         catch (Exception exception)
         {
@@ -241,22 +291,37 @@
 
     private void ApplyFilters()
     {
-        var employeeTerm = employeeSearch.Trim();
         var leaveTypeTerm = leaveTypeSearch.Trim();
         filteredQuotas = quotas.Where(quota =>
-            (employeeTerm.Length == 0 ||
-             quota.EmployeeId.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase) ||
-             EmployeeName(quota.EmployeeId).Contains(employeeTerm, StringComparison.OrdinalIgnoreCase)) &&
+            selectedEmployee is not null &&
+            string.Equals(quota.EmployeeId, selectedEmployee.EmployeeCode, StringComparison.OrdinalIgnoreCase) &&
             (leaveTypeTerm.Length == 0 ||
              quota.LeaveTypeName.Contains(leaveTypeTerm, StringComparison.OrdinalIgnoreCase)))
             .ToList();
-        currentPage = 1;
+        quotaPage = 1;
+    }
+
+    private void ApplyEmployeeFilters()
+    {
+        var employeeTerm = employeeSearch.Trim();
+        var departmentTerm = departmentSearch.Trim();
+        filteredEmployees = employees.Where(employee =>
+            (employeeTerm.Length == 0 ||
+             employee.EmployeeCode.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase) ||
+             employee.FullName.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase) ||
+             employee.ThaiFullName.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase) ||
+             employee.EnglishFullName.Contains(employeeTerm, StringComparison.OrdinalIgnoreCase)) &&
+            (departmentTerm.Length == 0 || employee.Department.Contains(departmentTerm, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(employee => EmployeeSortNumber(employee.EmployeeCode))
+            .ThenBy(employee => employee.EmployeeCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        employeePage = 1;
     }
 
     private void StartCreate()
     {
         editingQuotaId = null;
-        quotaEmployeeId = string.Empty;
+        quotaEmployeeId = selectedEmployee?.EmployeeCode ?? string.Empty;
         quotaLeaveTypeId = 0;
         quotaHours = usedHours = 0;
         saveError = null;
@@ -376,4 +441,31 @@
 
     private string EmployeeName(string employeeId) =>
         employeeNames.GetValueOrDefault(employeeId, employeeId);
+
+    private IEnumerable<LeaveQuotaDto> QuotasFor(string employeeId) => quotas.Where(quota =>
+        string.Equals(quota.EmployeeId, employeeId, StringComparison.OrdinalIgnoreCase));
+
+    private void OpenEmployee(Employee employee)
+    {
+        selectedEmployee = employee;
+        leaveTypeSearch = string.Empty;
+        ApplyFilters();
+    }
+
+    private void BackToEmployees()
+    {
+        selectedEmployee = null;
+        filteredQuotas = [];
+        quotaPage = 1;
+    }
+
+    private void HandleEmployeeRowKey(KeyboardEventArgs args, Employee employee)
+    {
+        if (args.Key is "Enter" or " ") OpenEmployee(employee);
+    }
+
+    private static long EmployeeSortNumber(string employeeCode) =>
+        long.TryParse(employeeCode, out var number) ? number : long.MaxValue;
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 }

@@ -1,0 +1,202 @@
+@using System.Net.Http.Json
+@using HrProject.Shared.Models
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<section class="tax-declaration" aria-labelledby="tax-declaration-title">
+    <div class="tax-heading">
+        <div>
+            <h2 id="tax-declaration-title">บันทึกค่าลดหย่อนภาษี</h2>
+            <p>บันทึกข้อมูลที่ต้องการแจ้งแก่ HR แยกตามปีภาษี ระบบไม่คำนวณภาษีหรือวงเงินลดหย่อนให้อัตโนมัติ</p>
+        </div>
+        <div class="tax-heading-actions">
+            <label>ปีภาษี
+                <select value="@selectedYear" @onchange="ChangeYear">
+                    @foreach (var year in years)
+                    {
+                        <option value="@year">@year</option>
+                    }
+                </select>
+            </label>
+            @if (model is not null)
+            {
+                <span class="tax-status @(model.Status == "CONFIRMED" ? "confirmed" : "draft")">
+                    @(model.Status == "CONFIRMED" ? "ยืนยันแล้ว" : model.Id is null ? "ยังไม่บันทึก" : "แบบร่าง")
+                </span>
+            }
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="tax-loading"><span class="tax-spinner"></span>กำลังโหลดข้อมูลค่าลดหย่อน...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="tax-message error">@error</div>
+    }
+    else if (model is not null)
+    {
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="tax-message success">@message</div>
+        }
+
+        <fieldset disabled="@(!IsOwner || isSaving)">
+            <div class="tax-section">
+                <h3>ข้อมูลครอบครัวและผู้มีอุปการะ</h3>
+                <div class="tax-grid">
+                    <label>สถานภาพการสมรส
+                        <select @bind="model.MaritalStatus"><option value="">-- เลือก --</option><option>โสด</option><option>สมรส</option><option>หย่า</option><option>หม้าย</option></select>
+                    </label>
+                    <label>การจดทะเบียนสมรส
+                        <select @bind="marriageRegistered"><option value="">-- ไม่ระบุ --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select>
+                    </label>
+                    <label>ชื่อ-นามสกุลคู่สมรส<input @bind="model.SpouseName" /></label>
+                    <label>คู่สมรสมีเงินได้
+                        <select @bind="spouseHasIncome"><option value="">-- ไม่ระบุ --</option><option value="true">มีเงินได้</option><option value="false">ไม่มีเงินได้</option></select>
+                    </label>
+                    <label>เลขบัตรประชาชนคู่สมรส<input @bind="model.SpouseNationalId" maxlength="13" /></label>
+                    <label>จำนวนบุตรทั้งหมด (คน)<input type="number" min="0" @bind="model.ChildCount" /></label>
+                    <label>บุตรคนที่ 2 เป็นต้นไปที่เกิดตั้งแต่ปี 2561 (คน)<input type="number" min="0" @bind="model.ChildBornFrom2018Count" /></label>
+                    <label>ผู้พิการหรือทุพพลภาพในอุปการะ (คน)<input type="number" min="0" @bind="model.DisabledDependentCount" /></label>
+                </div>
+                <div class="tax-check-grid">
+                    <label><input type="checkbox" @bind="model.SupportsFather" /> อุปการะบิดา</label>
+                    <label><input type="checkbox" @bind="model.SupportsMother" /> อุปการะมารดา</label>
+                    <label><input type="checkbox" @bind="model.SupportsSpouseFather" /> อุปการะบิดาคู่สมรส</label>
+                    <label><input type="checkbox" @bind="model.SupportsSpouseMother" /> อุปการะมารดาคู่สมรส</label>
+                </div>
+            </div>
+
+            <div class="tax-section">
+                <h3>จำนวนเงินที่แจ้ง (บาท)</h3>
+                <div class="tax-grid">
+                    <label>เบี้ยประกันชีวิต<input type="number" min="0" step="0.01" @bind="model.LifeInsuranceAmount" /></label>
+                    <label>เบี้ยประกันสุขภาพตนเอง<input type="number" min="0" step="0.01" @bind="model.HealthInsuranceAmount" /></label>
+                    <label>เบี้ยประกันสุขภาพบิดามารดา<input type="number" min="0" step="0.01" @bind="model.ParentHealthInsuranceAmount" /></label>
+                    <label>กองทุนสำรองเลี้ยงชีพ<input type="number" min="0" step="0.01" @bind="model.ProvidentFundAmount" /></label>
+                    <label>กองทุนเพื่อการเกษียณ<input type="number" min="0" step="0.01" @bind="model.RetirementFundAmount" /></label>
+                    <label>ประกันสังคม<input type="number" min="0" step="0.01" @bind="model.SocialSecurityAmount" /></label>
+                    <label>เงินลงทุนที่ใช้สิทธิลดหย่อน<input type="number" min="0" step="0.01" @bind="model.InvestmentDeductionAmount" /></label>
+                    <label>เงินบริจาค<input type="number" min="0" step="0.01" @bind="model.DonationAmount" /></label>
+                    <label>รายการลดหย่อนอื่น<input @bind="model.OtherDeductionDescription" /></label>
+                    <label>จำนวนเงินรายการอื่น<input type="number" min="0" step="0.01" @bind="model.OtherDeductionAmount" /></label>
+                </div>
+                <label class="tax-note">หมายเหตุ<textarea rows="3" @bind="model.Note"></textarea></label>
+            </div>
+        </fieldset>
+
+        <div class="tax-footer">
+            <div class="tax-timestamp">
+                @if (model.UpdatedAt is not null) { <span>แก้ไขล่าสุด @FormatDateTime(model.UpdatedAt)</span> }
+                @if (model.ConfirmedAt is not null) { <span>ยืนยันล่าสุด @FormatDateTime(model.ConfirmedAt)</span> }
+            </div>
+            @if (IsOwner)
+            {
+                <div class="tax-buttons">
+                    <button class="tax-secondary" disabled="@isSaving" @onclick="() => Save(false)">บันทึกแบบร่าง</button>
+                    <button class="tax-primary" disabled="@isSaving" @onclick="() => Save(true)">@(isSaving ? "กำลังบันทึก..." : "ยืนยันข้อมูล")</button>
+                </div>
+            }
+        </div>
+
+        @if (history.Count > 0)
+        {
+            <details class="tax-history">
+                <summary>ประวัติการบันทึก (@history.Count)</summary>
+                @foreach (var item in history)
+                {
+                    <div><span>@(item.Action == "CONFIRM" ? "ยืนยันข้อมูล" : "บันทึกแบบร่าง")</span><span>@item.ChangedByName</span><time>@FormatDateTime(item.ChangedAt)</time></div>
+                }
+            </details>
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public int EmployeeId { get; set; }
+    [Parameter] public bool IsOwner { get; set; }
+
+    private EmployeeTaxDeductionDto? model;
+    private List<EmployeeTaxDeductionHistoryDto> history = [];
+    private List<int> years = [];
+    private int selectedYear = DateTime.Today.Year;
+    private int loadedEmployeeId;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? error;
+    private string? message;
+    private string marriageRegistered
+    {
+        get => model?.IsMarriageRegistered?.ToString().ToLowerInvariant() ?? string.Empty;
+        set { if (model is not null) model.IsMarriageRegistered = ParseNullableBool(value); }
+    }
+    private string spouseHasIncome
+    {
+        get => model?.SpouseHasIncome?.ToString().ToLowerInvariant() ?? string.Empty;
+        set { if (model is not null) model.SpouseHasIncome = ParseNullableBool(value); }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EmployeeId == loadedEmployeeId) return;
+        loadedEmployeeId = EmployeeId;
+        selectedYear = DateTime.Today.Year;
+        await LoadYearsAndData();
+    }
+
+    private async Task LoadYearsAndData()
+    {
+        try
+        {
+            years = await Http.GetFromJsonAsync<List<int>>($"api/employee-tax-deductions/employee/{EmployeeId}/years") ?? [];
+            if (!years.Contains(selectedYear)) years.Add(selectedYear);
+            years = years.Distinct().OrderDescending().ToList();
+            await LoadData();
+        }
+        catch (HttpRequestException ex) { error = $"โหลดข้อมูลค่าลดหย่อนไม่สำเร็จ (HTTP {(int?)ex.StatusCode})"; isLoading = false; }
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true; error = null; message = null;
+        try
+        {
+            var dataTask = Http.GetFromJsonAsync<EmployeeTaxDeductionDto>($"api/employee-tax-deductions/employee/{EmployeeId}?year={selectedYear}");
+            var historyTask = Http.GetFromJsonAsync<List<EmployeeTaxDeductionHistoryDto>>($"api/employee-tax-deductions/employee/{EmployeeId}/{selectedYear}/history");
+            await Task.WhenAll(dataTask, historyTask);
+            model = await dataTask;
+            history = await historyTask ?? [];
+        }
+        catch (HttpRequestException ex) { error = $"โหลดข้อมูลค่าลดหย่อนไม่สำเร็จ (HTTP {(int?)ex.StatusCode})"; }
+        finally { isLoading = false; }
+    }
+
+    private async Task ChangeYear(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var year)) { selectedYear = year; await LoadData(); }
+    }
+
+    private async Task Save(bool confirm)
+    {
+        if (model is null || !IsOwner || isSaving) return;
+        if (confirm && !await JS.InvokeAsync<bool>("confirm", $"ยืนยันข้อมูลค่าลดหย่อนภาษีปี {selectedYear} ใช่หรือไม่?")) return;
+        isSaving = true; error = null; message = null;
+        try
+        {
+            var response = confirm
+                ? await Http.PostAsJsonAsync($"api/employee-tax-deductions/employee/{EmployeeId}/{selectedYear}/confirm", model)
+                : await Http.PutAsJsonAsync($"api/employee-tax-deductions/employee/{EmployeeId}/{selectedYear}", model);
+            if (!response.IsSuccessStatusCode) { error = await response.Content.ReadAsStringAsync(); return; }
+            model = await response.Content.ReadFromJsonAsync<EmployeeTaxDeductionDto>() ?? model;
+            history = await Http.GetFromJsonAsync<List<EmployeeTaxDeductionHistoryDto>>($"api/employee-tax-deductions/employee/{EmployeeId}/{selectedYear}/history") ?? [];
+            message = confirm ? "ยืนยันข้อมูลเรียบร้อยแล้ว" : "บันทึกแบบร่างเรียบร้อยแล้ว";
+        }
+        catch (HttpRequestException ex) { error = $"บันทึกข้อมูลไม่สำเร็จ (HTTP {(int?)ex.StatusCode})"; }
+        finally { isSaving = false; }
+    }
+
+    private static bool? ParseNullableBool(string value) => value == "true" ? true : value == "false" ? false : null;
+    private static string FormatDateTime(DateTimeOffset? value) => value?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "-";
+}

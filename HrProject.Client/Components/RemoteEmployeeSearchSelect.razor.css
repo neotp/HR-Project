@@ -1,0 +1,12 @@
+.remote-employee-combobox { position:relative; width:100%; }
+.remote-employee-combobox>input { width:100%; min-height:2.65rem; padding:.55rem 2.2rem .55rem .75rem; color:#1e293b; background:#fff; border:1px solid #cbd5e1; border-radius:.5rem; font:inherit; font-weight:400; }
+.remote-employee-combobox>input:focus { border-color:#2563eb; outline:0; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+.remote-employee-chevron { position:absolute; top:1.3rem; right:.75rem; color:#475569; font-size:.9rem; line-height:1; transform:translateY(-50%); pointer-events:none; }
+.remote-employee-clear { position:absolute; top:50%; right:.55rem; width:1.7rem; height:1.7rem; padding:0; color:#64748b; background:#f1f5f9; border:0; border-radius:50%; font-size:1rem; line-height:1; transform:translateY(-50%); cursor:pointer; }
+.remote-employee-clear:hover { color:#b91c1c; background:#fee2e2; }
+.remote-employee-options { position:absolute; z-index:40; top:calc(100% + .3rem); right:0; left:0; max-height:19rem; overflow-y:auto; padding:.3rem; background:#fff; border:1px solid #94a3b8; border-radius:.5rem; box-shadow:0 12px 28px rgba(15,23,42,.18); }
+.remote-employee-option { width:100%; display:grid; gap:.15rem; padding:.65rem .75rem; color:#1e293b; background:#fff; border:0; border-radius:.35rem; text-align:left; cursor:pointer; }
+.remote-employee-option:hover,.remote-employee-option:focus-visible { background:#e8f0fe; outline:0; }
+.remote-employee-option strong { font-size:.84rem; }
+.remote-employee-option span,.remote-employee-state { color:#64748b; font-size:.75rem; }
+.remote-employee-state { padding:.9rem; text-align:center; }

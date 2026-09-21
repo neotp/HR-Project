@@ -1,0 +1,505 @@
+@using System.Net.Http.Json
+@using HrProject.Shared.Models
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject HrProject.Client.Services.LoadingState LoadingState
+
+<section class="leave-comment-thread" aria-label="ความคิดเห็นและการตอบกลับ">
+    @if (isLoading)
+    {
+        <div class="comment-state"><span class="comment-spinner"></span> กำลังโหลดการสนทนา...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(loadError))
+    {
+        <div class="comment-state error">@loadError <button type="button" @onclick="Load">ลองใหม่</button></div>
+    }
+    else
+    {
+        <header class="comment-header">
+            <div><h3>ความคิดเห็นและการตอบกลับ</h3><p>@Document.DocumentNo · @comments.Count ข้อความ</p></div>
+        </header>
+
+        <div class="comment-timeline" id="@CommentTimelineId">
+            @if (comments.Count == 0)
+            {
+                <div class="comment-empty">@(canComment ? "ยังไม่มีความคิดเห็น เริ่มต้นการสนทนาได้จากช่องด้านล่าง" : "ยังไม่มีความคิดเห็น")</div>
+            }
+            else
+            {
+                @foreach (var item in comments)
+                {
+                    <article class="comment-message @(item.AuthorEmployeeId == CurrentEmployeeId ? "mine" : null)">
+                        <div class="comment-avatar">@Initials(item.AuthorName)</div>
+                        <div class="comment-bubble">
+                            <header><strong>@item.AuthorName</strong><time>@item.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</time></header>
+                            <p>@item.CommentText</p>
+                            @if (item.Attachments.Count > 0)
+                            {
+                                <div class="comment-image-list">
+                                    @foreach (var attachment in item.Attachments)
+                                    {
+                                        <button type="button" class="comment-image-thumbnail" title="@attachment.FileName"
+                                                @onclick="() => OpenImage(item, attachment)">
+                                            @if (thumbnailUrls.TryGetValue(attachment.Id, out var thumbnailUrl))
+                                            {
+                                                <img src="@thumbnailUrl" alt="@attachment.FileName" />
+                                            }
+                                            else
+                                            {
+                                                <span class="comment-thumbnail-loading">กำลังโหลดรูป...</span>
+                                            }
+                                            <small>@FormatFileSize(attachment.FileSizeBytes)</small>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            @if (item.EmailRecipients.Count > 0)
+                            {
+                                <small>ส่งอีเมลถึง @string.Join(", ", item.EmailRecipients.Select(value => value.EmployeeName))</small>
+                            }
+                        </div>
+                    </article>
+                }
+            }
+        </div>
+
+        @if (canComment)
+        {
+            <div class="comment-composer">
+                <label class="comment-label" for="comment-@Document.Id">Comment / Response <span>*</span></label>
+                <textarea id="comment-@Document.Id" rows="3" maxlength="4000" @bind="commentText"
+                          placeholder="พิมพ์ความคิดเห็นหรือข้อความตอบกลับ..."></textarea>
+
+                <div class="comment-attachment-tools">
+                    <label class="comment-file-button">
+                        <span class="comment-file-icon" aria-hidden="true">＋</span>
+                        <span>เลือกไฟล์รูป</span>
+                        <InputFile class="comment-file-input" @key="attachmentInputVersion" OnChange="SelectImages" multiple
+                                   accept="image/png,image/jpeg,image/webp" />
+                    </label>
+                    <small><strong>หรือวางภาพด้วย Ctrl+V</strong><span>สูงสุด 5 รูป</span><span>รูปละไม่เกิน 3 MB</span></small>
+                </div>
+                @if (commentAttachments.Count > 0)
+                {
+                    <div class="comment-image-previews">
+                        @foreach (var attachment in commentAttachments)
+                        {
+                            <figure>
+                                <img src="@DataUrl(attachment)" alt="@attachment.FileName" />
+                                <figcaption title="@attachment.FileName">@attachment.FileName</figcaption>
+                                <button type="button" aria-label="ลบ @attachment.FileName" @onclick="() => RemoveImage(attachment)">×</button>
+                            </figure>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(saveError))
+                {
+                    <div class="comment-error">@saveError</div>
+                }
+                <div class="comment-actions">
+                    <span>@commentText.Length / 4,000</span>
+                    <button type="button" disabled="@(isSaving || string.IsNullOrWhiteSpace(commentText))" @onclick="OpenRecipientDialog">
+                        ส่งความคิดเห็น
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="comment-readonly-notice">คุณสามารถดูการสนทนาได้ แต่ยังไม่มีสิทธิ์ตอบกลับ เนื่องจากไม่ได้เป็นผู้เกี่ยวข้องหรือผู้รับ Email ของเอกสารนี้</div>
+        }
+    }
+</section>
+
+@if (isRecipientDialogOpen)
+{
+    <div class="recipient-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="recipient-dialog-title">
+        <section class="recipient-dialog">
+            <header>
+                <div><h3 id="recipient-dialog-title">ตรวจสอบผู้รับ Email</h3><p>@Document.DocumentNo</p></div>
+                <button type="button" aria-label="ปิด" disabled="@isSaving" @onclick="CloseRecipientDialog">×</button>
+            </header>
+            <div class="recipient-dialog-body">
+                <p class="recipient-dialog-intro">Comment จะถูกบันทึกและส่ง Email หลังจากกดยืนยัน</p>
+                <div class="recipient-panel">
+                    <div class="recipient-heading"><strong>ผู้รับ Email เริ่มต้น</strong><small>ผู้ขอลา, หัวหน้างาน (Boss) และ Reporting To (Leave Approve) โดยระบบจะไม่ส่งกลับหาผู้ Comment</small></div>
+                    <p class="recipient-memory-note">รายชื่อที่เพิ่มจะถูกจดจำสำหรับ Comment ครั้งต่อไป และนำออกได้ก่อนยืนยัน</p>
+                    <div class="recipient-chips">
+                        @foreach (var recipient in mandatoryRecipients)
+                        {
+                            <span class="recipient-chip fixed">@recipient.EmployeeName <small>@RecipientRole(recipient)</small></span>
+                        }
+                        @foreach (var recipient in dialogRecipients)
+                        {
+                            <span class="recipient-chip">@recipient.EmployeeName <button type="button" aria-label="นำ @recipient.EmployeeName ออก" @onclick="() => RemoveRecipient(recipient.EmployeeId)">×</button></span>
+                        }
+                    </div>
+                    <div class="recipient-search">
+                        <input type="text"
+                               value="@recipientSearchText"
+                               placeholder="ค้นหาชื่อหรือรหัสพนักงานเพื่อเพิ่มผู้รับ Email"
+                               autocomplete="off"
+                               role="combobox"
+                               aria-expanded="@isRecipientDropdownOpen"
+                               aria-autocomplete="list"
+                               @onfocus="OpenRecipientDropdown"
+                               @onblur="CloseRecipientDropdown"
+                               @oninput="SearchRecipient" />
+                        @if (isRecipientDropdownOpen)
+                        {
+                            <div class="comment-recipient-options" role="listbox">
+                                @if (!FilteredRecipientEmployees.Any())
+                                {
+                                    <div class="comment-recipient-empty">ไม่พบพนักงานที่ค้นหา</div>
+                                }
+                                else
+                                {
+                                    @foreach (var employee in FilteredRecipientEmployees)
+                                    {
+                                        <button type="button" class="comment-recipient-option" role="option"
+                                                @onmousedown:preventDefault="true"
+                                                @onclick="() => AddRecipient(employee)">
+                                            <strong>@employee.FullName</strong>
+                                            <span>@EmployeeCodeFormat.Display(employee.EmployeeCode)@EmployeeDetails(employee)</span>
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(saveError))
+                {
+                    <div class="comment-error">@saveError</div>
+                }
+            </div>
+            <footer>
+                <button class="recipient-cancel" type="button" disabled="@isSaving" @onclick="CloseRecipientDialog">ยกเลิก</button>
+                <button class="recipient-confirm" type="button" disabled="@isSaving" @onclick="Submit">
+                    @(isSaving ? "กำลังบันทึกและส่ง Email..." : "ยืนยันและส่ง Email")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (previewAttachment is not null)
+{
+    <div class="comment-image-overlay" role="dialog" aria-modal="true" aria-label="ดูรูปแนบ">
+        <section class="comment-image-dialog">
+            <header><strong>@previewAttachment.FileName</strong><button type="button" aria-label="ปิด" @onclick="CloseImage">×</button></header>
+            @if (!isPreviewLoading && string.IsNullOrWhiteSpace(previewError) && !string.IsNullOrWhiteSpace(previewUrl))
+            {
+                <div class="comment-image-toolbar" aria-label="เครื่องมือซูมรูป">
+                    <button type="button" title="ซูมออก" aria-label="ซูมออก" @onclick="() => ChangePreviewZoom(0.8)">−</button>
+                    <span id="@PreviewScaleId" aria-live="polite">100%</span>
+                    <button type="button" title="ซูมเข้า" aria-label="ซูมเข้า" @onclick="() => ChangePreviewZoom(1.25)">+</button>
+                    <button type="button" class="text-button" @onclick="FitPreview">พอดีจอ</button>
+                    <button type="button" class="text-button" @onclick="ActualSizePreview">ขนาดจริง</button>
+                    <small>ใช้ Scroll เพื่อซูม และลากรูปเพื่อเลื่อนดู</small>
+                </div>
+            }
+            <div class="comment-image-viewport" id="@PreviewViewportId">
+                @if (isPreviewLoading)
+                {
+                    <span>กำลังโหลดรูป...</span>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewError))
+                {
+                    <span class="comment-error">@previewError</span>
+                }
+                else if (!string.IsNullOrWhiteSpace(previewUrl))
+                {
+                    <img id="@PreviewImageId" src="@previewUrl" alt="@previewAttachment.FileName"
+                         draggable="false" @onload="InitializeImagePreview" />
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public LeaveDocumentDto Document { get; set; } = default!;
+    [Parameter] public string CurrentEmployeeId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<int> CommentCountChanged { get; set; }
+
+    private List<LeaveDocumentCommentDto> comments=[];
+    private List<LeaveCommentRecipientDto> mandatoryRecipients=[];
+    private List<Employee> employees=[];
+    private readonly List<LeaveCommentRecipientDto> persistentRecipients=[];
+    private readonly List<LeaveCommentRecipientDto> dialogRecipients=[];
+    private string recipientSearchText=string.Empty;
+    private string commentText=string.Empty;
+    private string? loadError;
+    private string? saveError;
+    private bool isLoading=true;
+    private bool isSaving;
+    private bool canComment;
+    private bool isRecipientDialogOpen;
+    private bool isRecipientDropdownOpen;
+    private readonly List<LeaveCommentAttachmentUploadDto> commentAttachments=[];
+    private int attachmentInputVersion;
+    private DotNetObjectReference<LeaveCommentThread>? pasteReference;
+    private bool pasteRegistered;
+    private bool shouldScrollToLatest;
+    private LeaveCommentAttachmentDto? previewAttachment;
+    private string? previewUrl;
+    private string? previewError;
+    private bool isPreviewLoading;
+    private bool isPreviewInitialized;
+    private readonly Dictionary<long,string> thumbnailUrls=[];
+    private readonly HashSet<long> thumbnailAttempts=[];
+
+    private IEnumerable<Employee> FilteredRecipientEmployees
+    {
+        get
+        {
+            var term=recipientSearchText.Trim();
+            return employees
+                .Where(employee=>!string.Equals(employee.EmployeeCode,CurrentEmployeeId,StringComparison.OrdinalIgnoreCase))
+                .Where(employee=>!dialogRecipients.Any(value=>string.Equals(value.EmployeeId,employee.EmployeeCode,StringComparison.OrdinalIgnoreCase)))
+                .Where(employee=>!mandatoryRecipients.Any(value=>string.Equals(value.EmployeeId,employee.EmployeeCode,StringComparison.OrdinalIgnoreCase)))
+                .Where(employee=>term.Length==0||
+                    employee.EmployeeCode.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.FullName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.FirstName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.LastName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.ThaiFullName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.EnglishFullName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.Nickname.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.Department.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.Position.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.Email.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                    employee.LotusNotesEmail.Contains(term,StringComparison.OrdinalIgnoreCase))
+                .Take(50);
+        }
+    }
+
+    protected override Task OnInitializedAsync()=>Load();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(!pasteRegistered&&canComment)
+        {
+            pasteReference=DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("hrCommentPaste.register",$"comment-{Document.Id}",pasteReference);
+            pasteRegistered=true;
+        }
+        if(shouldScrollToLatest)
+        {
+            shouldScrollToLatest=false;
+            await JS.InvokeVoidAsync("hrScroll.toBottom",CommentTimelineId,true);
+        }
+        var missing=comments.SelectMany(comment=>comment.Attachments.Select(attachment=>(comment,attachment)))
+            .Where(item=>!thumbnailAttempts.Contains(item.attachment.Id)).ToList();
+        if(missing.Count>0)
+        {
+            foreach(var item in missing)thumbnailAttempts.Add(item.attachment.Id);
+            await LoadThumbnails(missing);
+        }
+    }
+
+    private async Task LoadThumbnails(
+        IReadOnlyList<(LeaveDocumentCommentDto comment,LeaveCommentAttachmentDto attachment)> items)
+    {
+        foreach(var item in items)
+        {
+            try
+            {
+                var bytes=await Http.GetByteArrayAsync(
+                    $"api/leave-documents/{Document.Id}/comments/{item.comment.Id}/attachments/{item.attachment.Id}/preview");
+                thumbnailUrls[item.attachment.Id]=await JS.InvokeAsync<string>(
+                    "hrPreview.createObjectUrl",item.attachment.ContentType,bytes);
+            }
+            catch
+            {
+                // Keep a neutral placeholder when an individual image cannot be loaded.
+            }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Load()
+    {
+        using var loading=LoadingState.BeginRequest();
+        isLoading=true;loadError=null;
+        try
+        {
+            var context=await Http.GetFromJsonAsync<LeaveCommentContextDto>($"api/leave-documents/{Document.Id}/comments");
+            comments=context?.Comments.ToList()??[];
+            shouldScrollToLatest=comments.Count>0;
+            mandatoryRecipients=context?.DefaultRecipients.Where(value=>value.IsDefault).ToList()??[];
+            persistentRecipients.Clear();
+            persistentRecipients.AddRange(context?.DefaultRecipients.Where(value=>!value.IsDefault)??[]);
+            canComment=context?.CanComment??false;
+            employees=canComment
+                ? await Http.GetFromJsonAsync<List<Employee>>("api/employees")??[]
+                : [];
+        }
+        catch(Exception exception){loadError=$"โหลดการสนทนาไม่สำเร็จ: {exception.Message}";}
+        finally{isLoading=false;}
+    }
+
+    private void SearchRecipient(ChangeEventArgs args)
+    {
+        recipientSearchText=args.Value?.ToString()??string.Empty;
+        isRecipientDropdownOpen=true;
+    }
+
+    private void OpenRecipientDropdown()=>isRecipientDropdownOpen=true;
+
+    private async Task CloseRecipientDropdown()
+    {
+        await Task.Delay(150);
+        isRecipientDropdownOpen=false;
+    }
+
+    private void AddRecipient(Employee employee)
+    {
+        if(dialogRecipients.Any(value=>value.EmployeeId==employee.EmployeeCode)||
+           mandatoryRecipients.Any(value=>value.EmployeeId==employee.EmployeeCode))return;
+        var email=!string.IsNullOrWhiteSpace(employee.Email)?employee.Email:employee.LotusNotesEmail;
+        dialogRecipients.Add(new LeaveCommentRecipientDto(
+            employee.EmployeeCode,employee.FullName,email,false));
+        recipientSearchText=string.Empty;
+        isRecipientDropdownOpen=false;
+    }
+    private void RemoveRecipient(string? employeeCode)=>dialogRecipients.RemoveAll(value=>value.EmployeeId==employeeCode);
+
+    private async Task SelectImages(InputFileChangeEventArgs args)
+    {
+        saveError=null;
+        var remaining=5-commentAttachments.Count;
+        if(remaining<=0){saveError="แนบรูปได้ไม่เกิน 5 รูปต่อ Comment";return;}
+        IReadOnlyList<IBrowserFile> files;
+        try{files=args.GetMultipleFiles(remaining);}
+        catch(InvalidOperationException){saveError=$"เลือกได้อีกไม่เกิน {remaining} รูป";return;}
+        foreach(var file in files)
+        {
+            if(!IsAcceptedImage(file.ContentType)){saveError=$"ไฟล์ {file.Name} ไม่รองรับ รองรับเฉพาะ PNG, JPG และ WEBP";return;}
+            if(file.Size==0||file.Size>3*1024*1024){saveError=$"ไฟล์ {file.Name} ต้องมีขนาดไม่เกิน 3 MB";return;}
+            await using var stream=file.OpenReadStream(3*1024*1024);
+            using var memory=new MemoryStream();await stream.CopyToAsync(memory);
+            commentAttachments.Add(new LeaveCommentAttachmentUploadDto(
+                Path.GetFileName(file.Name),file.ContentType.ToLowerInvariant(),memory.ToArray()));
+        }
+    }
+
+    [JSInvokable]
+    public Task ReceivePastedImage(string fileName,string contentType,string base64)
+    {
+        saveError=null;
+        if(commentAttachments.Count>=5){saveError="แนบรูปได้ไม่เกิน 5 รูปต่อ Comment";return InvokeAsync(StateHasChanged);}
+        if(!IsAcceptedImage(contentType)){saveError="รูปจาก Clipboard ไม่รองรับ";return InvokeAsync(StateHasChanged);}
+        try
+        {
+            var content=Convert.FromBase64String(base64);
+            if(content.Length==0||content.Length>3*1024*1024)saveError="รูปจาก Clipboard ต้องมีขนาดไม่เกิน 3 MB";
+            else commentAttachments.Add(new LeaveCommentAttachmentUploadDto(
+                string.IsNullOrWhiteSpace(fileName)?$"capture-{DateTime.Now:yyyyMMdd-HHmmss}.png":Path.GetFileName(fileName),
+                contentType.ToLowerInvariant(),content));
+        }
+        catch(FormatException){saveError="ไม่สามารถอ่านรูปจาก Clipboard ได้";}
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void RemoveImage(LeaveCommentAttachmentUploadDto attachment)
+    {commentAttachments.Remove(attachment);attachmentInputVersion++;}
+    private static bool IsAcceptedImage(string type)=>type.ToLowerInvariant() is "image/png" or "image/jpeg" or "image/webp";
+    private static string DataUrl(LeaveCommentAttachmentUploadDto attachment)=>
+        $"data:{attachment.ContentType};base64,{Convert.ToBase64String(attachment.Content)}";
+
+    private void OpenRecipientDialog()
+    {
+        if(string.IsNullOrWhiteSpace(commentText))return;
+        saveError=null;recipientSearchText=string.Empty;dialogRecipients.Clear();
+        dialogRecipients.AddRange(persistentRecipients);
+        isRecipientDropdownOpen=false;isRecipientDialogOpen=true;
+    }
+
+    private void CloseRecipientDialog()
+    {
+        if(isSaving)return;
+        isRecipientDialogOpen=false;isRecipientDropdownOpen=false;saveError=null;recipientSearchText=string.Empty;dialogRecipients.Clear();
+    }
+
+    private async Task Submit()
+    {
+        var text=commentText.Trim();if(text.Length==0)return;
+        isSaving=true;saveError=null;
+        try
+        {
+            var response=await Http.PostAsJsonAsync($"api/leave-documents/{Document.Id}/comments",
+                new CreateLeaveCommentRequest(text,dialogRecipients.Select(value=>value.EmployeeId!).ToList(),commentAttachments));
+            if(!response.IsSuccessStatusCode)
+            {
+                saveError=await response.Content.ReadAsStringAsync();return;
+            }
+            var created=await response.Content.ReadFromJsonAsync<LeaveDocumentCommentDto>();
+            if(created is not null){comments.Add(created);shouldScrollToLatest=true;}
+            persistentRecipients.Clear();persistentRecipients.AddRange(dialogRecipients);
+            commentText=string.Empty;commentAttachments.Clear();attachmentInputVersion++;
+            recipientSearchText=string.Empty;isRecipientDropdownOpen=false;isRecipientDialogOpen=false;
+            await CommentCountChanged.InvokeAsync(comments.Count);
+        }
+        catch(Exception exception){saveError=$"ส่งความคิดเห็นไม่สำเร็จ: {exception.Message}";}
+        finally{isSaving=false;}
+    }
+
+    private static string Initials(string name)=>string.Concat(name.Split(' ',StringSplitOptions.RemoveEmptyEntries).Take(2).Select(value=>value[0]));
+    private string CommentTimelineId=>$"comment-timeline-{Document.Id}";
+    private async Task OpenImage(LeaveDocumentCommentDto comment,LeaveCommentAttachmentDto attachment)
+    {
+        if(isPreviewInitialized)await JS.InvokeVoidAsync("hrImageViewer.destroy",PreviewViewportId);
+        isPreviewInitialized=false;
+        await RevokePreview();previewAttachment=attachment;previewError=null;isPreviewLoading=true;
+        try
+        {
+            var bytes=await Http.GetByteArrayAsync($"api/leave-documents/{Document.Id}/comments/{comment.Id}/attachments/{attachment.Id}/preview");
+            previewUrl=await JS.InvokeAsync<string>("hrPreview.createObjectUrl",attachment.ContentType,bytes);
+        }
+        catch(Exception exception){previewError=$"เปิดรูปไม่สำเร็จ: {exception.Message}";}
+        finally{isPreviewLoading=false;}
+    }
+    private string PreviewViewportId=>$"comment-image-viewport-{Document.Id}";
+    private string PreviewImageId=>$"comment-image-preview-{Document.Id}";
+    private string PreviewScaleId=>$"comment-image-scale-{Document.Id}";
+    private async Task InitializeImagePreview()
+    {
+        if(isPreviewInitialized||string.IsNullOrWhiteSpace(previewUrl))return;
+        await JS.InvokeVoidAsync("hrImageViewer.initialize",PreviewViewportId,PreviewImageId,PreviewScaleId);
+        isPreviewInitialized=true;
+    }
+    private Task ChangePreviewZoom(double factor)=>JS.InvokeVoidAsync("hrImageViewer.zoom",PreviewViewportId,factor).AsTask();
+    private Task FitPreview()=>JS.InvokeVoidAsync("hrImageViewer.fit",PreviewViewportId).AsTask();
+    private Task ActualSizePreview()=>JS.InvokeVoidAsync("hrImageViewer.actualSize",PreviewViewportId).AsTask();
+    private async Task CloseImage()
+    {
+        if(isPreviewInitialized)await JS.InvokeVoidAsync("hrImageViewer.destroy",PreviewViewportId);
+        isPreviewInitialized=false;await RevokePreview();previewAttachment=null;previewError=null;
+    }
+    private async Task RevokePreview(){if(!string.IsNullOrWhiteSpace(previewUrl))await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl",previewUrl);previewUrl=null;}
+    private static string FormatFileSize(long bytes)=>bytes>=1024*1024?$"{bytes/(1024d*1024d):0.##} MB":$"{bytes/1024d:0.##} KB";
+    private static string RecipientRole(LeaveCommentRecipientDto recipient)=>recipient.IsDefault?"อัตโนมัติ":string.Empty;
+    public async ValueTask DisposeAsync()
+    {
+        if(isPreviewInitialized)await JS.InvokeVoidAsync("hrImageViewer.destroy",PreviewViewportId);
+        isPreviewInitialized=false;
+        await RevokePreview();
+        foreach(var url in thumbnailUrls.Values)
+            await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl",url);
+        thumbnailUrls.Clear();
+        if(pasteRegistered)await JS.InvokeVoidAsync("hrCommentPaste.unregister",$"comment-{Document.Id}");
+        pasteReference?.Dispose();
+    }
+
+    private static string EmployeeDetails(Employee employee)
+    {
+        var details=new[]{employee.EnglishFullName,employee.Department,employee.Position,employee.Email}
+            .Where(value=>!string.IsNullOrWhiteSpace(value));
+        var text=string.Join(" · ",details);
+        return text.Length==0?string.Empty:$" · {text}";
+    }
+}

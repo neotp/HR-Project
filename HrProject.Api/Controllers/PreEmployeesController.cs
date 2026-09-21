@@ -12,7 +12,11 @@ namespace HrProject.Api.Controllers;
 public sealed class PreEmployeesController(
     NpgsqlDataSource dataSource,
     PageAccessService pageAccessService,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    IConfiguration configuration,
+    LotusNotesOutboxSignal lotusNotesOutboxSignal,
+    WorkflowEmailNotificationService workflowNotificationService,
+    ILogger<PreEmployeesController> logger) : ControllerBase
 {
     private const string SelectColumns = """
         id, source_system, source_reference_id, employee_code, title, first_name_th,
@@ -36,6 +40,35 @@ public sealed class PreEmployeesController(
         await using var command = dataSource.CreateCommand($"SELECT {SelectColumns} FROM public.pre_employees ORDER BY CASE status WHEN 'READY' THEN 0 WHEN 'INCOMPLETE' THEN 1 WHEN 'DRAFT' THEN 2 ELSE 3 END, created_at DESC, id DESC");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(Read(reader));
+        return Ok(result);
+    }
+
+    [HttpGet("summary")]
+    public async Task<ActionResult<IReadOnlyList<PreEmployeeSummaryDto>>> GetSummary(CancellationToken cancellationToken)
+    {
+        var actor = await GetActor(cancellationToken);
+        if (actor is null) return Unauthorized();
+        if (!await pageAccessService.HasAccess(actor.Value.EmployeeId, "PRE_EMPLOYEES", cancellationToken))
+            return Forbid();
+
+        const string sql = """
+            SELECT id, employee_code, first_name_th, last_name_th, full_name_en,
+                   email_address, business_unit, department, position_name, status, created_at
+            FROM public.pre_employees
+            ORDER BY CASE status WHEN 'READY' THEN 0 WHEN 'INCOMPLETE' THEN 1
+                                 WHEN 'DRAFT' THEN 2 ELSE 3 END,
+                     created_at DESC, id DESC
+            """;
+        var result = new List<PreEmployeeSummaryDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new PreEmployeeSummaryDto(
+                reader.GetInt64(0), S(reader, 1) ?? "", S(reader, 2) ?? "", S(reader, 3) ?? "",
+                S(reader, 4) ?? "", S(reader, 5) ?? "", S(reader, 6) ?? "", S(reader, 7) ?? "",
+                S(reader, 8) ?? "", reader.GetString(9), reader.GetFieldValue<DateTimeOffset>(10)));
+        }
         return Ok(result);
     }
 
@@ -82,6 +115,21 @@ public sealed class PreEmployeesController(
             command.Parameters.AddWithValue("actor", actor.Value.EmployeeId);
             command.Parameters.AddWithValue("actor_name", actor.Value.Name);
             var id = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
+            await ReplacePreEmployeeResponsibilityProvinces(id, request.EmployeeData?.ResponsibilityProvinces,
+                request.EmployeeData?.ResponsibilityProvince, cancellationToken);
+            try
+            {
+                await workflowNotificationService.SendAsync(
+                    "PRE_EMPLOYEES", actor.Value.EmployeeId,
+                    "มีรายการ Pre-Employee ใหม่",
+                    $"พนักงาน: {request.FirstNameTh} {request.LastNameTh}\nรหัสพนักงาน: {request.EmployeeCode}\nสถานะ: {(validation is null ? "พร้อมสร้างพนักงาน" : "ข้อมูลไม่ครบ")}",
+                    "/recruitment/pre-employees", CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception,
+                    "Pre-Employee {PreEmployeeId} was saved but email notification failed", id);
+            }
             return Created($"api/pre-employees/{id}", await Find(id, cancellationToken));
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -120,6 +168,8 @@ public sealed class PreEmployeesController(
             command.Parameters.AddWithValue("actor", actor.Value.EmployeeId);
             command.Parameters.AddWithValue("actor_name", actor.Value.Name);
             if (await command.ExecuteNonQueryAsync(cancellationToken) == 0) return Conflict("รายการนี้สร้างพนักงานแล้วหรือไม่สามารถแก้ไขได้");
+            await ReplacePreEmployeeResponsibilityProvinces(id, request.EmployeeData?.ResponsibilityProvinces,
+                request.EmployeeData?.ResponsibilityProvince, cancellationToken);
             return Ok(await Find(id, cancellationToken));
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -167,6 +217,10 @@ public sealed class PreEmployeesController(
             }
             if (status == "CONVERTED") return Conflict("รายการนี้ถูกสร้างเป็นพนักงานแล้ว");
             var employee = ResolveEmployee(draft);
+            employee.ResponsibilityProvinces = await LoadPreEmployeeResponsibilityProvinces(
+                connection, transaction, id, cancellationToken);
+            employee.ResponsibilityProvince = EmployeesController.JoinResponsibilityProvinces(
+                employee.ResponsibilityProvinces, employee.ResponsibilityProvince);
             employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
             var validation = ValidateEmployee(employee);
             if (validation is not null) return BadRequest(validation);
@@ -195,6 +249,29 @@ public sealed class PreEmployeesController(
                 employeeId = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
             }
             await InsertFullEmployeeData(connection, transaction, employeeId, employee, cancellationToken);
+            const string outboxSql = """
+                INSERT INTO public.lotus_notes_employee_outbox
+                    (pre_employee_id, employee_id, employee_code, employee_name,
+                     database_name, external_key, payload, status)
+                VALUES
+                    (@pre_employee_id, @employee_id, @employee_code, @employee_name,
+                     @database_name, @external_key, @payload::jsonb, 'PENDING')
+                """;
+            await using (var command = new NpgsqlCommand(outboxSql, connection, transaction))
+            {
+                command.Parameters.AddWithValue("pre_employee_id", id);
+                command.Parameters.AddWithValue("employee_id", employeeId);
+                command.Parameters.AddWithValue("employee_code", EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode));
+                command.Parameters.AddWithValue("employee_name", string.IsNullOrWhiteSpace(employee.ThaiFullName)
+                    ? $"{employee.FirstName} {employee.LastName}".Trim()
+                    : employee.ThaiFullName.Trim());
+                command.Parameters.AddWithValue("database_name",
+                    Environment.GetEnvironmentVariable("LOTUS_NOTES_DATABASE") ??
+                    configuration["LotusNotes:Database"] ?? "Employee");
+                command.Parameters.AddWithValue("external_key", employee.NationalId.Trim());
+                command.Parameters.AddWithValue("payload", LotusNotesEmployeePayloadBuilder.Build(employee));
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
             const string finishSql = """
                 UPDATE public.pre_employees SET status='CONVERTED', validation_message=NULL,
                     created_employee_id=@employee_id, converted_by=@actor,
@@ -209,6 +286,7 @@ public sealed class PreEmployeesController(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
+            lotusNotesOutboxSignal.Notify();
             return Ok(new ConvertPreEmployeeResult(id, employeeId, EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode)));
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -224,10 +302,18 @@ public sealed class PreEmployeesController(
 
     private async Task<PreEmployeeDto?> Find(long id, CancellationToken token)
     {
-        await using var command = dataSource.CreateCommand($"SELECT {SelectColumns} FROM public.pre_employees WHERE id=@id");
-        command.Parameters.AddWithValue("id", id);
-        await using var reader = await command.ExecuteReaderAsync(token);
-        return await reader.ReadAsync(token) ? Read(reader) : null;
+        PreEmployeeDto? item;
+        await using (var command = dataSource.CreateCommand($"SELECT {SelectColumns} FROM public.pre_employees WHERE id=@id"))
+        {
+            command.Parameters.AddWithValue("id", id);
+            await using var reader = await command.ExecuteReaderAsync(token);
+            item = await reader.ReadAsync(token) ? Read(reader) : null;
+        }
+        if (item is null) return null;
+        item.EmployeeData.ResponsibilityProvinces = await LoadPreEmployeeResponsibilityProvinces(id, token);
+        item.EmployeeData.ResponsibilityProvince = EmployeesController.JoinResponsibilityProvinces(
+            item.EmployeeData.ResponsibilityProvinces, item.EmployeeData.ResponsibilityProvince);
+        return item;
     }
 
     private static string? Validate(SavePreEmployeeRequest request)
@@ -246,12 +332,23 @@ public sealed class PreEmployeesController(
         if (string.IsNullOrWhiteSpace(employee.Email)) missing.Add("อีเมล");
         if (string.IsNullOrWhiteSpace(employee.Department)) missing.Add("แผนก");
         if (string.IsNullOrWhiteSpace(employee.Position)) missing.Add("ตำแหน่ง");
+        if (string.IsNullOrWhiteSpace(employee.NationalId)) missing.Add("เลขบัตรประชาชน");
+        else if (employee.NationalId.Length != 13 || employee.NationalId.Any(character => !char.IsDigit(character)))
+            missing.Add("เลขบัตรประชาชนต้องเป็นตัวเลข 13 หลัก");
+        if (employee.WorkHistory.Count > 14)
+            missing.Add("ประวัติการทำงานรองรับได้ไม่เกิน 14 รายการตาม Form Lotus Notes");
+        if (employee.EducationHistory.Count > 2)
+            missing.Add("ประวัติการศึกษารองรับได้ไม่เกิน 2 รายการตาม Form Lotus Notes");
+        if (employee.TrainingHistory.Count > 12)
+            missing.Add("ประวัติการอบรมรองรับได้ไม่เกิน 12 รายการตาม Form Lotus Notes");
         return missing.Count == 0 ? null : $"ข้อมูลไม่ครบ: {string.Join(", ", missing)}";
     }
 
     private static void AddParameters(NpgsqlCommand command, SavePreEmployeeRequest request, string status, string? validation)
     {
         var employee = ResolveEmployee(request);
+        employee.ResponsibilityProvince = EmployeesController.JoinResponsibilityProvinces(
+            employee.ResponsibilityProvinces, employee.ResponsibilityProvince);
         employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
         AddText(command,"source_system",request.SourceSystem); AddText(command,"source_reference_id",request.SourceReferenceId);
         AddText(command,"employee_code",EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode)); AddText(command,"title",employee.Title);
@@ -311,8 +408,9 @@ public sealed class PreEmployeesController(
             INSERT INTO public.employee_company_info(employee_id,company_name,business_unit,division,department,section_name,position_name,job_code,supervisor_name,supervisor_employee_id,leave_approver_name,leave_approver_employee_id,functional_supervisor_name,buddy_name,employment_type,work_schedule,work_location,employee_status,internal_extension,direct_phone,company_mobile,mac_address,branch_code,branch_name,responsibility_province,checklist_type,products_responsible,start_date,appointment_date,provident_fund_start_date,work_experience_type,has_company_parking,can_travel_upcountry,exclude_attendance_calculation)
             VALUES(@id,@company,@bu,@division,@department,@section,@position,@job,@supervisor,@supervisor_employee_id,@approver,@leave_approver_employee_id,@functional,@buddy,@employment,@schedule,@location,@status,@extension,@direct,@company_mobile,@mac,@branch_code,@branch_name,@province,@checklist,@products,@start,@appointment,@fund,@experience,@parking,@travel,@exclude)
             """;
-        await using (var q=new NpgsqlCommand(company,c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"company",e.Company);AddText(q,"bu",e.BusinessUnit);AddText(q,"division",e.Division);AddText(q,"department",e.Department);AddText(q,"section",e.Section);AddText(q,"position",e.Position);AddText(q,"job",e.JobCode);AddText(q,"supervisor",e.SupervisorName);AddText(q,"supervisor_employee_id",e.SupervisorEmployeeId);AddText(q,"approver",e.LeaveApproverName);AddText(q,"leave_approver_employee_id",e.LeaveApproverEmployeeId);AddText(q,"functional",e.FunctionalSupervisorName);AddText(q,"buddy",e.BuddyName);AddText(q,"employment",e.EmploymentType);AddText(q,"schedule",e.WorkSchedule);AddText(q,"location",e.WorkLocation);AddText(q,"status",e.EmployeeStatus);AddText(q,"extension",e.InternalExtension);AddText(q,"direct",e.DirectPhone);AddText(q,"company_mobile",e.CompanyMobile);AddText(q,"mac",e.MacAddress);AddText(q,"branch_code",e.BranchCode);AddText(q,"branch_name",e.BranchName);AddText(q,"province",e.ResponsibilityProvince);AddText(q,"checklist",e.ChecklistType);AddText(q,"products",e.ProductsResponsible);AddDate(q,"start",e.StartDate==default?null:e.StartDate);AddDate(q,"appointment",e.AppointmentDate);AddDate(q,"fund",e.ProvidentFundStartDate);AddText(q,"experience",e.WorkExperienceType);AddBoolean(q,"parking",e.HasCompanyParking);AddBoolean(q,"travel",e.CanTravelUpcountry);q.Parameters.AddWithValue("exclude",e.ExcludeAttendanceCalculation);await q.ExecuteNonQueryAsync(token);}
-        await using (var q=new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"religion",e.Religion);AddText(q,"blood",e.BloodType);AddText(q,"province",e.ResidenceProvince);AddText(q,"district",e.ResidenceDistrict);AddText(q,"subdistrict",e.ResidenceSubdistrict);AddText(q,"postal_code",e.ResidencePostalCode);AddText(q,"current",e.CurrentAddress);AddText(q,"id_address",e.IdCardAddress);AddText(q,"house",e.HouseRegistrationAddress);AddText(q,"emergency",e.EmergencyContactName);AddText(q,"phone",e.EmergencyContactPhone);AddText(q,"emergency_address",e.EmergencyContactAddress);await q.ExecuteNonQueryAsync(token);}
+        await using (var q=new NpgsqlCommand(company,c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"company",e.Company);AddText(q,"bu",e.BusinessUnit);AddText(q,"division",e.Division);AddText(q,"department",e.Department);AddText(q,"section",e.Section);AddText(q,"position",e.Position);AddText(q,"job",e.JobCode);AddText(q,"supervisor",e.SupervisorName);AddText(q,"supervisor_employee_id",e.SupervisorEmployeeId);AddText(q,"approver",e.LeaveApproverName);AddText(q,"leave_approver_employee_id",e.LeaveApproverEmployeeId);AddText(q,"functional",e.FunctionalSupervisorName);AddText(q,"buddy",e.BuddyName);AddText(q,"employment",e.EmploymentType);AddText(q,"schedule",e.WorkSchedule);AddText(q,"location",e.WorkLocation);AddText(q,"status",e.EmployeeStatus);AddText(q,"extension",e.InternalExtension);AddText(q,"direct",e.DirectPhone);AddText(q,"company_mobile",e.CompanyMobile);AddText(q,"mac",e.MacAddress);AddText(q,"branch_code",e.BranchCode);AddText(q,"branch_name",e.BranchName);AddText(q,"province",EmployeesController.JoinResponsibilityProvinces(e.ResponsibilityProvinces,e.ResponsibilityProvince));AddText(q,"checklist",e.ChecklistType);AddText(q,"products",e.ProductsResponsible);AddDate(q,"start",e.StartDate==default?null:e.StartDate);AddDate(q,"appointment",e.AppointmentDate);AddDate(q,"fund",e.ProvidentFundStartDate);AddText(q,"experience",e.WorkExperienceType);AddBoolean(q,"parking",e.HasCompanyParking);AddBoolean(q,"travel",e.CanTravelUpcountry);q.Parameters.AddWithValue("exclude",e.ExcludeAttendanceCalculation);await q.ExecuteNonQueryAsync(token);}
+        await EmployeesController.ReplaceResponsibilityProvinces(c, t, id, e.ResponsibilityProvinces, e.ResponsibilityProvince, token);
+        await using (var q=new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,national_id,birth_date,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@national_id,@birth_date,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"national_id",e.NationalId);AddDate(q,"birth_date",e.BirthDate);AddText(q,"religion",e.Religion);AddText(q,"blood",e.BloodType);AddText(q,"province",e.ResidenceProvince);AddText(q,"district",e.ResidenceDistrict);AddText(q,"subdistrict",e.ResidenceSubdistrict);AddText(q,"postal_code",e.ResidencePostalCode);AddText(q,"current",e.CurrentAddress);AddText(q,"id_address",e.IdCardAddress);AddText(q,"house",e.HouseRegistrationAddress);AddText(q,"emergency",e.EmergencyContactName);AddText(q,"phone",e.EmergencyContactPhone);AddText(q,"emergency_address",e.EmergencyContactAddress);await q.ExecuteNonQueryAsync(token);}
         const string family = """
             INSERT INTO public.employee_family_info
                 (employee_id,marital_status,is_marriage_registered,spouse_title,spouse_name,marriage_date,
@@ -329,6 +427,64 @@ public sealed class PreEmployeesController(
         for(var i=0;i<e.WorkHistory.Count;i++){var row=e.WorkHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_work_history(employee_id,display_order,period_text,position_name,company_name) VALUES(@id,@order,@period,@position,@company)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"period",row.Period);AddText(q,"position",row.Position);AddText(q,"company",row.Company);await q.ExecuteNonQueryAsync(token);}
         for(var i=0;i<e.EducationHistory.Count;i++){var row=e.EducationHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_education_history(employee_id,display_order,education_level,institution_name,major_name,graduation_year) VALUES(@id,@order,@level,@institution,@major,@year)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"level",row.Level);AddText(q,"institution",row.Institution);AddText(q,"major",row.Major);AddText(q,"year",row.GraduationYear);await q.ExecuteNonQueryAsync(token);}
         for(var i=0;i<e.TrainingHistory.Count;i++){var row=e.TrainingHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_training_history(employee_id,display_order,course_name,training_period,location_name,expense,certificate,exam_fee) VALUES(@id,@order,@course,@period,@location,@expense,@certificate,@exam)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"course",row.CourseName);AddText(q,"period",row.TrainingPeriod);AddText(q,"location",row.Location);q.Parameters.AddWithValue("expense",row.Expense);AddText(q,"certificate",row.Certificate);q.Parameters.AddWithValue("exam",row.ExamFee);await q.ExecuteNonQueryAsync(token);}
+    }
+
+    private async Task ReplacePreEmployeeResponsibilityProvinces(
+        long preEmployeeId, IEnumerable<string>? values, string? fallback, CancellationToken token)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(token);
+        var names = EmployeesController.SplitResponsibilityProvinces(
+            EmployeesController.JoinResponsibilityProvinces(values, fallback));
+        await using (var delete = new NpgsqlCommand(
+            "DELETE FROM public.pre_employee_responsibility_provinces WHERE pre_employee_id=@id", connection, transaction))
+        {
+            delete.Parameters.AddWithValue("id", preEmployeeId);
+            await delete.ExecuteNonQueryAsync(token);
+        }
+        for (var index = 0; index < names.Count; index++)
+        {
+            await using var insert = new NpgsqlCommand("""
+                INSERT INTO public.pre_employee_responsibility_provinces(pre_employee_id, province_id, display_order)
+                SELECT @id, master.id, @display_order
+                FROM public.system_master_items master
+                WHERE master.category_code='PROVINCE'
+                  AND (lower(trim(master.name_th))=lower(trim(@name))
+                    OR lower(trim(COALESCE(master.name_en,'')))=lower(trim(@name)))
+                ORDER BY CASE WHEN lower(trim(master.name_th))=lower(trim(@name)) THEN 0 ELSE 1 END, master.id
+                LIMIT 1
+                ON CONFLICT (pre_employee_id, province_id)
+                DO UPDATE SET display_order=EXCLUDED.display_order
+                """, connection, transaction);
+            insert.Parameters.AddWithValue("id", preEmployeeId);
+            insert.Parameters.AddWithValue("name", names[index]);
+            insert.Parameters.AddWithValue("display_order", index + 1);
+            await insert.ExecuteNonQueryAsync(token);
+        }
+        await transaction.CommitAsync(token);
+    }
+
+    private async Task<List<string>> LoadPreEmployeeResponsibilityProvinces(long preEmployeeId, CancellationToken token)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(token);
+        return await LoadPreEmployeeResponsibilityProvinces(connection, null, preEmployeeId, token);
+    }
+
+    private static async Task<List<string>> LoadPreEmployeeResponsibilityProvinces(
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, long preEmployeeId, CancellationToken token)
+    {
+        var result = new List<string>();
+        await using var command = new NpgsqlCommand("""
+            SELECT master.name_th
+            FROM public.pre_employee_responsibility_provinces link
+            JOIN public.system_master_items master ON master.id=link.province_id
+            WHERE link.pre_employee_id=@id
+            ORDER BY link.display_order, master.display_order, master.name_th
+            """, connection, transaction);
+        command.Parameters.AddWithValue("id", preEmployeeId);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token)) result.Add(reader.GetString(0));
+        return result;
     }
 
     private async Task<(string EmployeeId, string Name)?> GetActor(CancellationToken token)

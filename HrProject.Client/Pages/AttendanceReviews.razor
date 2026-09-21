@@ -91,8 +91,16 @@
             {
                 @foreach (var item in PagedItems)
                 {
-                    <tr>
-                        <td>@item.WorkDate.ToString("dd/MM/yyyy")</td>
+                    <tr class="@(expandedCommentDailyId == item.AttendanceDailyId ? "comment-row-open" : null)">
+                        <td>
+                            <button class="comment-toggle" type="button"
+                                    aria-label="ความคิดเห็นของ @item.EmployeeName วันที่ @item.WorkDate.ToString("dd/MM/yyyy")"
+                                    aria-expanded="@(expandedCommentDailyId == item.AttendanceDailyId)"
+                                    @onclick="() => ToggleComments(item.AttendanceDailyId)">
+                                <span class="comment-chevron">›</span>
+                            </button>
+                            @item.WorkDate.ToString("dd/MM/yyyy")
+                        </td>
                         <td><strong>@item.EmployeeName</strong><small>@EmployeeCodeFormat.Display(item.EmployeeId)</small></td>
                         <td>@(string.IsNullOrWhiteSpace(item.Department) ? "-" : item.Department)</td>
                         <td>@DisplayTime(item.FirstScanAt) – @DisplayTime(item.LastScanAt)</td>
@@ -100,6 +108,14 @@
                         <td><div class="review-tags">@if (item.RequiresReview) { <span class="review-tag">รอตรวจสอบ</span> }<span class="response-tag @ResponseClass(item.LatestResponse)">@ResponseText(item.LatestResponse)</span></div></td>
                         <td><button type="button" class="detail-button" @onclick="() => OpenDetail(item)">ดูรายละเอียด</button></td>
                     </tr>
+                    @if (expandedCommentDailyId == item.AttendanceDailyId)
+                    {
+                        <tr class="comment-detail-row">
+                            <td colspan="7">
+                                <AttendanceCommentThread AttendanceDailyId="@item.AttendanceDailyId" />
+                            </td>
+                        </tr>
+                    }
                 }
             }
             </tbody>
@@ -131,6 +147,18 @@
                     <section class="response-detail"><div class="section-title"><strong>ข้อโต้แย้งของพนักงาน</strong><span class="response-tag @ResponseClass(selectedItem.LatestResponse)">@ResponseText(selectedItem.LatestResponse)</span></div>
                         <p>@selectedItem.LatestResponse.ResponseText</p>
                         <small>ส่งโดย @selectedItem.LatestResponse.SubmittedByName เมื่อ @selectedItem.LatestResponse.SubmittedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                        <div class="review-issue-list">
+                            @foreach (var issue in selectedItem.LatestResponse.Issues)
+                            {
+                                <label class="review-issue @IssueStatusClass(issue.Status)">
+                                    @if (issue.Status == "SUBMITTED")
+                                    {
+                                        <input type="checkbox" checked="@selectedReviewIssueTypes.Contains(issue.IssueType)" @onchange="eventArgs => SetReviewIssueType(issue.IssueType, eventArgs.Value is true)" />
+                                    }
+                                    <span><strong>@IssueTypeText(issue.IssueType)</strong><small>@IssueStatusText(issue.Status)@(string.IsNullOrWhiteSpace(issue.ReviewNote) ? "" : $" · {issue.ReviewNote}")</small></span>
+                                </label>
+                            }
+                        </div>
                         @if (selectedItem.LatestResponse.Attachments.Count > 0)
                         {
                             <div class="response-files">@foreach (var file in selectedItem.LatestResponse.Attachments) { <button type="button" @onclick="() => PreviewAttachment(file)"><strong>@file.FileName</strong><small>@FormatFileSize(file.FileSizeBytes) · ดูตัวอย่าง</small></button> }</div>
@@ -146,8 +174,8 @@
             <footer><button type="button" class="close-button" disabled="@isSaving" @onclick="CloseDetail">ปิด</button>
                 @if (selectedItem.LatestResponse?.Status == "SUBMITTED")
                 {
-                    @if (canReject) { <button type="button" class="reject-button" disabled="@isSaving" @onclick="ConfirmReject">ไม่อนุมัติ</button> }
-                    @if (canApprove) { <button type="button" class="approve-button" disabled="@isSaving" @onclick="ConfirmApprove">อนุมัติ</button> }
+                    @if (canReject) { <button type="button" class="reject-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmReject">ไม่อนุมัติรายการที่เลือก</button> }
+                    @if (canApprove) { <button type="button" class="approve-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmApprove">อนุมัติรายการที่เลือก</button> }
                 }
             </footer>
         </section>
@@ -190,8 +218,10 @@
     private int pageSize = 10;
     private bool isLoading = true;
     private string? loadError;
+    private long? expandedCommentDailyId;
     private AttendanceReviewItemDto? selectedItem;
     private string reviewNote = "";
+    private readonly HashSet<string> selectedReviewIssueTypes = new(StringComparer.OrdinalIgnoreCase);
     private bool canApprove;
     private bool canReject;
     private bool isSaving;
@@ -219,6 +249,7 @@
     private int LateCount => items.Count(x => x.CalculatedLateMinutes > 0);
     private int AbsentCount => items.Count(x => x.CalculatedMissingMinutes > 0);
     private int ReviewCount => items.Count(x => x.RequiresReview);
+    private string SelectedIssueText => string.Join(" และ ", selectedReviewIssueTypes.Select(IssueTypeText));
     private List<AttendanceCalendarEventReviewDto> PendingEventReviews
     {
         get
@@ -275,14 +306,21 @@
     private async Task ClearFilter() { searchText = ""; selectedStatuses.Clear(); selectedYear = DateTime.Today.Year; selectedQuarter = ((DateTime.Today.Month - 1) / 3) + 1; await Reload(); }
     private void SetStatusFilter(string code, bool selected) { if (selected) selectedStatuses.Add(code); else selectedStatuses.Remove(code); ApplyFilter(); }
     private void ClearStatusSelection() { selectedStatuses.Clear(); ApplyFilter(); }
+    private void ToggleComments(long attendanceDailyId) =>
+        expandedCommentDailyId = expandedCommentDailyId == attendanceDailyId ? null : attendanceDailyId;
     private bool MatchesStatusFilter(AttendanceReviewItemDto item) => selectedStatuses.Count == 0 ||
         (selectedStatuses.Contains("LATE") && item.CalculatedLateMinutes > 0) ||
         (selectedStatuses.Contains("ABSENT") && item.CalculatedMissingMinutes > 0) ||
         (selectedStatuses.Contains("REVIEW") && item.RequiresReview);
-    private void OpenDetail(AttendanceReviewItemDto item) { selectedItem = item; reviewNote = ""; actionError = null; }
-    private void CloseDetail() { if (!isSaving && !confirmOpen) selectedItem = null; }
-    private void ConfirmApprove() => OpenConfirmation("APPROVE", "ยืนยันการอนุมัติข้อโต้แย้ง", "เมื่ออนุมัติ ผลการมาทำงานของรายการนี้จะเปลี่ยนเป็นมาปกติ", "อนุมัติ", "approve");
-    private void ConfirmReject() => OpenConfirmation("REJECT", "ยืนยันการไม่อนุมัติข้อโต้แย้ง", "ผลขาดงานหรือมาสายเดิมจะยังคงอยู่", "ไม่อนุมัติ", "danger");
+    private void OpenDetail(AttendanceReviewItemDto item)
+    {
+        selectedItem = item; reviewNote = ""; actionError = null; selectedReviewIssueTypes.Clear();
+        foreach (var issue in item.LatestResponse?.Issues.Where(issue => issue.Status == "SUBMITTED") ?? [])
+            selectedReviewIssueTypes.Add(issue.IssueType);
+    }
+    private void CloseDetail() { if (!isSaving && !confirmOpen) { selectedItem = null; selectedReviewIssueTypes.Clear(); } }
+    private void ConfirmApprove() => OpenConfirmation("APPROVE", "ยืนยันการอนุมัติข้อโต้แย้งที่เลือก", $"ระบบจะยกเลิกเฉพาะสถานะ {SelectedIssueText} ส่วนสถานะอื่นจะยังคงเดิม", "อนุมัติ", "approve");
+    private void ConfirmReject() => OpenConfirmation("REJECT", "ยืนยันการไม่อนุมัติข้อโต้แย้งที่เลือก", $"สถานะ {SelectedIssueText} จะยังคงอยู่ตามผลคำนวณเดิม", "ไม่อนุมัติ", "danger");
     private void OpenConfirmation(string decision, string title, string message, string text, string tone) { pendingDecision = decision; confirmTitle = title; confirmMessage = message; confirmText = text; confirmTone = tone; confirmOpen = true; }
     private void CloseConfirmation() { if (!isSaving) { confirmOpen = false; pendingDecision = ""; } }
 
@@ -318,9 +356,9 @@
         isSaving = true; actionError = null;
         try
         {
-            var response = await Http.PostAsJsonAsync($"api/attendance/reviews/{selectedItem.LatestResponse.Id}/decision", new ReviewAttendanceResponseRequest(pendingDecision, string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim()));
+            var response = await Http.PostAsJsonAsync($"api/attendance/reviews/{selectedItem.LatestResponse.Id}/decision", new ReviewAttendanceResponseRequest(pendingDecision, string.IsNullOrWhiteSpace(reviewNote) ? null : reviewNote.Trim(), selectedReviewIssueTypes.ToList()));
             if (!response.IsSuccessStatusCode) { actionError = (await response.Content.ReadAsStringAsync()).Trim().Trim('\"'); return; }
-            confirmOpen = false; selectedItem = null; await Reload();
+            confirmOpen = false; selectedItem = null; selectedReviewIssueTypes.Clear(); await Reload();
         }
         catch (Exception exception) { actionError = $"บันทึกผลตรวจสอบไม่สำเร็จ: {exception.Message}"; }
         finally { isSaving = false; }
@@ -338,10 +376,29 @@
     private async Task RevokePreview() { if (!string.IsNullOrWhiteSpace(previewUrl)) await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl", previewUrl); previewUrl = null; }
     public async ValueTask DisposeAsync() => await RevokePreview();
 
+    private void SetReviewIssueType(string issueType, bool selected)
+    {
+        if (selected) selectedReviewIssueTypes.Add(issueType); else selectedReviewIssueTypes.Remove(issueType);
+    }
+    private static string IssueTypeText(string issueType) => issueType == "LATE" ? "มาสาย" : "ขาดงาน";
+    private static string IssueStatusText(string status) => status switch
+    {
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        _ => "รอตรวจสอบ"
+    };
+    private static string IssueStatusClass(string status) => $"issue-{status.ToLowerInvariant()}";
+
     private static string ResultText(AttendanceReviewItemDto item) { var parts = new List<string>(); if (item.CalculatedLateMinutes > 0) parts.Add($"มาสาย {item.CalculatedLateMinutes} นาที"); if (item.CalculatedMissingMinutes > 0) parts.Add($"ขาดงาน {item.CalculatedMissingMinutes} นาที"); return parts.Count == 0 ? "มาปกติ" : string.Join(", ", parts); }
-    private static string FinalResultText(AttendanceReviewItemDto item) => item.FinalStatus == "PRESENT" && item.CalculatedStatus != "PRESENT" ? "มาปกติ (อนุมัติข้อโต้แย้งแล้ว)" : ResultText(item);
+    private static string FinalResultText(AttendanceReviewItemDto item)
+    {
+        var parts = new List<string>();
+        if (item.FinalLateMinutes > 0) parts.Add($"มาสาย {item.FinalLateMinutes} นาที");
+        if (item.FinalMissingMinutes > 0) parts.Add($"ขาดงาน {item.FinalMissingMinutes} นาที");
+        return parts.Count == 0 ? "มาปกติ" : string.Join(", ", parts);
+    }
     private static string ResultClass(AttendanceReviewItemDto item) => item.CalculatedMissingMinutes > 0 ? "result-absent" : item.CalculatedLateMinutes > 0 ? "result-late" : "result-present";
-    private static string ResponseText(AttendanceResponseDto? response) => response?.Status switch { "SUBMITTED" => "มีข้อโต้แย้ง", "APPROVED" => "อนุมัติแล้ว", "REJECTED" => "ไม่อนุมัติ", _ => "ยังไม่มีข้อโต้แย้ง" };
+    private static string ResponseText(AttendanceResponseDto? response) => response?.Status switch { "SUBMITTED" => "มีข้อโต้แย้ง", "APPROVED" => "อนุมัติแล้ว", "PARTIALLY_APPROVED" => "อนุมัติบางส่วน", "REJECTED" => "ไม่อนุมัติ", _ => "ยังไม่มีข้อโต้แย้ง" };
     private static string ResponseClass(AttendanceResponseDto? response) => $"response-{response?.Status?.ToLowerInvariant() ?? "none"}";
     private static string DisplayTime(DateTime? value) => value?.ToString("HH:mm") ?? "-";
     private static string FormatFileSize(long bytes) => bytes >= 1048576 ? $"{bytes / 1048576d:0.##} MB" : $"{bytes / 1024d:0.##} KB";

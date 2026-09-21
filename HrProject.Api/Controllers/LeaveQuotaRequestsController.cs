@@ -12,7 +12,10 @@ namespace HrProject.Api.Controllers;
 [Authorize(Policy = "HrApiScope")]
 public sealed class LeaveQuotaRequestsController(
     NpgsqlDataSource dataSource,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageAccessService pageAccessService,
+    PageActionPermissionService actionPermissionService,
+    WorkflowEmailNotificationService workflowNotificationService,
+    ILogger<LeaveQuotaRequestsController> logger) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LeaveQuotaRequestDto>>> GetAll(
@@ -24,7 +27,7 @@ public sealed class LeaveQuotaRequestsController(
             SELECT r.id, r.request_no, r.employee_id, r.leave_type_id,
                    t.name_th, r.quota_year, r.requested_hours,
                    r.approved_hours, r.request_reason, r.status, r.requested_by_name,
-                   r.requested_at
+                   r.requested_at, r.requested_by
             FROM public.leave_quota_requests r
             JOIN public.leave_types t ON t.id = r.leave_type_id
             WHERE (@employee_id IS NULL OR r.employee_id = @employee_id)
@@ -51,10 +54,77 @@ public sealed class LeaveQuotaRequestsController(
                 reader.GetString(8),
                 reader.GetString(9),
                 reader.GetString(10),
-                reader.GetFieldValue<DateTimeOffset>(11)));
+                reader.GetFieldValue<DateTimeOffset>(11))
+                { RequestedBy = reader.GetString(12) });
         }
 
         return Ok(result);
+    }
+
+    [HttpGet("{id:long}/comments")]
+    public async Task<ActionResult<IReadOnlyList<LeaveQuotaRequestCommentDto>>> GetComments(
+        long id, CancellationToken cancellationToken)
+    {
+        var accessError = await ValidateCommentReadAccess(id, cancellationToken);
+        if (accessError is not null) return accessError;
+
+        const string sql = """
+            SELECT id, leave_quota_request_id, comment_text, commented_by,
+                   commented_by_name, commented_at
+            FROM public.leave_quota_request_comments
+            WHERE leave_quota_request_id = @id AND is_active = TRUE
+            ORDER BY commented_at, id
+            """;
+        var result = new List<LeaveQuotaRequestCommentDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(new LeaveQuotaRequestCommentDto(
+                reader.GetInt64(0), reader.GetInt64(1), reader.GetString(2),
+                reader.GetString(3), reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5)));
+        return Ok(result);
+    }
+
+    [HttpPost("{id:long}/comments")]
+    public async Task<ActionResult<LeaveQuotaRequestCommentDto>> AddComment(
+        long id, [FromBody] AddLeaveQuotaRequestCommentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var accessError = await ValidateCommentWriteAccess(id, cancellationToken);
+        if (accessError is not null) return accessError;
+
+        var actorEmployeeId = await GetActorEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actorEmployeeId)) return Forbid();
+        var commentText = request.CommentText?.Trim();
+        if (string.IsNullOrWhiteSpace(commentText))
+            return BadRequest("กรุณากรอกความคิดเห็น");
+        if (commentText.Length > 4000)
+            return BadRequest("ความคิดเห็นต้องไม่เกิน 4,000 ตัวอักษร");
+        var actorName = await GetEmployeeName(actorEmployeeId, cancellationToken);
+
+        const string sql = """
+            INSERT INTO public.leave_quota_request_comments
+                (leave_quota_request_id, comment_text, commented_by, commented_by_name)
+            VALUES (@request_id, @comment_text, @commented_by, @commented_by_name)
+            RETURNING id, commented_at
+            """;
+        long commentId;
+        DateTimeOffset commentedAt;
+        await using (var command = dataSource.CreateCommand(sql))
+        {
+            command.Parameters.AddWithValue("request_id", id);
+            command.Parameters.AddWithValue("comment_text", commentText);
+            command.Parameters.AddWithValue("commented_by", actorEmployeeId);
+            command.Parameters.AddWithValue("commented_by_name", actorName);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            commentId = reader.GetInt64(0);
+            commentedAt = reader.GetFieldValue<DateTimeOffset>(1);
+        }
+
+        return Ok(new LeaveQuotaRequestCommentDto(commentId, id, commentText,
+            actorEmployeeId, actorName, commentedAt));
     }
 
     [HttpPost]
@@ -145,6 +215,10 @@ public sealed class LeaveQuotaRequestsController(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        await SendNotificationSafely(
+            request.RequestedBy,
+            "มีคำขอเพิ่มโควต้าวันลารอตรวจสอบ",
+            $"เลขที่คำขอ {requestNo}\nผู้ขอ: {request.RequestedByName}\nจำนวน: {request.RequestedHours:0.##} ชั่วโมง\nเหตุผล: {request.RequestReason.Trim()}");
         var created = await FindById(id, cancellationToken);
         return CreatedAtAction(nameof(GetAll), created);
     }
@@ -265,6 +339,10 @@ public sealed class LeaveQuotaRequestsController(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        await SendNotificationSafely(
+            request.RequestedBy,
+            "มีคำขอเพิ่มโควต้าวันลาแบบหลายรายการรอตรวจสอบ",
+            $"ผู้ขอ: {request.RequestedByName}\nปีโควต้า: {request.QuotaYear}\nจำนวนรายการ: {createdIds.Count}");
         var created = new List<LeaveQuotaRequestDto>(createdIds.Count);
         foreach (var id in createdIds)
         {
@@ -274,6 +352,20 @@ public sealed class LeaveQuotaRequestsController(
         }
 
         return StatusCode(StatusCodes.Status201Created, created);
+    }
+
+    private async Task SendNotificationSafely(string senderEmployeeId, string title, string details)
+    {
+        try
+        {
+            await workflowNotificationService.SendAsync(
+                "LEAVE_REQUEST_QUOTA", senderEmployeeId, title, details,
+                "/leave/request-quota", CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Leave quota request was saved but email notification failed");
+        }
     }
 
     [HttpPost("{id:long}/approve")]
@@ -319,15 +411,18 @@ public sealed class LeaveQuotaRequestsController(
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         const string selectSql = """
-            SELECT employee_id, leave_type_id, quota_year, requested_hours, status
-            FROM public.leave_quota_requests
-            WHERE id = @id
+            SELECT request.employee_id, request.leave_type_id, request.quota_year,
+                   request.requested_hours, request.status, leave_type.default_hours
+            FROM public.leave_quota_requests request
+            JOIN public.leave_types leave_type ON leave_type.id = request.leave_type_id
+            WHERE request.id = @id
             FOR UPDATE
             """;
         string employeeId;
         long leaveTypeId;
         short quotaYear;
         decimal requestedHours;
+        decimal defaultHours;
         string status;
         await using (var command = new NpgsqlCommand(selectSql, connection, transaction))
         {
@@ -340,6 +435,7 @@ public sealed class LeaveQuotaRequestsController(
             quotaYear = reader.GetInt16(2);
             requestedHours = reader.GetDecimal(3);
             status = reader.GetString(4);
+            defaultHours = reader.GetDecimal(5);
         }
 
         if (status != "PENDING")
@@ -375,6 +471,43 @@ public sealed class LeaveQuotaRequestsController(
 
         if (approve)
         {
+            var approvalYear = (short)GetBangkokToday().Year;
+            var isCrossYearApproval = quotaYear != approvalYear;
+            var targetQuotaYear = isCrossYearApproval ? approvalYear : quotaYear;
+            var creditedHours = approvedHours!.Value;
+            var excessHours = 0m;
+
+            if (isCrossYearApproval)
+            {
+                const string quotaLockSql = "SELECT pg_advisory_xact_lock(hashtextextended(@lock_key, 0))";
+                await using (var quotaLockCommand = new NpgsqlCommand(quotaLockSql, connection, transaction))
+                {
+                    quotaLockCommand.Parameters.AddWithValue(
+                        "lock_key", $"LEAVE_QUOTA_ANNUAL:{targetQuotaYear}");
+                    await quotaLockCommand.ExecuteNonQueryAsync(cancellationToken);
+                    quotaLockCommand.Parameters["lock_key"].Value =
+                        $"LEAVE_QUOTA:{employeeId}:{leaveTypeId}:{targetQuotaYear}";
+                    await quotaLockCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                const string currentQuotaSql = """
+                    SELECT quota_hours
+                    FROM public.leave_quotas
+                    WHERE employee_id = @employee_id
+                      AND leave_type_id = @leave_type_id
+                      AND quota_year = @quota_year
+                    FOR UPDATE
+                    """;
+                await using var currentQuotaCommand = new NpgsqlCommand(currentQuotaSql, connection, transaction);
+                currentQuotaCommand.Parameters.AddWithValue("employee_id", employeeId);
+                currentQuotaCommand.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                currentQuotaCommand.Parameters.AddWithValue("quota_year", targetQuotaYear);
+                var currentQuotaValue = await currentQuotaCommand.ExecuteScalarAsync(cancellationToken);
+                var currentQuotaHours = currentQuotaValue is null or DBNull ? 0m : Convert.ToDecimal(currentQuotaValue);
+                creditedHours = Math.Min(approvedHours.Value, Math.Max(defaultHours - currentQuotaHours, 0m));
+                excessHours = approvedHours.Value - creditedHours;
+            }
+
             const string upsertQuotaSql = """
                 INSERT INTO public.leave_quotas
                     (employee_id, leave_type_id, quota_year, quota_hours, notes,
@@ -390,14 +523,15 @@ public sealed class LeaveQuotaRequestsController(
                     updated_by_name = EXCLUDED.updated_by_name
                 RETURNING id, quota_hours
                 """;
-            long quotaId;
-            decimal totalQuotaHours;
-            await using (var command = new NpgsqlCommand(upsertQuotaSql, connection, transaction))
+            long? quotaId = null;
+            decimal totalQuotaHours = 0;
+            if (creditedHours > 0)
             {
+                await using var command = new NpgsqlCommand(upsertQuotaSql, connection, transaction);
                 command.Parameters.AddWithValue("employee_id", employeeId);
                 command.Parameters.AddWithValue("leave_type_id", leaveTypeId);
-                command.Parameters.AddWithValue("quota_year", quotaYear);
-                command.Parameters.AddWithValue("hours", approvedHours!.Value);
+                command.Parameters.AddWithValue("quota_year", targetQuotaYear);
+                command.Parameters.AddWithValue("hours", creditedHours);
                 command.Parameters.AddWithValue("notes", $"เพิ่มจากคำขอ {id}");
                 command.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
                 command.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
@@ -407,25 +541,58 @@ public sealed class LeaveQuotaRequestsController(
                 totalQuotaHours = reader.GetDecimal(1);
             }
 
-            const string quotaHistorySql = """
-                INSERT INTO public.leave_quota_history
-                    (leave_quota_id, action, details_text, after_data,
-                     action_by, action_by_name)
-                VALUES
-                    (@quota_id, 'UPDATE', @details, CAST(@after_data AS jsonb),
-                     @action_by, @action_by_name)
-                """;
-            await using var historyCommand = new NpgsqlCommand(quotaHistorySql, connection, transaction);
-            historyCommand.Parameters.AddWithValue("quota_id", quotaId);
-            historyCommand.Parameters.AddWithValue(
-                "details",
-                $"อนุมัติคำขอเพิ่มโควต้า {approvedHours.Value:0.##} ชั่วโมง; โควต้ารวม {totalQuotaHours:0.##} ชั่วโมง");
-            historyCommand.Parameters.AddWithValue(
-                "after_data",
-                $"{{\"quotaHours\":{totalQuotaHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
-            historyCommand.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
-            historyCommand.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
-            await historyCommand.ExecuteNonQueryAsync(cancellationToken);
+            if (quotaId.HasValue)
+            {
+                const string quotaHistorySql = """
+                    INSERT INTO public.leave_quota_history
+                        (leave_quota_id, action, details_text, after_data,
+                         action_by, action_by_name)
+                    VALUES
+                        (@quota_id, 'UPDATE', @details, CAST(@after_data AS jsonb),
+                         @action_by, @action_by_name)
+                    """;
+                await using var historyCommand = new NpgsqlCommand(quotaHistorySql, connection, transaction);
+                historyCommand.Parameters.AddWithValue("quota_id", quotaId.Value);
+                historyCommand.Parameters.AddWithValue(
+                    "details",
+                    $"อนุมัติคำขอเพิ่มโควต้า {approvedHours.Value:0.##} ชั่วโมง; " +
+                    $"เพิ่มเข้าโควต้าปี {targetQuotaYear} จำนวน {creditedHours:0.##} ชั่วโมง; " +
+                    $"โควต้ารวม {totalQuotaHours:0.##} ชั่วโมง" +
+                    (excessHours > 0 ? $"; ส่วนเกิน {excessHours:0.##} ชั่วโมง" : string.Empty));
+                historyCommand.Parameters.AddWithValue(
+                    "after_data",
+                    $"{{\"quotaHours\":{totalQuotaHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+                    $"\"creditedHours\":{creditedHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+                    $"\"excessHours\":{excessHours.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+                historyCommand.Parameters.AddWithValue("action_by", request.ReviewedBy.Trim());
+                historyCommand.Parameters.AddWithValue("action_by_name", request.ReviewedByName.Trim());
+                await historyCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (isCrossYearApproval)
+            {
+                const string excessSql = """
+                    INSERT INTO public.leave_quota_excess_details
+                        (employee_id, leave_type_id, quota_year, source_type, source_id,
+                         source_year, requested_hours, credited_hours, excess_hours, notes)
+                    VALUES
+                        (@employee_id, @leave_type_id, @quota_year, 'LEAVE_QUOTA_REQUEST', @source_id,
+                         @source_year, @requested_hours, @credited_hours, @excess_hours, @notes)
+                    ON CONFLICT (source_type, source_id) DO NOTHING
+                    """;
+                await using var excessCommand = new NpgsqlCommand(excessSql, connection, transaction);
+                excessCommand.Parameters.AddWithValue("employee_id", employeeId);
+                excessCommand.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                excessCommand.Parameters.AddWithValue("quota_year", targetQuotaYear);
+                excessCommand.Parameters.AddWithValue("source_id", id);
+                excessCommand.Parameters.AddWithValue("source_year", quotaYear);
+                excessCommand.Parameters.AddWithValue("requested_hours", approvedHours.Value);
+                excessCommand.Parameters.AddWithValue("credited_hours", creditedHours);
+                excessCommand.Parameters.AddWithValue("excess_hours", excessHours);
+                excessCommand.Parameters.AddWithValue(
+                    "notes", $"คำขอปี {quotaYear} อนุมัติในปี {targetQuotaYear}");
+                await excessCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
 
         const string requestHistorySql = """
@@ -476,6 +643,73 @@ public sealed class LeaveQuotaRequestsController(
         command.Parameters.AddWithValue("object_id", objectId);
         return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
+
+    private async Task<ActionResult?> ValidateCommentReadAccess(
+        long requestId, CancellationToken cancellationToken)
+    {
+        var actorEmployeeId = await GetActorEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actorEmployeeId)) return Forbid();
+
+        if (!await LeaveQuotaRequestExists(requestId, cancellationToken)) return NotFound();
+        return await pageAccessService.HasAccess(
+            actorEmployeeId, "LEAVE_REQUEST_QUOTA", cancellationToken)
+            ? null
+            : StatusCode(StatusCodes.Status403Forbidden,
+                "ไม่มีสิทธิ์ดูความคิดเห็นของคำขอเพิ่มวันลานี้");
+    }
+
+    private async Task<ActionResult?> ValidateCommentWriteAccess(
+        long requestId, CancellationToken cancellationToken)
+    {
+        var actorEmployeeId = await GetActorEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(actorEmployeeId)) return Forbid();
+
+        const string sql = "SELECT requested_by FROM public.leave_quota_requests WHERE id = @id";
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", requestId);
+        var requestedBy = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        if (requestedBy is null) return NotFound();
+
+        if (string.Equals(actorEmployeeId, requestedBy, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        foreach (var action in new[] { "APPROVE", "REJECT" })
+            if (await actionPermissionService.HasPermission(
+                    actorEmployeeId, "LEAVE_REQUEST_QUOTA", action, cancellationToken))
+                return null;
+
+        return StatusCode(StatusCodes.Status403Forbidden,
+            "คุณมีสิทธิ์อ่านความคิดเห็น แต่ไม่มีสิทธิ์ตอบกลับคำขอนี้");
+    }
+
+    private async Task<bool> LeaveQuotaRequestExists(
+        long requestId, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT EXISTS(SELECT 1 FROM public.leave_quota_requests WHERE id = @id)");
+        command.Parameters.AddWithValue("id", requestId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private async Task<string> GetEmployeeName(
+        string employeeId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT COALESCE(NULLIF(b.full_name_th, ''), NULLIF(b.full_name_en, ''), e.employee_code)
+            FROM public.employees e
+            LEFT JOIN public.employee_basic_info b ON b.employee_id = e.id
+            WHERE UPPER(BTRIM(e.employee_code)) = UPPER(BTRIM(@employee_id))
+            LIMIT 1
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", employeeId);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken)
+            ?? User.FindFirstValue("name")
+            ?? employeeId;
+    }
+
+    private static DateOnly GetBangkokToday() =>
+        DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
 
     private async Task<bool> AreDirectReports(
         string managerEmployeeId,
@@ -538,7 +772,7 @@ public sealed class LeaveQuotaRequestsController(
             SELECT r.id, r.request_no, r.employee_id, r.leave_type_id,
                    t.name_th, r.quota_year, r.requested_hours,
                    r.approved_hours, r.request_reason, r.status, r.requested_by_name,
-                   r.requested_at
+                   r.requested_at, r.requested_by
             FROM public.leave_quota_requests r
             JOIN public.leave_types t ON t.id = r.leave_type_id
             WHERE r.id = @id
@@ -553,6 +787,7 @@ public sealed class LeaveQuotaRequestsController(
             reader.GetInt64(3), reader.GetString(4), reader.GetInt16(5),
             reader.GetDecimal(6), reader.IsDBNull(7) ? null : reader.GetDecimal(7),
             reader.GetString(8), reader.GetString(9),
-            reader.GetString(10), reader.GetFieldValue<DateTimeOffset>(11));
+            reader.GetString(10), reader.GetFieldValue<DateTimeOffset>(11))
+            { RequestedBy = reader.GetString(12) };
     }
 }

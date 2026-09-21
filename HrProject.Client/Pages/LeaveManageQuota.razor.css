@@ -1,12 +1,32 @@
 .btn-create { color: #fff; background: #ff6b35; border: 0; }
+.quota-page { display: flex; flex-direction: column; gap: 1.2rem; }
 .btn-create:hover:not(:disabled) { color: #fff; background: #e85a2a; }
 .btn-reset { color: #475569; background: #fff; border: 1px solid #cbd5e1; }
 .result-count { margin-left: auto; color: #64748b; font-size: .8rem; font-weight: 500; }
 .quota-search-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; margin-bottom: 1rem; }
+.quota-criteria-card { overflow: visible; }
 .quota-search-grid label { display: grid; gap: .4rem; color: #334155; font-size: .85rem; font-weight: 600; }
 .quota-search-grid input { width: 100%; min-height: 2.5rem; padding: .5rem .75rem; color: #1e293b; background: #fff; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; font-weight: 400; }
 .quota-search-grid input:focus { border-color: #2563eb; outline: 2px solid rgba(37,99,235,.15); }
 .quota-table { min-width: 720px; }
+.quota-employee-table { min-width: 980px; }
+.quota-employee-row { cursor: pointer; transition: background-color .15s ease, box-shadow .15s ease; }
+.quota-employee-row:hover, .quota-employee-row:focus { background: #fff7ed !important; outline: none; }
+.quota-employee-row:focus { box-shadow: inset 3px 0 #ff6b35; }
+.quota-view-link { color: #ea580c; font-weight: 800; white-space: nowrap; }
+.quota-loading { min-height: 9rem; display: flex; align-items: center; justify-content: center; gap: .75rem; color: #64748b; }
+.quota-spinner { width: 1.45rem; height: 1.45rem; border: 3px solid #dbeafe; border-top-color: #2563eb; border-radius: 50%; animation: quota-spin .7s linear infinite; }
+@keyframes quota-spin { to { transform: rotate(360deg); } }
+.quota-employee-banner { padding: 1rem 1.25rem 1.2rem; color: #fff; border-radius: .7rem; background: linear-gradient(135deg,#172554,#1e3a8a); box-shadow: 0 8px 22px rgba(15,23,42,.14); }
+.quota-back-link { margin: 0 0 1rem; padding: 0; color: #cbd5e1; background: transparent; border: 0; font: inherit; cursor: pointer; }
+.quota-back-link:hover, .quota-back-link:focus { color: #fff; outline: none; text-decoration: underline; }
+.quota-profile-summary { display: flex; align-items: center; gap: 1rem; }
+.quota-avatar { display: grid; place-items: center; width: 3.2rem; height: 3.2rem; border-radius: 50%; color: #172554; background: #fff; font-size: 1.3rem; font-weight: 800; }
+.quota-profile-summary span, .quota-profile-summary p { color: #bfdbfe; }
+.quota-profile-summary h2, .quota-profile-summary p { margin: .1rem 0; }
+.quota-detail-search { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 1rem; }
+.quota-detail-search label { display: grid; gap: .4rem; color: #334155; font-size: .85rem; font-weight: 600; }
+.quota-detail-search input { min-height: 2.5rem; padding: .5rem .75rem; border: 1px solid #cbd5e1; border-radius: .45rem; font: inherit; }
 .quota-table th:nth-child(3), .quota-table th:nth-child(4), .quota-table td:nth-child(3), .quota-table td:nth-child(4) { text-align: center; }
 .remaining { color: #047857; font-size: 1rem; }
 .btn-edit { padding: .35rem .75rem; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .4rem; cursor: pointer; }

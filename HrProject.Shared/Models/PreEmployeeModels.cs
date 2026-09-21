@@ -1,5 +1,18 @@
 namespace HrProject.Shared.Models;
 
+public sealed record PreEmployeeSummaryDto(
+    long Id,
+    string EmployeeCode,
+    string FirstNameTh,
+    string LastNameTh,
+    string FullNameEn,
+    string Email,
+    string BusinessUnit,
+    string Department,
+    string Position,
+    string Status,
+    DateTimeOffset CreatedAt);
+
 public sealed record PreEmployeeDto(
     long Id,
     string? SourceSystem,

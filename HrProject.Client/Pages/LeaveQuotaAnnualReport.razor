@@ -1,0 +1,245 @@
+@page "/leave/quota-annual-report"
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>รายงานโควต้าวันลาประจำปี | HR Project</PageTitle>
+
+<section class="manage-page annual-quota-page">
+    <header class="page-header-card">
+        <div class="page-header-content">
+            <div class="page-header-text">
+                <h1>รายงานโควต้าวันลาประจำปี</h1>
+                <p>ตรวจสอบยอดยกมาจากปีก่อน ยอดที่เพิ่มใหม่ ยอดคงเหลือปัจจุบัน และส่วนเกินที่ไม่นำไปใช้</p>
+            </div>
+            <button class="annual-export-button" type="button" disabled="@(isLoading || filteredEmployees.Count == 0)" @onclick="ExportCsv">
+                Export CSV
+            </button>
+        </div>
+    </header>
+
+    <section class="annual-summary-grid">
+        <article><span>เหลือจากปีก่อน</span><strong>@FormatHours(DisplayItems.Sum(x => x.PreviousYearRemainingHours))</strong></article>
+        <article><span>เพิ่มใหม่</span><strong>@FormatHours(DisplayItems.Sum(x => x.NewlyAddedHours))</strong></article>
+        <article><span>คงเหลือปัจจุบัน</span><strong>@FormatHours(DisplayItems.Sum(x => x.CurrentRemainingHours))</strong></article>
+        <article class="excess"><span>ส่วนเกิน</span><strong>@FormatHours(DisplayItems.Sum(x => x.ExcessHours))</strong></article>
+    </section>
+
+    @if (selectedEmployee is null)
+    {
+        <section class="content-card annual-criteria-card">
+            <div class="content-card-header">ค้นหารายงาน</div>
+            <div class="content-card-body annual-criteria-grid">
+                <label>คำค้นหา<input type="search" placeholder="รหัส ชื่อพนักงาน หรือแผนก" @bind="searchText" @bind:event="oninput" @bind:after="ApplyFilters" /></label>
+                <label>ประเภทการลา<select @bind="selectedLeaveTypeId" @bind:after="ApplyFilters"><option value="">ทั้งหมด</option>@foreach (var leaveType in LeaveTypeOptions) { <option value="@leaveType.Id">@leaveType.Name</option> }</select></label>
+                <label>ปีโควต้า<select @bind="selectedYear" @bind:after="LoadReport">@foreach (var year in Years) { <option value="@year">@year</option> }</select></label>
+                <label class="annual-check"><input type="checkbox" @bind="showExcessOnly" @bind:after="ApplyFilters" />แสดงเฉพาะรายการที่มีส่วนเกิน</label>
+                <button class="btn btn-reset" type="button" @onclick="ResetFilters">ล้างข้อมูล</button>
+            </div>
+        </section>
+
+        <section class="content-card">
+            <div class="content-card-header">รายการโควต้าประจำปี <span class="result-count">@filteredEmployees.Count คน</span></div>
+            <div class="content-card-body">
+                @if (isLoading) { <div class="annual-loading"><span class="annual-spinner"></span><span>กำลังโหลดรายงานโควต้าวันลา...</span></div> }
+                else if (!string.IsNullOrWhiteSpace(loadError)) { <div class="state-message error">@loadError</div> }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table employee-table annual-report-table">
+                            <thead><tr><th>รหัสพนักงาน</th><th>พนักงาน</th><th>แผนก</th><th>เหลือจากปีก่อน (ชั่วโมง)</th><th>เพิ่มใหม่ (ชั่วโมง)</th><th>คงเหลือปัจจุบัน (ชั่วโมง)</th><th>ส่วนเกิน (ชั่วโมง)</th><th>วันที่ประมวลผล</th><th></th></tr></thead>
+                            <tbody>
+                                @if (filteredEmployees.Count == 0) { <tr><td colspan="9" class="no-results">ไม่พบข้อมูลตามเงื่อนไข</td></tr> }
+                                @foreach (var employee in PagedEmployees)
+                                {
+                                    <tr class="annual-employee-row" tabindex="0" @onclick="() => OpenEmployee(employee)" @onkeydown="args => HandleEmployeeRowKey(args, employee)">
+                                        <td>@EmployeeCodeFormat.Display(employee.EmployeeId)</td><td><strong>@employee.EmployeeName</strong></td><td>@Display(employee.Department)</td>
+                                        <td>@employee.PreviousYearRemainingHours.ToString("0.##")</td><td class="annual-added">@employee.NewlyAddedHours.ToString("0.##")</td><td class="annual-current">@employee.CurrentRemainingHours.ToString("0.##")</td>
+                                        <td><span class="annual-excess-pill @(employee.ExcessHours > 0 ? "has-excess" : null)">@employee.ExcessHours.ToString("0.##")</span></td><td>@(employee.ProcessedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "-")</td><td><span class="annual-view-link">ดูรายละเอียด ›</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <Pagination TotalItems="@filteredEmployees.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="annual-employee-banner">
+            <button class="annual-back-link" type="button" @onclick="BackToEmployees">‹ กลับหน้ารายงาน</button>
+            <div class="annual-profile-summary"><div class="annual-avatar">@EmployeeInitial</div><div><span>@EmployeeCodeFormat.Display(selectedEmployee.EmployeeId) · ปี @selectedYear</span><h2>@selectedEmployee.EmployeeName</h2><p>@Display(selectedEmployee.Department)</p></div></div>
+        </section>
+        <section class="content-card">
+            <div class="content-card-header">รายละเอียดแยกตามประเภทการลา <span class="result-count">@SelectedEmployeeItems.Count รายการ</span></div>
+            <div class="content-card-body">
+                <div class="table-responsive">
+                    <table class="table employee-table annual-report-table">
+                        <thead><tr><th>ประเภทการลา</th><th>เหลือจากปีก่อน (ชั่วโมง)</th><th>เพิ่มใหม่ (ชั่วโมง)</th><th>คงเหลือปัจจุบัน (ชั่วโมง)</th><th>ส่วนเกิน (ชั่วโมง)</th><th>วันที่ประมวลผล</th></tr></thead>
+                        <tbody>@foreach (var item in SelectedEmployeeItems) { <tr><td><strong>@item.LeaveTypeName</strong></td><td>@item.PreviousYearRemainingHours.ToString("0.##")</td><td class="annual-added">@item.NewlyAddedHours.ToString("0.##")</td><td class="annual-current">@item.CurrentRemainingHours.ToString("0.##")</td><td><span class="annual-excess-pill @(item.ExcessHours > 0 ? "has-excess" : null)">@item.ExcessHours.ToString("0.##")</span></td><td>@(item.ProcessedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr> }</tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    }
+</section>
+
+@code {
+    private int selectedYear = DateTime.Today.Year;
+    private string searchText = string.Empty;
+    private string selectedLeaveTypeId = string.Empty;
+    private bool showExcessOnly;
+    private bool isLoading = true;
+    private string? loadError;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private List<LeaveQuotaAnnualReportDto> items = [];
+    private List<LeaveQuotaAnnualReportDto> filteredItems = [];
+    private List<EmployeeAnnualSummary> filteredEmployees = [];
+    private EmployeeAnnualSummary? selectedEmployee;
+    private IEnumerable<int> Years => Enumerable.Range(DateTime.Today.Year - 3, 7).Reverse();
+    private IEnumerable<EmployeeAnnualSummary> PagedEmployees => filteredEmployees
+        .Skip((currentPage - 1) * pageSize)
+        .Take(pageSize);
+    private List<LeaveQuotaAnnualReportDto> SelectedEmployeeItems => selectedEmployee is null
+        ? []
+        : items
+            .Where(item => string.Equals(item.EmployeeId, selectedEmployee.EmployeeId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.LeaveTypeName)
+            .ToList();
+    private IEnumerable<LeaveQuotaAnnualReportDto> DisplayItems
+    {
+        get
+        {
+            if (selectedEmployee is not null)
+            {
+                return SelectedEmployeeItems;
+            }
+
+            var employeeIds = filteredEmployees
+                .Select(employee => employee.EmployeeId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return filteredItems.Where(item => employeeIds.Contains(item.EmployeeId));
+        }
+    }
+    private string EmployeeInitial => string.IsNullOrWhiteSpace(selectedEmployee?.EmployeeName)
+        ? "?"
+        : selectedEmployee.EmployeeName.Trim()[0].ToString();
+    private IEnumerable<(long Id, string Name)> LeaveTypeOptions => items
+        .GroupBy(x => x.LeaveTypeId)
+        .Select(group => (Id: group.Key, Name: group.First().LeaveTypeName))
+        .OrderBy(x => x.Name);
+
+    protected override Task OnInitializedAsync() => LoadReport();
+
+    private async Task LoadReport()
+    {
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            items = await Http.GetFromJsonAsync<List<LeaveQuotaAnnualReportDto>>(
+                $"api/leave-quota-annual-reports?year={selectedYear}") ?? [];
+            selectedEmployee = null;
+            ApplyFilters();
+        }
+        catch (Exception exception)
+        {
+            items = [];
+            filteredItems = [];
+            filteredEmployees = [];
+            selectedEmployee = null;
+            loadError = $"โหลดรายงานไม่สำเร็จ: {exception.Message}";
+        }
+        finally { isLoading = false; }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredItems = items.Where(item =>
+            (string.IsNullOrWhiteSpace(searchText) ||
+             item.EmployeeId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             item.EmployeeName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+             item.Department.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(selectedLeaveTypeId) || item.LeaveTypeId.ToString() == selectedLeaveTypeId))
+            .ToList();
+
+        filteredEmployees = filteredItems
+            .GroupBy(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new EmployeeAnnualSummary(
+                group.Key,
+                group.First().EmployeeName,
+                group.First().Department,
+                group.First().QuotaYear,
+                group.Sum(item => item.PreviousYearRemainingHours),
+                group.Sum(item => item.NewlyAddedHours),
+                group.Sum(item => item.CurrentRemainingHours),
+                group.Sum(item => item.ExcessHours),
+                group.Max(item => item.ProcessedAt)))
+            .Where(employee => !showExcessOnly || employee.ExcessHours > 0)
+            .OrderBy(employee => EmployeeSortKey(employee.EmployeeId))
+            .ThenBy(employee => employee.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        currentPage = 1;
+    }
+
+    private void ResetFilters()
+    {
+        searchText = selectedLeaveTypeId = string.Empty;
+        showExcessOnly = false;
+        selectedEmployee = null;
+        ApplyFilters();
+    }
+
+    private void OpenEmployee(EmployeeAnnualSummary employee)
+    {
+        selectedEmployee = employee;
+    }
+
+    private void BackToEmployees()
+    {
+        selectedEmployee = null;
+    }
+
+    private void HandleEmployeeRowKey(KeyboardEventArgs args, EmployeeAnnualSummary employee)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            OpenEmployee(employee);
+        }
+    }
+
+    private async Task ExportCsv()
+    {
+        var lines = new List<string>
+        {
+            "รหัสพนักงาน,พนักงาน,แผนก,ปีโควต้า,เหลือจากปีก่อน (ชั่วโมง),เพิ่มใหม่ (ชั่วโมง),คงเหลือปัจจุบัน (ชั่วโมง),ส่วนเกิน (ชั่วโมง),วันที่ประมวลผล"
+        };
+        lines.AddRange(filteredEmployees.Select(employee => string.Join(",",
+            Csv(EmployeeCodeFormat.Display(employee.EmployeeId)), Csv(employee.EmployeeName), Csv(employee.Department),
+            employee.QuotaYear,
+            employee.PreviousYearRemainingHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            employee.NewlyAddedHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            employee.CurrentRemainingHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            employee.ExcessHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Csv(employee.ProcessedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm")))));
+        await JS.InvokeVoidAsync("hrDownload.downloadText", $"leave-quota-annual-{selectedYear}.csv", "\uFEFF" + string.Join("\r\n", lines), "text/csv;charset=utf-8");
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string FormatHours(decimal value) => $"{value:0.##} ชั่วโมง";
+    private static string Csv(string? value) => "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
+    private static int EmployeeSortKey(string value) => int.TryParse(value, out var result) ? result : int.MaxValue;
+
+    private sealed record EmployeeAnnualSummary(
+        string EmployeeId,
+        string EmployeeName,
+        string Department,
+        int QuotaYear,
+        decimal PreviousYearRemainingHours,
+        decimal NewlyAddedHours,
+        decimal CurrentRemainingHours,
+        decimal ExcessHours,
+        DateTimeOffset? ProcessedAt);
+}

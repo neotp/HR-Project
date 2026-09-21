@@ -386,3 +386,41 @@ article.employee-document-card {
     .local-auth-page { padding: .8rem; }
     .local-auth-card { padding: 2rem 1.3rem 1.8rem; }
 }
+
+/* A leave-comment dialog is rendered from an expanded table row. Lift its
+   containing card above filter cards so the fixed dialog is never covered by
+   a page-level stacking context. */
+body:has(.recipient-dialog-overlay) .criteria-card {
+    z-index: 0 !important;
+}
+
+body:has(.recipient-dialog-overlay) .result-card {
+    z-index: 2700 !important;
+}
+
+body:has(.recipient-dialog-overlay) .result-card,
+body:has(.recipient-dialog-overlay) .result-card .content-card-body,
+body:has(.recipient-dialog-overlay) .result-card .table-responsive {
+    overflow: visible !important;
+}
+
+/* Image previews are also rendered from inside an expanded result row. Raise
+   the whole result stacking context while the preview is open so notebook
+   sidebars and search cards cannot cover or crop the dialog. */
+body:has(.comment-image-overlay) {
+    overflow: hidden;
+}
+
+body:has(.comment-image-overlay) .criteria-card {
+    z-index: 0 !important;
+}
+
+body:has(.comment-image-overlay) .result-card {
+    z-index: 3200 !important;
+}
+
+body:has(.comment-image-overlay) .result-card,
+body:has(.comment-image-overlay) .result-card .content-card-body,
+body:has(.comment-image-overlay) .result-card .table-responsive {
+    overflow: visible !important;
+}

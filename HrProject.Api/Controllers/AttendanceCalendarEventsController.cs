@@ -10,7 +10,9 @@ namespace HrProject.Api.Controllers;
 public sealed class AttendanceCalendarEventsController(
     NpgsqlDataSource dataSource,
     PageAccessService pageAccessService,
-    PageActionPermissionService actionPermissionService) : ControllerBase
+    PageActionPermissionService actionPermissionService,
+    AttendanceEventOutlookSyncService outlookSyncService,
+    ILogger<AttendanceCalendarEventsController> logger) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AttendanceCalendarEventDto>>> GetAll(
@@ -68,14 +70,18 @@ public sealed class AttendanceCalendarEventsController(
                       title, details, status, created_by, created_by_name, created_at, updated_at,
                       reviewed_by, reviewed_by_name, reviewed_at, review_note
             """;
-        await using var command = dataSource.CreateCommand(sql);
-        AddParameters(command, actor.Value.EmployeeId, request);
-        command.Parameters.AddWithValue("status", status);
-        command.Parameters.AddWithValue("created_by", actor.Value.EmployeeId);
-        command.Parameters.AddWithValue("created_by_name", actor.Value.Name);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        await reader.ReadAsync(cancellationToken);
-        var result = ReadEvent(reader);
+        AttendanceCalendarEventDto result;
+        await using (var command = dataSource.CreateCommand(sql))
+        {
+            AddParameters(command, actor.Value.EmployeeId, request);
+            command.Parameters.AddWithValue("status", status);
+            command.Parameters.AddWithValue("created_by", actor.Value.EmployeeId);
+            command.Parameters.AddWithValue("created_by_name", actor.Value.Name);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            result = ReadEvent(reader);
+        }
+        await SyncOutlookSafely(result.Id, cancellationToken);
         return Created($"api/attendance-calendar-events/{result.Id}", result);
     }
 
@@ -107,12 +113,18 @@ public sealed class AttendanceCalendarEventsController(
                       title, details, status, created_by, created_by_name, created_at, updated_at,
                       reviewed_by, reviewed_by_name, reviewed_at, review_note
             """;
-        await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("id", id);
-        AddParameters(command, actor.Value.EmployeeId, request);
-        command.Parameters.AddWithValue("status", status);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken) ? Ok(ReadEvent(reader)) : NotFound();
+        AttendanceCalendarEventDto? result = null;
+        await using (var command = dataSource.CreateCommand(sql))
+        {
+            command.Parameters.AddWithValue("id", id);
+            AddParameters(command, actor.Value.EmployeeId, request);
+            command.Parameters.AddWithValue("status", status);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken)) result = ReadEvent(reader);
+        }
+        if (result is null) return NotFound();
+        await SyncOutlookSafely(result.Id, cancellationToken);
+        return Ok(result);
     }
 
     [HttpDelete("{id:long}")]
@@ -121,10 +133,16 @@ public sealed class AttendanceCalendarEventsController(
         var actor = await GetAuthenticatedEmployee(cancellationToken);
         if (actor is null) return Unauthorized();
         const string sql = "DELETE FROM public.attendance_calendar_events WHERE id = @id AND employee_id = @employee_id";
-        await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("id", id);
-        command.Parameters.AddWithValue("employee_id", actor.Value.EmployeeId);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 0 ? NotFound() : NoContent();
+        int affected;
+        await using (var command = dataSource.CreateCommand(sql))
+        {
+            command.Parameters.AddWithValue("id", id);
+            command.Parameters.AddWithValue("employee_id", actor.Value.EmployeeId);
+            affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (affected == 0) return NotFound();
+        await SyncOutlookSafely(id, cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("reviews")]
@@ -198,13 +216,33 @@ public sealed class AttendanceCalendarEventsController(
                 reviewed_at = CURRENT_TIMESTAMP, review_note = @review_note, updated_at = CURRENT_TIMESTAMP
             WHERE id = @id AND status = 'PENDING_REVIEW'
             """;
-        await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("id", id);
-        command.Parameters.AddWithValue("status", decision == "APPROVE" ? "APPROVED" : "REJECTED");
-        command.Parameters.AddWithValue("reviewed_by", actor.Value.EmployeeId);
-        command.Parameters.AddWithValue("reviewed_by_name", actor.Value.Name);
-        command.Parameters.AddWithValue("review_note", (object?)NullIfWhiteSpace(request.ReviewNote) ?? DBNull.Value);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 0 ? Conflict("Event is no longer pending review") : NoContent();
+        int affected;
+        await using (var command = dataSource.CreateCommand(sql))
+        {
+            command.Parameters.AddWithValue("id", id);
+            command.Parameters.AddWithValue("status", decision == "APPROVE" ? "APPROVED" : "REJECTED");
+            command.Parameters.AddWithValue("reviewed_by", actor.Value.EmployeeId);
+            command.Parameters.AddWithValue("reviewed_by_name", actor.Value.Name);
+            command.Parameters.AddWithValue("review_note", (object?)NullIfWhiteSpace(request.ReviewNote) ?? DBNull.Value);
+            affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (affected == 0) return Conflict("Event is no longer pending review");
+        await SyncOutlookSafely(id, cancellationToken);
+        return NoContent();
+    }
+
+    private async Task SyncOutlookSafely(long eventId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await outlookSyncService.SyncBySourceEventId(eventId, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Attendance event {EventId} was saved, but its Outlook synchronization is queued for retry",
+                eventId);
+        }
     }
 
     private static string? Validate(SaveAttendanceCalendarEventRequest request)

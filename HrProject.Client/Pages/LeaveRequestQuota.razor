@@ -98,12 +98,19 @@
                             {
                                 @foreach (var request in PagedRequests)
                                 {
-                                    <tr>
+                                    <tr class="@(expandedCommentRequestId == request.Id ? "comment-row-open" : null)">
                                         @if (CanApproveQuotaRequest || CanRejectQuotaRequest)
                                         {
                                             <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(request.Status != "PENDING")" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
                                         }
-                                        <td><LeaveQuotaRequestHoverPreview Request="@request" EmployeeName="@EmployeeName(request.EmployeeId)" EmployeeDepartment="@EmployeeDepartment(request.EmployeeId)"><button class="request-number" type="button" @onclick="() => OpenRequest(request)">@request.RequestNo</button></LeaveQuotaRequestHoverPreview></td>
+                                        <td>
+                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @request.RequestNo"
+                                                    aria-expanded="@(expandedCommentRequestId == request.Id)"
+                                                    @onclick="() => ToggleComments(request.Id)">
+                                                <span class="comment-chevron">›</span>
+                                            </button>
+                                            <LeaveQuotaRequestHoverPreview Request="@request" EmployeeName="@EmployeeName(request.EmployeeId)" EmployeeDepartment="@EmployeeDepartment(request.EmployeeId)"><button class="request-number" type="button" @onclick="() => OpenRequest(request)">@request.RequestNo</button></LeaveQuotaRequestHoverPreview>
+                                        </td>
                                         <td>@EmployeeName(request.EmployeeId)</td>
                                         <td>@request.LeaveTypeName</td>
                                         <td>@request.RequestedHours.ToString("0.##") ชั่วโมง <small>(@HoursToDays(request.RequestedHours) วัน)</small></td>
@@ -126,6 +133,15 @@
                                         <td><span class="status-pill @StatusClass(request.Status)" data-status="@request.Status">@StatusText(request.Status)</span></td>
                                         <td><button class="btn-view-request" type="button" @onclick="() => OpenRequest(request)">ดูรายละเอียด</button></td>
                                     </tr>
+                                    @if (expandedCommentRequestId == request.Id)
+                                    {
+                                        <tr class="comment-detail-row">
+                                            <td colspan="@(CanApproveQuotaRequest || CanRejectQuotaRequest ? 10 : 9)">
+                                                <LeaveQuotaRequestCommentThread LeaveQuotaRequestId="@request.Id"
+                                                                                CanComment="@CanComment(request)" />
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             }
                         </tbody>
@@ -140,7 +156,7 @@
 @if (isCreating)
 {
     <div class="request-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-quota-request-title">
-        <section class="request-modal">
+        <section class="request-modal create-request-modal">
             <header class="request-modal-header">
                 <div>
                     <h2 id="create-quota-request-title">สร้างคำขอเพิ่มโควต้าวันลา</h2>
@@ -150,7 +166,15 @@
             </header>
             <div class="request-modal-body">
                 <div class="form-grid readonly-grid">
-                    <label>ปีโควต้า<input value="@DateTime.Today.Year" disabled /></label>
+                    <label>
+                        ปีโควต้า
+                        <select @bind="createQuotaYear">
+                            @foreach (var year in QuotaYearOptions)
+                            {
+                                <option value="@year">@year</option>
+                            }
+                        </select>
+                    </label>
                     <div class="add-row-action full-width">
                         <button class="btn btn-add-employee" type="button" @onclick="AddEmployee">
                             + เพิ่มรายการ
@@ -193,6 +217,7 @@
                                                 <td>
                                                     <EmployeeSearchSelect Items="@AvailableEmployeesFor(row).ToList()"
                                                                           @bind-Value="row.EmployeeId"
+                                                                          InlineOptions="true"
                                                                           Placeholder="ค้นหาพนักงาน" />
                                                 </td>
                                                 <td>@EmployeeDepartment(row.EmployeeId)</td>
@@ -324,10 +349,13 @@
     private List<LeaveTypeDto> leaveTypes = [];
     private List<LeaveQuotaRequestDto> requests = [];
     private List<LeaveQuotaRequestDto> filteredRequests = [];
+    private long? expandedCommentRequestId;
     private LeaveQuotaRequestDto? selectedRequest;
     private decimal reviewApprovedHours;
     private string reviewRemark = string.Empty;
     private CurrentMicrosoftUserDto? currentUser;
+    private int createQuotaYear = DateTime.Today.Year;
+    private IEnumerable<int> QuotaYearOptions => Enumerable.Range(DateTime.Today.Year - 2, 5).Reverse();
     private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
     private int currentPage = 1;
     private int pageSize = 10;
@@ -396,10 +424,16 @@
     }
     private Task SetLeaveTypeFilters(IReadOnlyCollection<string> values) { selectedLeaveTypes.Clear(); selectedLeaveTypes.UnionWith(values); Filter(); return Task.CompletedTask; }
     private Task SetStatusFilters(IReadOnlyCollection<string> values) { selectedStatuses.Clear(); selectedStatuses.UnionWith(values); Filter(); return Task.CompletedTask; }
+    private void ToggleComments(long requestId) =>
+        expandedCommentRequestId = expandedCommentRequestId == requestId ? null : requestId;
+    private bool CanComment(LeaveQuotaRequestDto request) =>
+        string.Equals(CurrentEmployeeId, request.RequestedBy, StringComparison.OrdinalIgnoreCase) ||
+        allowedActions.Contains("APPROVE") || allowedActions.Contains("REJECT");
 
     private void OpenCreate()
     {
         employeeRequests.Clear();
+        createQuotaYear = DateTime.Today.Year;
         saveError = null;
         isCreating = true;
     }
@@ -436,7 +470,7 @@
                         row.LeaveTypeId,
                         row.RequestedHours,
                         row.RequestReason)).ToList(),
-                DateTime.Today.Year,
+                createQuotaYear,
                 CurrentEmployeeId,
                 CurrentEmployeeName);
             var response = await Http.PostAsJsonAsync("api/leave-quota-requests/batch", request);

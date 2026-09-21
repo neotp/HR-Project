@@ -1,5 +1,7 @@
 @page "/attendance/records"
 @inject HttpClient Http
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>การมาทำงาน | HR Project</PageTitle>
 
@@ -51,23 +53,44 @@
             {
                 @foreach (var record in PagedRecords)
                 {
-                    <tr>
-                        <td>@record.WorkDate.ToString("dd/MM/yyyy")</td>
-                        <td><div class="attendance-result-tags"><span class="issue-status @StatusClass(record)">@StatusText(record)</span>@if (record.RequiresReview) { <span class="issue-status status-reviewrequired">รอตรวจสอบ</span> }</div></td>
+                    <tr class="@(expandedCommentDailyId == record.Id ? "comment-row-open" : null)">
+                        <td>
+                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นวันที่ @record.WorkDate.ToString("dd/MM/yyyy")"
+                                    aria-expanded="@(expandedCommentDailyId == record.Id)"
+                                    @onclick="() => ToggleComments(record.Id)">
+                                <span class="comment-chevron">›</span>
+                            </button>
+                            @record.WorkDate.ToString("dd/MM/yyyy")
+                        </td>
+                        <td><div class="attendance-result-tags"><span class="issue-status @StatusClass(record)">@StatusText(record)</span>@if (record.IsWorkDayInProgress && record.FinalStatus != "IN_PROGRESS") { <span class="issue-status status-inprogress">อยู่ระหว่างวันทำงาน</span> }@if (record.RequiresReview) { <span class="issue-status status-reviewrequired">รอตรวจสอบ</span> }</div></td>
                         <td>@DisplayTime(record.FirstScanAt)</td><td>@DisplayTime(record.LastScanAt)</td>
                         <td>@(record.LateMinutes > 0 ? $"{record.LateMinutes} นาที" : "-")</td>
                         <td>@(record.OverrideReason ?? record.ReviewReason ?? "-")</td>
                         <td>
-                            @if (CanSubmitResponse(record))
-                            {
-                                <button class="response-button" type="button" @onclick="() => OpenResponse(record)">Response/ข้อโต้แย้ง</button>
-                            }
-                            else
-                            {
-                                <span class="response-unavailable">@ResponseUnavailableText(record)</span>
-                            }
+                            <div class="record-actions">
+                                @if (HasResponseHistory(record.Id))
+                                {
+                                    <button class="history-button" type="button" @onclick="() => OpenHistory(record.Id)">ดูประวัติข้อโต้แย้ง</button>
+                                }
+                                @if (CanSubmitResponse(record))
+                                {
+                                    <button class="response-button" type="button" @onclick="() => OpenResponse(record)">ข้อโต้แย้ง</button>
+                                }
+                                else if (!HasResponseHistory(record.Id))
+                                {
+                                    <span class="response-unavailable">@ResponseUnavailableText(record)</span>
+                                }
+                            </div>
                         </td>
                     </tr>
+                    @if (expandedCommentDailyId == record.Id)
+                    {
+                        <tr class="comment-detail-row">
+                            <td colspan="7">
+                                <AttendanceCommentThread AttendanceDailyId="@record.Id" />
+                            </td>
+                        </tr>
+                    }
                 }
             }
             </tbody>
@@ -91,11 +114,18 @@
                 else if (ExistingPendingResponse is not null)
                 {
                     <section class="existing-response"><strong>ส่งข้อโต้แย้งแล้ว · รอดำเนินการ</strong><p>@ExistingPendingResponse.ResponseText</p><small>ส่งเมื่อ @ExistingPendingResponse.SubmittedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                    <div class="response-issue-tags">@foreach (var issue in ExistingPendingResponse.Issues) { <span>@IssueTypeText(issue.IssueType) · @IssueStatusText(issue.Status)</span> }</div>
                     @if (ExistingPendingResponse.Attachments.Count > 0) { <div class="existing-files">@foreach (var file in ExistingPendingResponse.Attachments) { <span>@file.FileName <small>@FormatFileSize(file.FileSizeBytes)</small></span> }</div> }
                     </section>
                 }
                 else
                 {
+                    <div class="response-field"><span class="field-label">เลือกประเภทข้อโต้แย้ง <span class="required">*</span></span><div class="response-issue-options">
+                        @foreach (var issueType in AvailableIssueTypes(selectedRecord))
+                        {
+                            <label><input type="checkbox" checked="@selectedResponseIssueTypes.Contains(issueType)" @onchange="eventArgs => SetResponseIssueType(issueType, eventArgs.Value as bool? == true)" /> @IssueTypeText(issueType)</label>
+                        }
+                    </div></div>
                     <label class="response-field"><span class="field-label">ข้อโต้แย้ง <span class="required">*</span></span><textarea maxlength="4000" rows="5" @bind="responseText" placeholder="กรอกรายละเอียดหรือเหตุผลที่ต้องการโต้แย้ง"></textarea></label>
                     <div class="response-field"><span>เอกสารแนบ</span><div class="attachment-picker"><InputFile class="attachment-input" @key="attachmentInputVersion" OnChange="SelectResponseAttachments" multiple accept=".pdf,.jpg,.jpeg,.png" /></div>
                         <small class="attachment-help">แนบได้หลายไฟล์ สูงสุด 10 ไฟล์ และแต่ละไฟล์ต้องไม่เกิน 10 MB (PDF, JPG หรือ PNG)</small>
@@ -108,6 +138,64 @@
                 @if (!responsesLoading && ExistingPendingResponse is null) { <button class="submit-response-button" type="button" disabled="@isSubmitting" @onclick="SubmitResponse">@if (isSubmitting) { <span class="button-spinner"></span> } @(isSubmitting ? "กำลังส่ง..." : "ส่งข้อโต้แย้ง")</button> }
             </footer>
         </section>
+    </div>
+}
+
+@if (SelectedHistoryItems.Count > 0)
+{
+    <div class="response-overlay" role="dialog" aria-modal="true" aria-labelledby="history-title" @onclick="CloseHistory">
+        <section class="response-modal history-modal" @onclick:stopPropagation="true">
+            <header class="response-modal-header"><div><h2 id="history-title">ประวัติข้อโต้แย้ง</h2><p>วันที่ทำงาน @SelectedHistoryItems[0].WorkDate.ToString("dd/MM/yyyy") · @SelectedHistoryItems.Count คำขอ</p></div><button type="button" aria-label="ปิด" @onclick="CloseHistory">×</button></header>
+            <div class="response-modal-body">
+                <section class="response-record-summary history-summary">
+                    <div><span>เวลาเข้า</span><strong>@DisplayTime(SelectedHistoryItems[0].FirstScanAt)</strong></div>
+                    <div><span>เวลาออก</span><strong>@DisplayTime(SelectedHistoryItems[0].LastScanAt)</strong></div>
+                    <div><span>สถานะปัจจุบัน</span><strong>@HistoryAttendanceStatusText(SelectedHistoryItems[0])</strong></div>
+                </section>
+                <div class="history-request-list">
+                @foreach (var item in SelectedHistoryItems)
+                {
+                    <section class="history-request-card">
+                        <header><div><strong>ส่งเมื่อ @item.Response.SubmittedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong><small>ผู้ส่ง @item.Response.SubmittedByName</small></div><span class="history-status @ResponseStatusClass(item.Response.Status)">@ResponseStatusText(item.Response.Status)</span></header>
+                        <section class="history-request-detail"><span>ข้อความที่ส่ง</span><p>@item.Response.ResponseText</p></section>
+                        <section class="history-review-list">
+                        @if (item.Response.Issues.Count == 0)
+                        {
+                            <div class="history-empty compact">ไม่พบรายละเอียดประเภทข้อโต้แย้ง</div>
+                        }
+                        else
+                        {
+                            @foreach (var issue in item.Response.Issues)
+                            {
+                                <article class="history-review-item">
+                                    <div><strong>@IssueTypeText(issue.IssueType)</strong><span class="history-status @IssueStatusClass(issue.Status)">@IssueStatusText(issue.Status)</span></div>
+                                    @if (!string.IsNullOrWhiteSpace(issue.ReviewNote)) { <p><span>หมายเหตุผู้ตรวจ:</span> @issue.ReviewNote</p> }
+                                    @if (!string.IsNullOrWhiteSpace(issue.ReviewedByName) || issue.ReviewedAt.HasValue) { <small>ตรวจโดย @(issue.ReviewedByName ?? issue.ReviewedBy ?? "-")@(issue.ReviewedAt.HasValue ? $" · {issue.ReviewedAt.Value.ToLocalTime():dd/MM/yyyy HH:mm}" : "")</small> }
+                                </article>
+                            }
+                        }
+                        </section>
+                        @if (item.Response.Attachments.Count > 0)
+                        {
+                            <section class="history-files"><h3>เอกสารแนบ</h3><div>@foreach (var file in item.Response.Attachments) { <button type="button" @onclick="() => PreviewHistoryAttachment(item, file)"><strong>@file.FileName</strong><small>@FormatFileSize(file.FileSizeBytes)</small></button> }</div></section>
+                        }
+                    </section>
+                }
+                </div>
+            </div>
+            <footer class="response-modal-footer"><button class="secondary-button" type="button" @onclick="CloseHistory">ปิด</button></footer>
+        </section>
+    </div>
+}
+
+@if (previewFile is not null)
+{
+    <div class="history-preview-overlay" role="dialog" aria-modal="true" @onclick="ClosePreview">
+        <section class="history-preview-modal" @onclick:stopPropagation="true"><header><div><h2>เอกสารแนบ</h2><p>@previewFile.FileName</p></div><button type="button" aria-label="ปิด" @onclick="ClosePreview">×</button></header><div class="history-preview-body">
+            @if (previewLoading) { <div class="preview-state">กำลังโหลดเอกสาร...</div> }
+            else if (!string.IsNullOrWhiteSpace(previewError)) { <div class="preview-state error">@previewError</div> }
+            else if (!string.IsNullOrWhiteSpace(previewUrl)) { @if (previewFile.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { <img src="@previewUrl" alt="@previewFile.FileName" /> } else { <iframe src="@($"{previewUrl}#toolbar=0&navpanes=0")" title="@previewFile.FileName"></iframe> } }
+        </div></section>
     </div>
 }
 
@@ -133,10 +221,18 @@
     private DateOnly? endDate;
     private int currentPage = 1;
     private int pageSize = 10;
+    private List<AttendanceResponseHistoryItemDto> responseHistory = [];
+    private long? selectedHistoryDailyId;
+    private AttendanceResponseAttachmentDto? previewFile;
+    private string? previewUrl;
+    private bool previewLoading;
+    private string? previewError;
     private bool isLoading = true;
     private string? loadError;
+    private long? expandedCommentDailyId;
     private AttendanceDailyDto? selectedRecord;
     private string responseText = string.Empty;
+    private readonly HashSet<string> selectedResponseIssueTypes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<AttendanceAttachmentUploadDto> responseAttachments = [];
     private List<AttendanceResponseDto> existingResponses = [];
     private bool responsesLoading;
@@ -146,6 +242,9 @@
     private int LateCount => records.Count(item => item.LateMinutes > 0);
     private int AbsentCount => records.Count(item => item.MissingMinutes > 0 || item.FinalStatus == "ABSENT");
     private List<AttendanceDailyDto> PagedRecords => filteredRecords.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+    private List<AttendanceResponseHistoryItemDto> SelectedHistoryItems => selectedHistoryDailyId.HasValue
+        ? responseHistory.Where(item => item.Response.AttendanceDailyId == selectedHistoryDailyId.Value).OrderByDescending(item => item.Response.SubmittedAt).ToList()
+        : [];
     private AttendanceResponseDto? ExistingPendingResponse => existingResponses.FirstOrDefault(item => item.Status == "SUBMITTED");
 
     protected override async Task OnInitializedAsync()
@@ -156,7 +255,11 @@
             if (string.IsNullOrWhiteSpace(currentUser?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
             var start = new DateOnly(DateTime.Today.Year, 1, 1);
             var end = DateOnly.FromDateTime(DateTime.Today);
-            records = await Http.GetFromJsonAsync<List<AttendanceDailyDto>>($"api/attendance?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}") ?? [];
+            var recordsTask = Http.GetFromJsonAsync<List<AttendanceDailyDto>>($"api/attendance?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
+            var historyTask = Http.GetFromJsonAsync<List<AttendanceResponseHistoryItemDto>>("api/attendance/responses/history");
+            await Task.WhenAll(recordsTask, historyTask);
+            records = recordsTask.Result ?? [];
+            responseHistory = historyTask.Result ?? [];
             ApplyFilter();
         }
         catch (Exception exception) { loadError = $"โหลดข้อมูลการมาทำงานไม่สำเร็จ: {exception.Message}"; }
@@ -174,15 +277,20 @@
     private void SetStatusFilter(string code, bool selected) { if (selected) selectedStatuses.Add(code); else selectedStatuses.Remove(code); ApplyFilter(); }
     private void ClearStatusSelection() { selectedStatuses.Clear(); ApplyFilter(); }
 
+    private void ToggleComments(long attendanceDailyId) =>
+        expandedCommentDailyId = expandedCommentDailyId == attendanceDailyId ? null : attendanceDailyId;
+
     private async Task OpenResponse(AttendanceDailyDto record)
     {
         if (!CanSubmitResponse(record)) return;
         selectedRecord = record; responseText = string.Empty; responseAttachments.Clear(); existingResponses = []; responseError = null; attachmentInputVersion++; responsesLoading = true;
+        selectedResponseIssueTypes.Clear();
+        foreach (var issueType in AvailableIssueTypes(record)) selectedResponseIssueTypes.Add(issueType);
         try { existingResponses = await Http.GetFromJsonAsync<List<AttendanceResponseDto>>($"api/attendance/{record.Id}/responses") ?? []; }
         catch (Exception exception) { responseError = $"โหลดข้อโต้แย้งเดิมไม่สำเร็จ: {exception.Message}"; }
         finally { responsesLoading = false; }
     }
-    private void CloseResponse() { if (isSubmitting) return; selectedRecord = null; responseAttachments.Clear(); existingResponses = []; responseError = null; }
+    private void CloseResponse() { if (isSubmitting) return; selectedRecord = null; responseAttachments.Clear(); selectedResponseIssueTypes.Clear(); existingResponses = []; responseError = null; }
 
     private async Task SelectResponseAttachments(InputFileChangeEventArgs eventArgs)
     {
@@ -202,18 +310,45 @@
         }
     }
     private void RemoveAttachment(AttendanceAttachmentUploadDto attachment) { responseAttachments.Remove(attachment); attachmentInputVersion++; }
+    private static List<string> AvailableIssueTypes(AttendanceDailyDto record)
+    {
+        var result = new List<string>();
+        if (record.LateMinutes > 0 || record.CalculatedStatus == "LATE") result.Add("LATE");
+        if (record.MissingMinutes > 0 || record.FinalStatus == "ABSENT") result.Add("ABSENT");
+        return result;
+    }
+    private void SetResponseIssueType(string issueType, bool selected)
+    {
+        if (selected) selectedResponseIssueTypes.Add(issueType); else selectedResponseIssueTypes.Remove(issueType);
+    }
+    private static string IssueTypeText(string issueType) => issueType == "LATE" ? "โต้แย้งมาสาย" : "โต้แย้งขาดงาน";
+    private static string IssueStatusText(string status) => status switch
+    {
+        "APPROVED" => "อนุมัติแล้ว",
+        "REJECTED" => "ไม่อนุมัติ",
+        _ => "รอตรวจสอบ"
+    };
 
     private async Task SubmitResponse()
     {
         if (selectedRecord is null || isSubmitting) return;
         responseError = null;
+        if (selectedResponseIssueTypes.Count == 0) { responseError = "กรุณาเลือกประเภทข้อโต้แย้งอย่างน้อย 1 รายการ"; return; }
         if (string.IsNullOrWhiteSpace(responseText)) { responseError = "กรุณากรอกข้อโต้แย้ง"; return; }
         isSubmitting = true;
         try
         {
-            var response = await Http.PostAsJsonAsync($"api/attendance/{selectedRecord.Id}/responses", new AttendanceResponseRequest(responseText.Trim(), responseAttachments));
+            var response = await Http.PostAsJsonAsync($"api/attendance/{selectedRecord.Id}/responses", new AttendanceResponseRequest(responseText.Trim(), responseAttachments, selectedResponseIssueTypes.ToList()));
             if (!response.IsSuccessStatusCode) { var detail = (await response.Content.ReadAsStringAsync()).Trim().Trim('\"'); responseError = string.IsNullOrWhiteSpace(detail) ? "ส่งข้อโต้แย้งไม่สำเร็จ" : detail; return; }
-            var saved = await response.Content.ReadFromJsonAsync<AttendanceResponseDto>(); if (saved is not null) existingResponses.Insert(0, saved);
+            var saved = await response.Content.ReadFromJsonAsync<AttendanceResponseDto>();
+            if (saved is not null)
+            {
+                existingResponses.Insert(0, saved);
+                responseHistory.Insert(0, new AttendanceResponseHistoryItemDto(selectedRecord.WorkDate,
+                    selectedRecord.FirstScanAt, selectedRecord.LastScanAt, selectedRecord.FinalStatus,
+                    selectedRecord.LateMinutes, selectedRecord.MissingMinutes, saved));
+                ApplyFilter();
+            }
             responseText = string.Empty; responseAttachments.Clear(); attachmentInputVersion++;
         }
         catch (Exception exception) { responseError = $"ส่งข้อโต้แย้งไม่สำเร็จ: {exception.Message}"; }
@@ -225,7 +360,7 @@
         (selectedStatuses.Contains("LATE") && item.LateMinutes > 0) ||
         (selectedStatuses.Contains("ABSENT") && (item.MissingMinutes > 0 || item.FinalStatus == "ABSENT")) ||
         (selectedStatuses.Contains("PRESENT") && item.FinalStatus == "PRESENT" && item.LateMinutes == 0 && item.MissingMinutes == 0) ||
-        (selectedStatuses.Contains("IN_PROGRESS") && item.FinalStatus == "IN_PROGRESS");
+        (selectedStatuses.Contains("IN_PROGRESS") && item.IsWorkDayInProgress);
     private static string StatusText(AttendanceDailyDto item)
     {
         var parts = new List<string>();
@@ -246,11 +381,44 @@
             ? "status-late"
             : item.FinalStatus == "IN_PROGRESS" ? "status-inprogress" : "status-present";
     private static string DisplayTime(DateTime? value) => value?.ToString("HH:mm") ?? "-";
+    private bool HasResponseHistory(long attendanceDailyId) => responseHistory.Any(item => item.Response.AttendanceDailyId == attendanceDailyId);
+    private void OpenHistory(long attendanceDailyId) { selectedHistoryDailyId = attendanceDailyId; }
+    private async Task CloseHistory() { await ClosePreview(); selectedHistoryDailyId = null; }
+    private async Task PreviewHistoryAttachment(AttendanceResponseHistoryItemDto item, AttendanceResponseAttachmentDto file)
+    {
+        await RevokePreview(); previewFile = file; previewLoading = true; previewError = null;
+        try
+        {
+            var response = item.Response;
+            var bytes = await Http.GetByteArrayAsync($"api/attendance/{response.AttendanceDailyId}/responses/{response.Id}/attachments/{file.Id}/preview");
+            previewUrl = await JS.InvokeAsync<string>("hrPreview.createObjectUrl", file.ContentType, bytes);
+        }
+        catch (Exception exception) { previewError = $"เปิดเอกสารไม่สำเร็จ: {exception.Message}"; }
+        finally { previewLoading = false; }
+    }
+    private async Task ClosePreview() { await RevokePreview(); previewFile = null; previewError = null; }
+    private async Task RevokePreview() { if (!string.IsNullOrWhiteSpace(previewUrl)) await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl", previewUrl); previewUrl = null; }
+    public async ValueTask DisposeAsync() => await RevokePreview();
+    private static string ResponseStatusText(string status) => status switch { "APPROVED" => "อนุมัติแล้ว", "PARTIALLY_APPROVED" => "อนุมัติบางส่วน", "REJECTED" => "ไม่อนุมัติ", _ => "รอตรวจสอบ" };
+    private static string ResponseStatusClass(string status) => $"response-{status.ToLowerInvariant()}";
+    private static string IssueStatusClass(string status) => $"issue-{status.ToLowerInvariant()}";
+    private static string HistoryAttendanceStatusText(AttendanceResponseHistoryItemDto item)
+    {
+        var parts = new List<string>();
+        if (item.CurrentLateMinutes > 0) parts.Add($"มาสาย {item.CurrentLateMinutes} นาที");
+        if (item.CurrentMissingMinutes > 0) parts.Add($"ขาดงาน {item.CurrentMissingMinutes} นาที");
+        if (parts.Count > 0) return string.Join(", ", parts);
+        return item.CurrentAttendanceStatus == "PRESENT" ? "มาปกติ" : item.CurrentAttendanceStatus;
+    }
     private static bool CanSubmitResponse(AttendanceDailyDto record) =>
-        record.FinalStatus is not ("IN_PROGRESS" or "PRESENT");
+        record.IsResponseWindowOpen && record.FinalStatus is not ("IN_PROGRESS" or "PRESENT");
     private static string ResponseUnavailableText(AttendanceDailyDto record) =>
-        record.FinalStatus == "PRESENT"
-            ? "รายการมาปกติไม่ต้องโต้แย้ง"
-            : "ยังไม่เปิดให้โต้แย้ง";
+        record.IsWorkDayInProgress
+            ? "รอจบวันทำงานก่อนโต้แย้ง"
+            : !record.IsResponseWindowOpen
+                ? "รอคำนวณผลหลังจบวัน"
+                : record.FinalStatus == "PRESENT"
+                    ? "รายการมาปกติไม่ต้องโต้แย้ง"
+                    : "ยังไม่เปิดให้โต้แย้ง";
     private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.##} MB" : $"{bytes / 1024d:0.##} KB";
 }

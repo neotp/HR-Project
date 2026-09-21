@@ -42,12 +42,13 @@ public sealed class SystemMasterDataController(
     public async Task<ActionResult<IReadOnlyList<MasterDataItemDto>>> GetItems(
         [FromQuery] string category,
         [FromQuery] bool includeInactive = true,
+        [FromQuery] long? parentItemId = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsGenericCategory(category))
             return BadRequest("ไม่พบหมวดข้อมูลพื้นฐานที่ระบุ");
 
-        const string sql = """
+        var sql = """
             SELECT item.id, item.category_code, item.item_code, item.name_th, item.name_en,
                    item.display_order, item.is_active, item.parent_item_id,
                    parent.name_th, item.updated_at
@@ -55,12 +56,16 @@ public sealed class SystemMasterDataController(
             LEFT JOIN public.system_master_items parent ON parent.id = item.parent_item_id
             WHERE item.category_code = @category
               AND (@include_inactive OR item.is_active = TRUE)
-            ORDER BY item.display_order, parent.name_th, item.name_th, item.id
             """;
+        if (parentItemId.HasValue)
+            sql += " AND item.parent_item_id = @parent_item_id";
+        sql += " ORDER BY item.display_order, parent.name_th, item.name_th, item.id";
         var result = new List<MasterDataItemDto>();
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("category", category.Trim().ToUpperInvariant());
         command.Parameters.AddWithValue("include_inactive", includeInactive);
+        if (parentItemId.HasValue)
+            command.Parameters.AddWithValue("parent_item_id", parentItemId.Value);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -78,20 +83,33 @@ public sealed class SystemMasterDataController(
     [HttpGet("items/all")]
     public async Task<ActionResult<IReadOnlyList<MasterDataItemDto>>> GetAllItems(
         [FromQuery] bool includeInactive = false,
+        [FromQuery] string? categories = null,
         CancellationToken cancellationToken = default)
     {
-        const string sql = """
+        var requestedCategories = (categories ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => value.ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (requestedCategories.Any(category => !IsGenericCategory(category)))
+            return BadRequest("พบหมวดข้อมูลพื้นฐานที่ไม่ถูกต้อง");
+
+        var sql = """
             SELECT item.id, item.category_code, item.item_code, item.name_th, item.name_en,
                    item.display_order, item.is_active, item.parent_item_id,
                    parent.name_th, item.updated_at
             FROM public.system_master_items item
             LEFT JOIN public.system_master_items parent ON parent.id = item.parent_item_id
             WHERE (@include_inactive OR item.is_active = TRUE)
-            ORDER BY item.category_code, item.display_order, parent.name_th, item.name_th, item.id
             """;
+        if (requestedCategories.Length > 0)
+            sql += " AND item.category_code = ANY(@categories)";
+        sql += " ORDER BY item.category_code, item.display_order, parent.name_th, item.name_th, item.id";
         var result = new List<MasterDataItemDto>();
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("include_inactive", includeInactive);
+        if (requestedCategories.Length > 0)
+            command.Parameters.AddWithValue("categories", requestedCategories);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {

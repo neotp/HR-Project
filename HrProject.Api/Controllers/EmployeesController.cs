@@ -26,13 +26,31 @@ public sealed class EmployeesController(
                c.buddy_name, c.employment_type, c.work_schedule, c.work_location,
                c.employee_status, c.internal_extension, c.direct_phone,
                c.company_mobile, c.mac_address, c.branch_code, c.branch_name,
-               c.responsibility_province, c.checklist_type, c.products_responsible,
+               COALESCE(NULLIF((
+                   SELECT string_agg(master.name_th, ', ' ORDER BY link.display_order, master.display_order, master.name_th)
+                   FROM public.employee_responsibility_provinces link
+                   JOIN public.system_master_items master ON master.id = link.province_id
+                   WHERE link.employee_id = e.id
+               ), ''), c.responsibility_province) AS responsibility_province,
+               c.checklist_type, c.products_responsible,
                c.start_date, c.appointment_date, c.provident_fund_start_date,
                c.work_experience_type, c.has_company_parking, c.can_travel_upcountry,
                COALESCE(b.email_alias, '') AS lotus_notes_email,
                COALESCE(c.exclude_attendance_calculation, FALSE) AS exclude_attendance_calculation,
                COALESCE(c.supervisor_employee_id, '') AS supervisor_employee_id,
-               COALESCE(c.leave_approver_employee_id, '') AS leave_approver_employee_id
+               COALESCE(c.leave_approver_employee_id, '') AS leave_approver_employee_id,
+               COALESCE((
+                   SELECT string_agg(brand.brand_name, ', ' ORDER BY relation.display_order, brand.display_order, brand.brand_name)
+                   FROM public.employee_brands relation
+                   JOIN public.brands brand ON brand.id = relation.brand_id
+                   WHERE relation.employee_id = e.id AND brand.is_active = TRUE
+               ), '') AS brands,
+               COALESCE((
+                   SELECT string_agg(comm_group.comm_group_name, ', ' ORDER BY relation.display_order, comm_group.display_order, comm_group.comm_group_name)
+                   FROM public.employee_comm_groups relation
+                   JOIN public.comm_groups comm_group ON comm_group.id = relation.comm_group_id
+                   WHERE relation.employee_id = e.id AND comm_group.is_active = TRUE
+               ), '') AS comm_groups
         FROM public.employees e
         LEFT JOIN public.employee_basic_info b ON b.employee_id = e.id
         LEFT JOIN public.employee_company_info c ON c.employee_id = e.id
@@ -43,6 +61,34 @@ public sealed class EmployeesController(
     private static readonly string BaseListSelect = BaseSelect.Replace(
         "b.profile_image_data", "NULL::text AS profile_image_data",
         StringComparison.Ordinal);
+
+    private const string PageListSelect = """
+        SELECT e.id, e.employee_code,
+               COALESCE(NULLIF(BTRIM(b.full_name_th), ''),
+                        BTRIM(CONCAT_WS(' ', b.first_name_th, b.last_name_th)), '') AS full_name,
+               COALESCE(c.internal_extension, ''), c.start_date,
+               COALESCE(NULLIF((
+                   SELECT string_agg(master.name_th, ', ' ORDER BY link.display_order, master.display_order, master.name_th)
+                   FROM public.employee_responsibility_provinces link
+                   JOIN public.system_master_items master ON master.id=link.province_id
+                   WHERE link.employee_id=e.id
+               ), ''), c.responsibility_province, '') AS responsibility_province,
+               COALESCE((
+                   SELECT string_agg(brand.brand_name, ', ' ORDER BY relation.display_order, brand.display_order, brand.brand_name)
+                   FROM public.employee_brands relation
+                   JOIN public.brands brand ON brand.id=relation.brand_id AND brand.is_active=TRUE
+                   WHERE relation.employee_id=e.id
+               ), '') AS brands,
+               COALESCE((
+                   SELECT string_agg(comm.comm_group_name, ', ' ORDER BY relation.display_order, comm.display_order, comm.comm_group_name)
+                   FROM public.employee_comm_groups relation
+                   JOIN public.comm_groups comm ON comm.id=relation.comm_group_id AND comm.is_active=TRUE
+                   WHERE relation.employee_id=e.id
+               ), '') AS comm_groups
+        FROM public.employees e
+        LEFT JOIN public.employee_basic_info b ON b.employee_id=e.id
+        LEFT JOIN public.employee_company_info c ON c.employee_id=e.id
+        """;
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<Employee>>> GetAll(CancellationToken cancellationToken)
@@ -58,6 +104,141 @@ public sealed class EmployeesController(
         while (await reader.ReadAsync(cancellationToken))
             result.Add(RedactToBasic(ReadBaseEmployee(reader)));
         return Ok(result);
+    }
+
+    [HttpPost("paged")]
+    public async Task<ActionResult<EmployeePagedResult>> GetPaged(
+        EmployeeListFilterRequest request, CancellationToken cancellationToken)
+    {
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var requestedPage = Math.Max(1, request.Page);
+
+        await using var countCommand = dataSource.CreateCommand(
+            "SELECT COUNT(*) FROM public.employees e " +
+            "LEFT JOIN public.employee_basic_info b ON b.employee_id=e.id " +
+            "LEFT JOIN public.employee_company_info c ON c.employee_id=e.id " +
+            BuildListWhere(null));
+        AddListFilterParameters(countCommand, request);
+        var totalItems = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)pageSize));
+        var page = Math.Min(requestedPage, totalPages);
+
+        await using var command = dataSource.CreateCommand(
+            PageListSelect + BuildListWhere(" ORDER BY e.employee_code LIMIT @limit OFFSET @offset"));
+        AddListFilterParameters(command, request);
+        command.Parameters.AddWithValue("limit", pageSize);
+        command.Parameters.AddWithValue("offset", (page - 1) * pageSize);
+        var items = new List<EmployeeListItemDto>(pageSize);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            items.Add(new EmployeeListItemDto(
+                checked((int)reader.GetInt64(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                reader.IsDBNull(4) ? default : reader.GetFieldValue<DateOnly>(4),
+                reader.GetString(5), reader.GetString(6), reader.GetString(7)));
+
+        return Ok(new EmployeePagedResult(items, totalItems, page, pageSize));
+    }
+
+    [HttpPost("filter-ids")]
+    public async Task<ActionResult<IReadOnlyList<int>>> GetFilteredIds(
+        EmployeeListFilterRequest request, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT e.id FROM public.employees e " +
+            "LEFT JOIN public.employee_basic_info b ON b.employee_id=e.id " +
+            "LEFT JOIN public.employee_company_info c ON c.employee_id=e.id " +
+            BuildListWhere(" ORDER BY e.employee_code LIMIT 5001"));
+        AddListFilterParameters(command, request);
+        var ids = new List<int>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) ids.Add(checked((int)reader.GetInt64(0)));
+        if (ids.Count > 5000) return BadRequest("ดำเนินการได้ไม่เกิน 5,000 คนต่อครั้ง");
+        return Ok(ids);
+    }
+
+    [HttpGet("lookup")]
+    public async Task<ActionResult<IReadOnlyList<Employee>>> Lookup(
+        [FromQuery] string? search, CancellationToken cancellationToken)
+    {
+        var term = (search ?? string.Empty).Trim();
+        await using var command = dataSource.CreateCommand(BaseListSelect + """
+             WHERE e.is_active = TRUE
+               AND COALESCE(BTRIM(c.employee_status), '') <> 'ลาออก'
+               AND (@search = '' OR
+                    e.employee_code ILIKE '%' || @search || '%' OR
+                    COALESCE(b.full_name_th, '') ILIKE '%' || @search || '%' OR
+                    COALESCE(b.full_name_en, '') ILIKE '%' || @search || '%' OR
+                    COALESCE(b.first_name_th, '') ILIKE '%' || @search || '%' OR
+                    COALESCE(b.last_name_th, '') ILIKE '%' || @search || '%' OR
+                    COALESCE(b.first_name_en, '') ILIKE '%' || @search || '%' OR
+                    COALESCE(b.last_name_en, '') ILIKE '%' || @search || '%')
+             ORDER BY e.employee_code
+             LIMIT 50
+            """);
+        command.Parameters.AddWithValue("search", term);
+        var result = new List<Employee>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(RedactToBasic(ReadBaseEmployee(reader)));
+        return Ok(result);
+    }
+
+    [HttpGet("filter-options")]
+    public async Task<ActionResult<EmployeeListFilterOptions>> GetFilterOptions(
+        [FromQuery] string? businessUnit, CancellationToken cancellationToken)
+    {
+        var businessUnits = await ReadDistinctValues("""
+            SELECT DISTINCT BTRIM(c.business_unit)
+            FROM public.employees e JOIN public.employee_company_info c ON c.employee_id=e.id
+            WHERE e.is_active=TRUE AND COALESCE(BTRIM(c.employee_status),'')<>'ลาออก'
+              AND COALESCE(BTRIM(c.business_unit),'')<>'' ORDER BY 1
+            """, null, cancellationToken);
+        var departments = await ReadDistinctValues("""
+            SELECT DISTINCT BTRIM(c.department)
+            FROM public.employees e JOIN public.employee_company_info c ON c.employee_id=e.id
+            WHERE e.is_active=TRUE AND COALESCE(BTRIM(c.employee_status),'')<>'ลาออก'
+              AND COALESCE(BTRIM(c.department),'')<>''
+              AND (@bu='' OR BTRIM(c.business_unit)=@bu) ORDER BY 1
+            """, ("bu", (businessUnit ?? string.Empty).Trim()), cancellationToken);
+        var positions = await ReadDistinctValues("""
+            SELECT DISTINCT BTRIM(c.position_name)
+            FROM public.employees e JOIN public.employee_company_info c ON c.employee_id=e.id
+            WHERE e.is_active=TRUE AND COALESCE(BTRIM(c.employee_status),'')<>'ลาออก'
+              AND COALESCE(BTRIM(c.position_name),'')<>'' ORDER BY 1
+            """, null, cancellationToken);
+        var provinces = await ReadDistinctValues("""
+            SELECT DISTINCT value FROM (
+                SELECT BTRIM(master.name_th) AS value
+                FROM public.employee_responsibility_provinces link
+                JOIN public.employees e ON e.id=link.employee_id AND e.is_active=TRUE
+                JOIN public.system_master_items master ON master.id=link.province_id
+                LEFT JOIN public.employee_company_info c ON c.employee_id=e.id
+                WHERE COALESCE(BTRIM(c.employee_status),'')<>'ลาออก'
+                UNION
+                SELECT BTRIM(value) FROM public.employees e
+                JOIN public.employee_company_info c ON c.employee_id=e.id,
+                     regexp_split_to_table(COALESCE(c.responsibility_province,''), '[,|;]') value
+                WHERE e.is_active=TRUE AND COALESCE(BTRIM(c.employee_status),'')<>'ลาออก'
+            ) AS province_values WHERE value<>'' ORDER BY value
+            """, null, cancellationToken);
+        var brands = await ReadDistinctValues("""
+            SELECT DISTINCT BTRIM(brand.brand_name)
+            FROM public.employee_brands relation
+            JOIN public.employees e ON e.id=relation.employee_id AND e.is_active=TRUE
+            JOIN public.brands brand ON brand.id=relation.brand_id AND brand.is_active=TRUE
+            LEFT JOIN public.employee_company_info c ON c.employee_id=e.id
+            WHERE COALESCE(BTRIM(c.employee_status),'')<>'ลาออก' ORDER BY 1
+            """, null, cancellationToken);
+        var commGroups = await ReadDistinctValues("""
+            SELECT DISTINCT BTRIM(comm.comm_group_name)
+            FROM public.employee_comm_groups relation
+            JOIN public.employees e ON e.id=relation.employee_id AND e.is_active=TRUE
+            JOIN public.comm_groups comm ON comm.id=relation.comm_group_id AND comm.is_active=TRUE
+            LEFT JOIN public.employee_company_info c ON c.employee_id=e.id
+            WHERE COALESCE(BTRIM(c.employee_status),'')<>'ลาออก' ORDER BY 1
+            """, null, cancellationToken);
+        return Ok(new EmployeeListFilterOptions(
+            businessUnits, departments, positions, provinces, brands, commGroups));
     }
 
     [HttpGet("resigned")]
@@ -134,6 +315,8 @@ public sealed class EmployeesController(
     private static void RedactPersonalData(Employee employee)
     {
         employee.HomePhone = string.Empty;
+        employee.NationalId = string.Empty;
+        employee.BirthDate = null;
         employee.Religion = string.Empty;
         employee.BloodType = string.Empty;
         employee.CurrentAddress = string.Empty;
@@ -244,6 +427,146 @@ public sealed class EmployeesController(
         return Ok(result);
     }
 
+    [HttpGet("{id:int}/recruit-document-links")]
+    public async Task<ActionResult<IReadOnlyList<EmployeeRecruitDocumentLinkDto>>> GetRecruitDocumentLinks(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ดูเอกสาร Recruit");
+
+        const string sql = """
+            SELECT id, employee_id, link_url, added_by, added_by_name, added_at
+            FROM public.employee_recruit_document_links
+            WHERE employee_id = @employee_id
+              AND is_active = TRUE
+            ORDER BY added_at DESC, id DESC
+            """;
+        var result = new List<EmployeeRecruitDocumentLinkDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new EmployeeRecruitDocumentLinkDto(
+                reader.GetInt64(0),
+                checked((int)reader.GetInt64(1)),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetFieldValue<DateTimeOffset>(5)));
+        }
+        return Ok(result);
+    }
+
+    [HttpPost("{id:int}/recruit-document-links")]
+    public async Task<ActionResult<IReadOnlyList<EmployeeRecruitDocumentLinkDto>>> AddRecruitDocumentLink(
+        int id,
+        AddEmployeeRecruitDocumentLinkRequest request,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์เพิ่มเอกสาร Recruit");
+
+        var linkUrl = request.Url?.Trim() ?? string.Empty;
+        if (linkUrl.Length == 0 || linkUrl.Length > 2048 ||
+            !Uri.TryCreate(linkUrl, UriKind.Absolute, out var parsedUrl) ||
+            (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            return BadRequest("กรุณาระบุลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://");
+        }
+
+        const string employeeSql = "SELECT EXISTS (SELECT 1 FROM public.employees WHERE id = @id)";
+        await using (var employeeCommand = dataSource.CreateCommand(employeeSql))
+        {
+            employeeCommand.Parameters.AddWithValue("id", id);
+            if (!((bool?)await employeeCommand.ExecuteScalarAsync(cancellationToken) ?? false))
+                return NotFound("ไม่พบข้อมูลพนักงาน");
+        }
+
+        var actorName = await ResolveEmployeeName(authenticatedEmployeeId!, cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        const string insertSql = """
+            INSERT INTO public.employee_recruit_document_links
+                (employee_id, link_url, added_by, added_by_name)
+            VALUES
+                (@employee_id, @link_url, @added_by, @added_by_name)
+            RETURNING id
+            """;
+        long linkId;
+        try
+        {
+            await using var command = new NpgsqlCommand(insertSql, connection, transaction);
+            command.Parameters.AddWithValue("employee_id", id);
+            command.Parameters.AddWithValue("link_url", linkUrl);
+            command.Parameters.AddWithValue("added_by", authenticatedEmployeeId!);
+            command.Parameters.AddWithValue("added_by_name", actorName);
+            linkId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Conflict("ลิงก์เอกสาร Recruit นี้มีอยู่แล้ว");
+        }
+
+        await InsertEmployeeActivityHistory(
+            connection, transaction, id, "RECRUIT_DOCUMENT_LINK_ADDED",
+            $"เพิ่มลิงก์เอกสาร Recruit: {linkUrl}",
+            "RECRUIT_DOCUMENT_LINK", linkId, authenticatedEmployeeId!, actorName, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await GetRecruitDocumentLinks(id, cancellationToken);
+    }
+
+    [HttpDelete("{id:int}/recruit-document-links/{linkId:long}")]
+    public async Task<IActionResult> DeleteRecruitDocumentLink(
+        int id,
+        long linkId,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (!await CanManagePersonalDocuments(authenticatedEmployeeId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ลบเอกสาร Recruit");
+
+        var actorName = await ResolveEmployeeName(authenticatedEmployeeId!, cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        const string sql = """
+            UPDATE public.employee_recruit_document_links
+            SET is_active = FALSE,
+                deleted_by = @deleted_by,
+                deleted_by_name = @deleted_by_name,
+                deleted_at = CURRENT_TIMESTAMP
+            WHERE id = @link_id
+              AND employee_id = @employee_id
+              AND is_active = TRUE
+            RETURNING link_url
+            """;
+        string? linkUrl;
+        await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("link_id", linkId);
+            command.Parameters.AddWithValue("employee_id", id);
+            command.Parameters.AddWithValue("deleted_by", authenticatedEmployeeId!);
+            command.Parameters.AddWithValue("deleted_by_name", actorName);
+            linkUrl = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        }
+        if (linkUrl is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return NotFound("ไม่พบลิงก์เอกสาร Recruit หรือถูกลบไปแล้ว");
+        }
+
+        await InsertEmployeeActivityHistory(
+            connection, transaction, id, "RECRUIT_DOCUMENT_LINK_DELETED",
+            $"ลบลิงก์เอกสาร Recruit: {linkUrl}",
+            "RECRUIT_DOCUMENT_LINK", linkId, authenticatedEmployeeId!, actorName, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("{id:int}/change-history")]
     public async Task<ActionResult<IReadOnlyList<EmployeeChangeHistoryDto>>> GetChangeHistory(
         int id,
@@ -331,7 +654,14 @@ public sealed class EmployeesController(
                 var actionAt = activityReader.GetFieldValue<DateTimeOffset>(5);
                 result.Add(new EmployeeChangeHistoryDto(
                     -historyId,
-                    action == "PERSONAL_DOCUMENT_ADDED" ? "เพิ่มเอกสารส่วนตัว" : "ลบเอกสารส่วนตัว",
+                    action switch
+                    {
+                        "PERSONAL_DOCUMENT_ADDED" => "เพิ่มเอกสารส่วนตัว",
+                        "PERSONAL_DOCUMENT_DELETED" => "ลบเอกสารส่วนตัว",
+                        "RECRUIT_DOCUMENT_LINK_ADDED" => "เพิ่มลิงก์เอกสาร Recruit",
+                        "RECRUIT_DOCUMENT_LINK_DELETED" => "ลบลิงก์เอกสาร Recruit",
+                        _ => "ปรับปรุงเอกสารพนักงาน"
+                    },
                     "COMPLETED",
                     details,
                     actionBy,
@@ -488,6 +818,16 @@ public sealed class EmployeesController(
     [HttpPost]
     public async Task<ActionResult<Employee>> Create(Employee employee, CancellationToken cancellationToken)
     {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(authenticatedEmployeeId))
+            return Unauthorized();
+        if (!await pageAccessService.HasAccess(authenticatedEmployeeId, "EMPLOYEES", cancellationToken) ||
+            !await actionPermissionService.HasPermission(
+                authenticatedEmployeeId, "EMPLOYEES", "CREATE", cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์เพิ่มพนักงาน");
+        }
+
         employee.EmployeeCode = EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode);
         employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
         if (!EmployeeCodeFormat.IsValid(employee.EmployeeCode))
@@ -514,6 +854,7 @@ public sealed class EmployeesController(
         {
             employee.Id = checked((int)await InsertEmployee(connection, transaction, employee, cancellationToken));
             await UpsertEmployeeTabs(connection, transaction, employee, cancellationToken);
+            await ReplaceResponsibilityProvinces(connection, transaction, employee.Id, employee.ResponsibilityProvinces, employee.ResponsibilityProvince, cancellationToken);
             await ReplaceHistories(connection, transaction, employee.Id, employee, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -525,6 +866,37 @@ public sealed class EmployeesController(
 
         return CreatedAtAction(nameof(GetById), new { id = employee.Id },
             await FindById(employee.Id, cancellationToken));
+    }
+
+    [HttpPost("export")]
+    public async Task<ActionResult<IReadOnlyList<Employee>>> ExportEmployees(
+        EmployeeExportSelectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(authenticatedEmployeeId))
+            return Unauthorized();
+        if (!await pageAccessService.HasAccess(authenticatedEmployeeId, "EMPLOYEES", cancellationToken) ||
+            !await actionPermissionService.HasPermission(
+                authenticatedEmployeeId, "EMPLOYEES", "EXPORT", cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, "ไม่มีสิทธิ์ Export ข้อมูลพนักงาน");
+        }
+
+        var employeeIds = request.EmployeeIds.Distinct().ToList();
+        if (employeeIds.Count == 0)
+            return BadRequest("ไม่พบพนักงานที่ต้องการ Export");
+        if (employeeIds.Count > 5000)
+            return BadRequest("Export ได้ไม่เกิน 5,000 คนต่อครั้ง");
+
+        var employees = new List<Employee>(employeeIds.Count);
+        foreach (var employeeId in employeeIds)
+        {
+            var employee = await FindById(employeeId, cancellationToken);
+            if (employee is not null)
+                employees.Add(employee);
+        }
+        return Ok(employees);
     }
 
     [HttpPut("{id:int}/self-service")]
@@ -667,7 +1039,7 @@ public sealed class EmployeesController(
                 Add(command, "status", submitted.EmployeeStatus); Add(command, "extension", submitted.InternalExtension);
                 Add(command, "direct", submitted.DirectPhone); Add(command, "company_mobile", submitted.CompanyMobile);
                 Add(command, "mac", submitted.MacAddress); Add(command, "branch_code", submitted.BranchCode);
-                Add(command, "branch_name", submitted.BranchName); Add(command, "province", submitted.ResponsibilityProvince);
+                Add(command, "branch_name", submitted.BranchName); Add(command, "province", JoinResponsibilityProvinces(submitted.ResponsibilityProvinces, submitted.ResponsibilityProvince));
                 Add(command, "checklist", submitted.ChecklistType); Add(command, "products", submitted.ProductsResponsible);
                 AddDate(command, "start", submitted.StartDate == default ? null : submitted.StartDate);
                 AddDate(command, "appointment", submitted.AppointmentDate); AddDate(command, "fund", submitted.ProvidentFundStartDate);
@@ -678,6 +1050,7 @@ public sealed class EmployeesController(
                     return NotFound();
             }
 
+            await ReplaceResponsibilityProvinces(connection, transaction, id, submitted.ResponsibilityProvinces, submitted.ResponsibilityProvince, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -690,14 +1063,13 @@ public sealed class EmployeesController(
 #pragma warning restore CS0162
     }
 
-    internal static async Task<bool> ApplyApprovedChanges(
-        NpgsqlDataSource source,
+    internal static async Task<long?> ApplyApprovedChanges(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         string employeeCode,
         IEnumerable<EmployeeFieldChangeDto> changes,
         CancellationToken cancellationToken)
     {
-        await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         long? employeeId;
         await using (var command = new NpgsqlCommand(
             "SELECT id FROM public.employees WHERE employee_code = @code FOR UPDATE", connection, transaction))
@@ -706,12 +1078,11 @@ public sealed class EmployeesController(
             employeeId = (long?)await command.ExecuteScalarAsync(cancellationToken);
         }
         if (!employeeId.HasValue)
-            return false;
+            return null;
 
         foreach (var change in changes)
             await ApplyApprovedChange(connection, transaction, employeeId.Value, change, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return true;
+        return employeeId.Value;
     }
 
     internal static async Task<Employee?> FindByFullName(
@@ -758,6 +1129,62 @@ public sealed class EmployeesController(
     private async Task<Employee?> FindById(int id, CancellationToken cancellationToken) =>
         await FindById(dataSource, id, cancellationToken);
 
+    private static string BuildListWhere(string? suffix) => """
+         WHERE e.is_active = TRUE
+           AND COALESCE(BTRIM(c.employee_status), '') <> 'ลาออก'
+           AND (@employee_code = '' OR e.employee_code = @employee_code)
+           AND (@business_unit = '' OR BTRIM(COALESCE(c.business_unit, '')) = @business_unit)
+           AND (@department = '' OR BTRIM(COALESCE(c.department, '')) = @department)
+           AND (@position = '' OR BTRIM(COALESCE(c.position_name, '')) = @position)
+           AND (@extension = '' OR COALESCE(c.internal_extension, '') ILIKE '%' || @extension || '%')
+           AND (@province = '' OR
+                EXISTS (
+                    SELECT 1 FROM public.employee_responsibility_provinces province_link
+                    JOIN public.system_master_items province ON province.id=province_link.province_id
+                    WHERE province_link.employee_id=e.id AND LOWER(BTRIM(province.name_th))=LOWER(@province)
+                ) OR EXISTS (
+                    SELECT 1 FROM regexp_split_to_table(COALESCE(c.responsibility_province,''), '[,|;]') value
+                    WHERE LOWER(BTRIM(value))=LOWER(@province)
+                ))
+           AND (@brand = '' OR EXISTS (
+                SELECT 1 FROM public.employee_brands brand_link
+                JOIN public.brands brand ON brand.id=brand_link.brand_id AND brand.is_active=TRUE
+                WHERE brand_link.employee_id=e.id AND LOWER(BTRIM(brand.brand_name))=LOWER(@brand)
+           ))
+           AND (@comm_group = '' OR EXISTS (
+                SELECT 1 FROM public.employee_comm_groups comm_link
+                JOIN public.comm_groups comm ON comm.id=comm_link.comm_group_id AND comm.is_active=TRUE
+                WHERE comm_link.employee_id=e.id AND LOWER(BTRIM(comm.comm_group_name))=LOWER(@comm_group)
+           ))
+        """ + (suffix ?? string.Empty);
+
+    private static void AddListFilterParameters(NpgsqlCommand command, EmployeeListFilterRequest request)
+    {
+        command.Parameters.AddWithValue("employee_code", (request.EmployeeCode ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("business_unit", (request.BusinessUnit ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("department", (request.Department ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("position", (request.Position ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("extension", (request.InternalExtension ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("province", (request.ResponsibilityProvince ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("brand", (request.Brand ?? string.Empty).Trim());
+        command.Parameters.AddWithValue("comm_group", (request.CommGroup ?? string.Empty).Trim());
+    }
+
+    private async Task<List<string>> ReadDistinctValues(
+        string sql, (string Name, string Value)? parameter, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql);
+        if (parameter.HasValue)
+            command.Parameters.AddWithValue(parameter.Value.Name, parameter.Value.Value);
+        var values = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0)) values.Add(reader.GetString(0));
+        }
+        return values;
+    }
+
     private static async Task<Employee?> FindById(
         NpgsqlDataSource source, int id, CancellationToken cancellationToken)
     {
@@ -791,18 +1218,21 @@ public sealed class EmployeesController(
         EmployeeStatus = EmployeeStatusValues.Normalize(S(reader, 29)), InternalExtension = S(reader, 30), DirectPhone = S(reader, 31),
         CompanyMobile = S(reader, 32), MacAddress = S(reader, 33), BranchCode = S(reader, 34),
         BranchName = S(reader, 35), ResponsibilityProvince = S(reader, 36),
+        ResponsibilityProvinces = SplitResponsibilityProvinces(S(reader, 36)),
         ChecklistType = S(reader, 37), ProductsResponsible = S(reader, 38),
         StartDate = D(reader, 39) ?? default, AppointmentDate = D(reader, 40),
         ProvidentFundStartDate = D(reader, 41), WorkExperienceType = S(reader, 42),
         HasCompanyParking = B(reader, 43), CanTravelUpcountry = B(reader, 44),
         LotusNotesEmail = S(reader, 45), ExcludeAttendanceCalculation = reader.GetBoolean(46),
-        SupervisorEmployeeId = S(reader, 47), LeaveApproverEmployeeId = S(reader, 48)
+        SupervisorEmployeeId = S(reader, 47), LeaveApproverEmployeeId = S(reader, 48),
+        Brand = S(reader, 49), Brands = SplitResponsibilityProvinces(S(reader, 49)),
+        CommGroup = S(reader, 50), CommGroups = SplitResponsibilityProvinces(S(reader, 50))
     };
 
     private static async Task LoadPersonal(NpgsqlDataSource source, Employee employee, CancellationToken token)
     {
         const string sql = """
-            SELECT religion, blood_type, residence_province, current_address,
+            SELECT national_id, birth_date, religion, blood_type, residence_province, current_address,
                    id_card_address, house_registration_address,
                    emergency_contact_name, emergency_contact_phone, emergency_contact_address,
                    residence_district, residence_subdistrict, residence_postal_code
@@ -812,13 +1242,14 @@ public sealed class EmployeesController(
         command.Parameters.AddWithValue("id", (long)employee.Id);
         await using var reader = await command.ExecuteReaderAsync(token);
         if (!await reader.ReadAsync(token)) return;
-        employee.Religion = S(reader, 0); employee.BloodType = S(reader, 1);
-        employee.ResidenceProvince = S(reader, 2); employee.CurrentAddress = S(reader, 3);
-        employee.IdCardAddress = S(reader, 4); employee.HouseRegistrationAddress = S(reader, 5);
-        employee.EmergencyContactName = S(reader, 6); employee.EmergencyContactPhone = S(reader, 7);
-        employee.EmergencyContactAddress = S(reader, 8);
-        employee.ResidenceDistrict = S(reader, 9); employee.ResidenceSubdistrict = S(reader, 10);
-        employee.ResidencePostalCode = S(reader, 11);
+        employee.NationalId = S(reader, 0); employee.BirthDate = D(reader, 1);
+        employee.Religion = S(reader, 2); employee.BloodType = S(reader, 3);
+        employee.ResidenceProvince = S(reader, 4); employee.CurrentAddress = S(reader, 5);
+        employee.IdCardAddress = S(reader, 6); employee.HouseRegistrationAddress = S(reader, 7);
+        employee.EmergencyContactName = S(reader, 8); employee.EmergencyContactPhone = S(reader, 9);
+        employee.EmergencyContactAddress = S(reader, 10);
+        employee.ResidenceDistrict = S(reader, 11); employee.ResidenceSubdistrict = S(reader, 12);
+        employee.ResidencePostalCode = S(reader, 13);
     }
 
     private static async Task LoadFamily(NpgsqlDataSource source, Employee employee, CancellationToken token)
@@ -888,8 +1319,8 @@ public sealed class EmployeesController(
             INSERT INTO public.employee_company_info(employee_id,company_name,business_unit,division,department,section_name,position_name,job_code,supervisor_name,supervisor_employee_id,leave_approver_name,leave_approver_employee_id,functional_supervisor_name,buddy_name,employment_type,work_schedule,work_location,employee_status,internal_extension,direct_phone,company_mobile,mac_address,branch_code,branch_name,responsibility_province,checklist_type,products_responsible,start_date,appointment_date,provident_fund_start_date,work_experience_type,has_company_parking,can_travel_upcountry,exclude_attendance_calculation)
             VALUES(@id,@company,@bu,@division,@department,@section,@position,@job,@supervisor,@supervisor_employee_id,@approver,@leave_approver_employee_id,@functional,@buddy,@employment,@schedule,@location,@status,@extension,@direct,@company_mobile,@mac,@branch_code,@branch_name,@province,@checklist,@products,@start,@appointment,@fund,@experience,@parking,@travel,@exclude_attendance)
             """;
-        await using (var command = new NpgsqlCommand(company,c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"company",e.Company); Add(command,"bu",e.BusinessUnit); Add(command,"division",e.Division); Add(command,"department",e.Department); Add(command,"section",e.Section); Add(command,"position",e.Position); Add(command,"job",e.JobCode); Add(command,"supervisor",e.SupervisorName); Add(command,"supervisor_employee_id",e.SupervisorEmployeeId); Add(command,"approver",e.LeaveApproverName); Add(command,"leave_approver_employee_id",e.LeaveApproverEmployeeId); Add(command,"functional",e.FunctionalSupervisorName); Add(command,"buddy",e.BuddyName); Add(command,"employment",e.EmploymentType); Add(command,"schedule",e.WorkSchedule); Add(command,"location",e.WorkLocation); Add(command,"status",e.EmployeeStatus); Add(command,"extension",e.InternalExtension); Add(command,"direct",e.DirectPhone); Add(command,"company_mobile",e.CompanyMobile); Add(command,"mac",e.MacAddress); Add(command,"branch_code",e.BranchCode); Add(command,"branch_name",e.BranchName); Add(command,"province",e.ResponsibilityProvince); Add(command,"checklist",e.ChecklistType); Add(command,"products",e.ProductsResponsible); AddDate(command,"start",e.StartDate==default?null:e.StartDate); AddDate(command,"appointment",e.AppointmentDate); AddDate(command,"fund",e.ProvidentFundStartDate); Add(command,"experience",e.WorkExperienceType); AddBoolean(command,"parking",e.HasCompanyParking); AddBoolean(command,"travel",e.CanTravelUpcountry); command.Parameters.AddWithValue("exclude_attendance",e.ExcludeAttendanceCalculation); await command.ExecuteNonQueryAsync(token); }
-        await using (var command = new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"religion",e.Religion); Add(command,"blood",e.BloodType); Add(command,"province",e.ResidenceProvince); Add(command,"district",e.ResidenceDistrict); Add(command,"subdistrict",e.ResidenceSubdistrict); Add(command,"postal_code",e.ResidencePostalCode); Add(command,"current",e.CurrentAddress); Add(command,"id_address",e.IdCardAddress); Add(command,"house",e.HouseRegistrationAddress); Add(command,"emergency",e.EmergencyContactName); Add(command,"phone",e.EmergencyContactPhone); Add(command,"emergency_address",e.EmergencyContactAddress); await command.ExecuteNonQueryAsync(token); }
+        await using (var command = new NpgsqlCommand(company,c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"company",e.Company); Add(command,"bu",e.BusinessUnit); Add(command,"division",e.Division); Add(command,"department",e.Department); Add(command,"section",e.Section); Add(command,"position",e.Position); Add(command,"job",e.JobCode); Add(command,"supervisor",e.SupervisorName); Add(command,"supervisor_employee_id",e.SupervisorEmployeeId); Add(command,"approver",e.LeaveApproverName); Add(command,"leave_approver_employee_id",e.LeaveApproverEmployeeId); Add(command,"functional",e.FunctionalSupervisorName); Add(command,"buddy",e.BuddyName); Add(command,"employment",e.EmploymentType); Add(command,"schedule",e.WorkSchedule); Add(command,"location",e.WorkLocation); Add(command,"status",e.EmployeeStatus); Add(command,"extension",e.InternalExtension); Add(command,"direct",e.DirectPhone); Add(command,"company_mobile",e.CompanyMobile); Add(command,"mac",e.MacAddress); Add(command,"branch_code",e.BranchCode); Add(command,"branch_name",e.BranchName); Add(command,"province",JoinResponsibilityProvinces(e.ResponsibilityProvinces,e.ResponsibilityProvince)); Add(command,"checklist",e.ChecklistType); Add(command,"products",e.ProductsResponsible); AddDate(command,"start",e.StartDate==default?null:e.StartDate); AddDate(command,"appointment",e.AppointmentDate); AddDate(command,"fund",e.ProvidentFundStartDate); Add(command,"experience",e.WorkExperienceType); AddBoolean(command,"parking",e.HasCompanyParking); AddBoolean(command,"travel",e.CanTravelUpcountry); command.Parameters.AddWithValue("exclude_attendance",e.ExcludeAttendanceCalculation); await command.ExecuteNonQueryAsync(token); }
+        await using (var command = new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,national_id,birth_date,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@national_id,@birth_date,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"national_id",e.NationalId); AddDate(command,"birth_date",e.BirthDate); Add(command,"religion",e.Religion); Add(command,"blood",e.BloodType); Add(command,"province",e.ResidenceProvince); Add(command,"district",e.ResidenceDistrict); Add(command,"subdistrict",e.ResidenceSubdistrict); Add(command,"postal_code",e.ResidencePostalCode); Add(command,"current",e.CurrentAddress); Add(command,"id_address",e.IdCardAddress); Add(command,"house",e.HouseRegistrationAddress); Add(command,"emergency",e.EmergencyContactName); Add(command,"phone",e.EmergencyContactPhone); Add(command,"emergency_address",e.EmergencyContactAddress); await command.ExecuteNonQueryAsync(token); }
         await using (var command = new NpgsqlCommand("INSERT INTO public.employee_family_info(employee_id,marital_status,family_member_name,family_relationship,family_phone,family_occupation,current_address_map_url) VALUES(@id,@marital,@name,@relationship,@phone,@occupation,@map)",c,t)) { command.Parameters.AddWithValue("id",(long)e.Id); Add(command,"marital",e.MaritalStatus); Add(command,"name",e.FamilyMemberName); Add(command,"relationship",e.FamilyRelationship); Add(command,"phone",e.FamilyPhone); Add(command,"occupation",e.FamilyOccupation); Add(command,"map",e.CurrentAddressMapUrl); await command.ExecuteNonQueryAsync(token); }
     }
 
@@ -900,6 +1331,55 @@ public sealed class EmployeesController(
     private static async Task ReplaceTrainingHistory(NpgsqlConnection c,NpgsqlTransaction t,long id,IReadOnlyList<EmployeeTrainingItem> rows,CancellationToken token) { await Delete(c,t,"employee_training_history",id,token); for(var i=0;i<rows.Count;i++){ await using var q=new NpgsqlCommand("INSERT INTO public.employee_training_history(employee_id,display_order,course_name,training_period,location_name,expense,certificate,exam_fee) VALUES(@id,@order,@course,@period,@location,@expense,@certificate,@exam)",c,t); q.Parameters.AddWithValue("id",id); q.Parameters.AddWithValue("order",i+1); Add(q,"course",rows[i].CourseName); Add(q,"period",rows[i].TrainingPeriod); Add(q,"location",rows[i].Location); q.Parameters.AddWithValue("expense",rows[i].Expense); Add(q,"certificate",rows[i].Certificate); q.Parameters.AddWithValue("exam",rows[i].ExamFee); await q.ExecuteNonQueryAsync(token); } }
     private static async Task Delete(NpgsqlConnection c,NpgsqlTransaction t,string table,long id,CancellationToken token){ await using var q=new NpgsqlCommand($"DELETE FROM public.{table} WHERE employee_id=@id",c,t); q.Parameters.AddWithValue("id",id); await q.ExecuteNonQueryAsync(token); }
 
+    internal static List<string> SplitResponsibilityProvinces(string? value) =>
+        (value ?? string.Empty)
+            .Split([',', '|', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    internal static string JoinResponsibilityProvinces(IEnumerable<string>? values, string? fallback = null)
+    {
+        var normalized = (values ?? [])
+            .SelectMany(SplitResponsibilityProvinces)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (normalized.Count == 0) normalized = SplitResponsibilityProvinces(fallback);
+        return string.Join(", ", normalized);
+    }
+
+    internal static async Task ReplaceResponsibilityProvinces(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, long employeeId,
+        IEnumerable<string>? values, string? fallback, CancellationToken cancellationToken)
+    {
+        var names = SplitResponsibilityProvinces(JoinResponsibilityProvinces(values, fallback));
+        await using (var delete = new NpgsqlCommand(
+            "DELETE FROM public.employee_responsibility_provinces WHERE employee_id=@id", connection, transaction))
+        {
+            delete.Parameters.AddWithValue("id", employeeId);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+        for (var index = 0; index < names.Count; index++)
+        {
+            await using var insert = new NpgsqlCommand("""
+                INSERT INTO public.employee_responsibility_provinces(employee_id, province_id, display_order)
+                SELECT @id, master.id, @display_order
+                FROM public.system_master_items master
+                WHERE master.category_code='PROVINCE'
+                  AND (lower(trim(master.name_th))=lower(trim(@name))
+                    OR lower(trim(COALESCE(master.name_en,'')))=lower(trim(@name)))
+                ORDER BY CASE WHEN lower(trim(master.name_th))=lower(trim(@name)) THEN 0 ELSE 1 END, master.id
+                LIMIT 1
+                ON CONFLICT (employee_id, province_id)
+                DO UPDATE SET display_order=EXCLUDED.display_order
+                """, connection, transaction);
+            insert.Parameters.AddWithValue("id", employeeId);
+            insert.Parameters.AddWithValue("name", names[index]);
+            insert.Parameters.AddWithValue("display_order", index + 1);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static async Task ApplyApprovedChange(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -908,6 +1388,21 @@ public sealed class EmployeesController(
         CancellationToken cancellationToken)
     {
         var value = change.NewValue?.Trim() ?? string.Empty;
+        if (change.FieldKey == "internal.responsibilityProvince")
+        {
+            value = JoinResponsibilityProvinces([], value);
+            await using (var update = new NpgsqlCommand(
+                "UPDATE public.employee_company_info SET responsibility_province=@value WHERE employee_id=@id",
+                connection, transaction))
+            {
+                update.Parameters.AddWithValue("id", employeeId);
+                update.Parameters.Add("value", NpgsqlDbType.Text).Value =
+                    string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
+                await update.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await ReplaceResponsibilityProvinces(connection, transaction, employeeId, [], value, cancellationToken);
+            return;
+        }
         var textSql = change.FieldKey switch
         {
             "profileImage" => "UPDATE public.employee_basic_info SET profile_image_data=@value WHERE employee_id=@id",
@@ -957,7 +1452,6 @@ public sealed class EmployeesController(
             "internal.macAddress" => "UPDATE public.employee_company_info SET mac_address=@value WHERE employee_id=@id",
             "internal.branchCode" => "UPDATE public.employee_company_info SET branch_code=@value WHERE employee_id=@id",
             "internal.branchName" => "UPDATE public.employee_company_info SET branch_name=@value WHERE employee_id=@id",
-            "internal.responsibilityProvince" => "UPDATE public.employee_company_info SET responsibility_province=@value WHERE employee_id=@id",
             "internal.checklistType" => "UPDATE public.employee_company_info SET checklist_type=@value WHERE employee_id=@id",
             "internal.productsResponsible" => "UPDATE public.employee_company_info SET products_responsible=@value WHERE employee_id=@id",
             "internal.workExperienceType" => "UPDATE public.employee_company_info SET work_experience_type=@value WHERE employee_id=@id",

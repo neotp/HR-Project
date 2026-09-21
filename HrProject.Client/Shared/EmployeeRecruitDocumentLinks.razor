@@ -1,0 +1,210 @@
+@using HrProject.Shared.Models
+@inject HttpClient Http
+
+<section class="recruit-document-manager">
+    <div class="recruit-link-form">
+        <label for="recruit-document-url">ลิงก์เอกสาร Recruit</label>
+        <div>
+            <input id="recruit-document-url" type="url" maxlength="2048"
+                   placeholder="https://..." @bind="newUrl" @bind:event="oninput"
+                   disabled="@isSaving" />
+            <button type="button" disabled="@(isSaving || string.IsNullOrWhiteSpace(newUrl))"
+                    @onclick="AddLink">
+                @(isSaving ? "กำลังบันทึก..." : "+ เพิ่มลิงก์")
+            </button>
+        </div>
+        <small>ระบุลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://</small>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="recruit-link-message @(hasError ? "error" : "success")" role="status">@message</div>
+    }
+
+    @if (deleteLink is not null)
+    {
+        <div class="recruit-link-confirm" role="alertdialog" aria-label="ยืนยันการลบลิงก์เอกสาร Recruit">
+            <div>
+                <strong>ยืนยันการลบลิงก์นี้หรือไม่</strong>
+                <span>@deleteLink.Url</span>
+            </div>
+            <button type="button" class="cancel" disabled="@isDeleting" @onclick="CancelDelete">ยกเลิก</button>
+            <button type="button" class="confirm" disabled="@isDeleting" @onclick="DeleteLink">
+                @(isDeleting ? "กำลังลบ..." : "ยืนยันการลบ")
+            </button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="recruit-link-state">กำลังโหลดลิงก์เอกสาร Recruit...</div>
+    }
+    else if (links.Count == 0)
+    {
+        <div class="recruit-link-state empty">
+            <span aria-hidden="true">↗</span>
+            <strong>ยังไม่มีลิงก์เอกสาร Recruit</strong>
+            <small>เพิ่มลิงก์ด้านบนเพื่อเชื่อมไปยังเอกสารภายนอก</small>
+        </div>
+    }
+    else
+    {
+        <div class="recruit-link-list">
+            @foreach (var link in links)
+            {
+                <article class="recruit-link-card">
+                    <a href="@link.Url" target="_blank" rel="noopener noreferrer"
+                       title="เปิดเอกสาร Recruit ในแท็บใหม่">
+                        <span class="recruit-link-icon" aria-hidden="true">↗</span>
+                        <span class="recruit-link-detail">
+                            <strong>@LinkHost(link.Url)</strong>
+                            <span>@link.Url</span>
+                            <small>เพิ่มโดย @link.AddedByName · @link.AddedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                        </span>
+                        <span class="open-new-tab">เปิดแท็บใหม่</span>
+                    </a>
+                    <button type="button" class="recruit-link-delete" disabled="@isDeleting"
+                            @onclick="() => AskDelete(link)">ลบ</button>
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public int EmployeeId { get; set; }
+
+    private readonly List<EmployeeRecruitDocumentLinkDto> links = [];
+    private int loadedEmployeeId;
+    private string newUrl = string.Empty;
+    private string? message;
+    private bool hasError;
+    private bool isLoading = true;
+    private bool isSaving;
+    private bool isDeleting;
+    private EmployeeRecruitDocumentLinkDto? deleteLink;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EmployeeId <= 0 || EmployeeId == loadedEmployeeId) return;
+        loadedEmployeeId = EmployeeId;
+        await LoadLinks();
+    }
+
+    private async Task LoadLinks()
+    {
+        isLoading = true;
+        message = null;
+        try
+        {
+            links.Clear();
+            links.AddRange(await Http.GetFromJsonAsync<List<EmployeeRecruitDocumentLinkDto>>(
+                $"api/employees/{EmployeeId}/recruit-document-links") ?? []);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"โหลดลิงก์เอกสาร Recruit ไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AddLink()
+    {
+        if (isSaving) return;
+        var url = newUrl.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
+            (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            SetMessage("กรุณาระบุลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://", true);
+            return;
+        }
+
+        isSaving = true;
+        message = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/employees/{EmployeeId}/recruit-document-links",
+                new AddEmployeeRecruitDocumentLinkRequest(url));
+            if (!response.IsSuccessStatusCode)
+            {
+                SetMessage(await ReadError(response, "บันทึกลิงก์เอกสาร Recruit ไม่สำเร็จ"), true);
+                return;
+            }
+
+            links.Clear();
+            links.AddRange(await response.Content.ReadFromJsonAsync<List<EmployeeRecruitDocumentLinkDto>>() ?? []);
+            newUrl = string.Empty;
+            SetMessage("เพิ่มลิงก์เอกสาร Recruit เรียบร้อยแล้ว", false);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"บันทึกลิงก์เอกสาร Recruit ไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void AskDelete(EmployeeRecruitDocumentLinkDto link)
+    {
+        message = null;
+        deleteLink = link;
+    }
+
+    private void CancelDelete()
+    {
+        if (!isDeleting) deleteLink = null;
+    }
+
+    private async Task DeleteLink()
+    {
+        if (deleteLink is null || isDeleting) return;
+        var target = deleteLink;
+        isDeleting = true;
+        message = null;
+        try
+        {
+            var response = await Http.DeleteAsync(
+                $"api/employees/{EmployeeId}/recruit-document-links/{target.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                SetMessage(await ReadError(response, "ลบลิงก์เอกสาร Recruit ไม่สำเร็จ"), true);
+                return;
+            }
+
+            links.RemoveAll(link => link.Id == target.Id);
+            deleteLink = null;
+            SetMessage("ลบลิงก์เอกสาร Recruit เรียบร้อยแล้ว", false);
+        }
+        catch (Exception exception)
+        {
+            SetMessage($"ลบลิงก์เอกสาร Recruit ไม่สำเร็จ: {exception.Message}", true);
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private static async Task<string> ReadError(HttpResponseMessage response, string fallback)
+    {
+        var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(details)
+            ? $"{fallback} (HTTP {(int)response.StatusCode})"
+            : details;
+    }
+
+    private void SetMessage(string value, bool error)
+    {
+        message = value;
+        hasError = error;
+    }
+
+    private static string LinkHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var parsed) ? parsed.Host : "เอกสาร Recruit";
+}

@@ -34,6 +34,8 @@
                 @onclick='() => ChangeTab("pages")'>สิทธิ์เข้าถึงหน้า</button>
         <button type="button" class="@(activeTab == "actions" ? "active" : null)"
                 @onclick='() => ChangeTab("actions")'>สิทธิ์เพิ่มเติมแต่ละหน้า</button>
+        <button type="button" class="@(activeTab == "email" ? "active" : null)"
+                @onclick='() => ChangeTab("email")'>Email Noti</button>
         <button type="button" class="@(activeTab == "availability" ? "active" : null)"
                 @onclick='() => ChangeTab("availability")'>เปิด/ปิดเมนู</button>
     </nav>
@@ -178,14 +180,14 @@
             </div>
         </section>
     }
-    else if (activeTab == "actions")
+    else if (activeTab is "actions" or "email")
     {
         <section class="content-card">
             <div class="content-card-header permission-table-header">
-                <span>สิทธิ์เพิ่มเติมภายในแต่ละหน้า</span>
-                @if (SelectedActionPageCount > 0)
+                <span>@(activeTab == "email" ? "สิทธิ์รับอีเมลแจ้งเตือน" : "สิทธิ์เพิ่มเติมภายในแต่ละหน้า")</span>
+                @if (VisibleActionCount > 0)
                 {
-                    <span class="permission-summary">อนุญาต @SelectedActionPageAllowedCount จาก @SelectedActionPageCount สิทธิ์</span>
+                    <span class="permission-summary">อนุญาต @VisibleActionAllowedCount จาก @VisibleActionCount สิทธิ์</span>
                     <button type="button" @onclick="() => SetAllActions(true)">เลือกทั้งหมด</button>
                     <button type="button" @onclick="() => SetAllActions(false)">ยกเลิกทั้งหมด</button>
                 }
@@ -197,6 +199,8 @@
                 }
                 else
                 {
+                    @if (activeTab == "actions")
+                    {
                     <nav class="action-page-tabs" aria-label="หน้าระบบสำหรับสิทธิ์เพิ่มเติม">
                         @foreach (var tabItem in ActionPageTabs)
                         {
@@ -208,8 +212,15 @@
                             </button>
                         }
                     </nav>
+                    }
+                    @if (activeTab == "email" && VisibleActionCount == 0)
+                    {
+                        <div class="permission-state error">ไม่พบสิทธิ์ Email Noti ในฐานข้อมูล กรุณาตรวจสอบว่า Migration 068 และ 069 ถูกนำเข้าในฐานข้อมูลที่ API ใช้งาน</div>
+                    }
                     <div class="action-permission-note">
-                        สิทธิ์เหล่านี้เป็นสิทธิ์เพิ่มเติมจาก Logic เดิม เช่น ผู้อนุมัติเดิมยังอนุมัติได้ตามปกติ
+                        @(activeTab == "email"
+                            ? "การรับอีเมลแยกจากสิทธิ์หลัก ผู้รับต้องมีสิทธิ์เข้าถึงหน้านั้นด้วย การเปิดสิทธิ์นี้ไม่เพิ่มสิทธิ์ดูข้อมูลหรืออนุมัติ"
+                            : "สิทธิ์เหล่านี้เป็นสิทธิ์เพิ่มเติมจาก Logic เดิม เช่น ผู้อนุมัติเดิมยังอนุมัติได้ตามปกติ")
                     </div>
                     <div class="table-responsive">
                         <table class="permission-table action-permission-table">
@@ -363,7 +374,7 @@
     private int CurrentPermissionCount => activeTab switch
     {
         "pages" => permissions.Count,
-        "actions" => actionPermissions.Count,
+        "actions" or "email" => actionPermissions.Count,
         _ => availabilities.Count
     };
     private IEnumerable<PagePermissionDto> FilteredPermissions => permissions.Where(item =>
@@ -376,9 +387,12 @@
         .ToList();
     private IEnumerable<PageActionPermissionDto> SelectedActionPagePermissions => actionPermissions.Where(item =>
         string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase));
-    private int SelectedActionPageCount => SelectedActionPagePermissions.Count();
-    private int SelectedActionPageAllowedCount => SelectedActionPagePermissions.Count(item => item.CanExecute);
-    private IEnumerable<PageActionPermissionDto> FilteredActionPermissions => SelectedActionPagePermissions.Where(item =>
+    private IEnumerable<PageActionPermissionDto> VisibleActionPermissions => activeTab == "email"
+        ? actionPermissions.Where(item => string.Equals(item.ActionKey, "EMAIL_NOTIFICATION", StringComparison.OrdinalIgnoreCase))
+        : SelectedActionPagePermissions;
+    private int VisibleActionCount => VisibleActionPermissions.Count();
+    private int VisibleActionAllowedCount => VisibleActionPermissions.Count(item => item.CanExecute);
+    private IEnumerable<PageActionPermissionDto> FilteredActionPermissions => VisibleActionPermissions.Where(item =>
         string.IsNullOrWhiteSpace(searchText) || item.PageName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
         item.PageKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.CategoryName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
         item.ActionName.Contains(searchText, StringComparison.OrdinalIgnoreCase) || item.ActionKey.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
@@ -393,7 +407,7 @@
     private int CurrentFilteredCount => activeTab switch
     {
         "pages" => FilteredPermissionCount,
-        "actions" => FilteredActionCount,
+        "actions" or "email" => FilteredActionCount,
         _ => FilteredAvailabilityCount
     };
     private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(CurrentFilteredCount / (double)pageSize)));
@@ -534,7 +548,9 @@
     private void SetAllActions(bool value)
     {
         actionPermissions = actionPermissions.Select(item =>
-            string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase)
+            (activeTab == "email"
+                ? string.Equals(item.ActionKey, "EMAIL_NOTIFICATION", StringComparison.OrdinalIgnoreCase)
+                : string.Equals(item.PageKey, selectedActionPageKey, StringComparison.OrdinalIgnoreCase))
                 ? item with { CanExecute = value }
                 : item).ToList();
         saveMessage = null;
@@ -550,7 +566,7 @@
     private async Task SaveCurrentPermissions()
     {
         if (activeTab == "pages") await SavePages();
-        else if (activeTab == "actions") await SaveActions();
+        else if (activeTab is "actions" or "email") await SaveActions();
         else await SaveAvailability();
     }
 

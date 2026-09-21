@@ -367,6 +367,7 @@
     private List<AttendanceCalendarEventDto> CalendarEvents = [];
     private List<AttendanceEventTypeMasterDto> AttendanceEventTypes = [];
     private string CurrentEmployeeId = string.Empty;
+    private int? LoadedWorkCalendarYear;
     private CalendarDay? SelectedDay;
     private bool IsLoadingCalendarData = true;
     private string? LoadErrorMessage;
@@ -421,8 +422,6 @@
 
         try
         {
-            WorkCalendarDays = await Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
-                "api/work-calendar") ?? [];
             AttendanceEventTypes = await Http.GetFromJsonAsync<List<AttendanceEventTypeMasterDto>>(
                 "api/system-master-data/attendance-event-types?includeInactive=true") ?? [];
         }
@@ -441,11 +440,6 @@
             }
 
             CurrentEmployeeId = currentUser.EmployeeId;
-            LeaveDocuments = await Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
-                $"api/leave-documents?creatorEmployeeId={Uri.EscapeDataString(currentUser.EmployeeId)}") ?? [];
-            LeaveDocuments = LeaveDocuments
-                .Where(IsVisibleLeaveDocument)
-                .ToList();
             await LoadAttendanceForMonth();
         }
         catch (HttpRequestException)
@@ -492,10 +486,30 @@
         if (string.IsNullOrWhiteSpace(CurrentEmployeeId)) return;
         var start = new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, 1);
         var end = start.AddMonths(1).AddDays(-1);
-        AttendanceDailyRecords = await Http.GetFromJsonAsync<List<AttendanceDailyDto>>(
-            $"api/attendance?employeeId={Uri.EscapeDataString(CurrentEmployeeId)}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}") ?? [];
-        CalendarEvents = await Http.GetFromJsonAsync<List<AttendanceCalendarEventDto>>(
-            $"api/attendance-calendar-events?startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}") ?? [];
+        var employeeId = Uri.EscapeDataString(CurrentEmployeeId);
+        var attendanceTask = Http.GetFromJsonAsync<List<AttendanceDailyDto>>(
+            $"api/attendance?employeeId={employeeId}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
+        var eventsTask = Http.GetFromJsonAsync<List<AttendanceCalendarEventDto>>(
+            $"api/attendance-calendar-events?startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
+        var leaveTask = Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
+            $"api/leave-documents?creatorEmployeeId={employeeId}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
+        Task<List<WorkCalendarDayDto>?>? workCalendarTask = null;
+        if (LoadedWorkCalendarYear != DisplayedMonth.Year)
+            workCalendarTask = Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
+                $"api/work-calendar?year={DisplayedMonth.Year}");
+
+        var tasks = new List<Task> { attendanceTask, eventsTask, leaveTask };
+        if (workCalendarTask is not null) tasks.Add(workCalendarTask);
+        await Task.WhenAll(tasks);
+
+        AttendanceDailyRecords = await attendanceTask ?? [];
+        CalendarEvents = await eventsTask ?? [];
+        LeaveDocuments = (await leaveTask ?? []).Where(IsVisibleLeaveDocument).ToList();
+        if (workCalendarTask is not null)
+        {
+            WorkCalendarDays = await workCalendarTask ?? [];
+            LoadedWorkCalendarYear = DisplayedMonth.Year;
+        }
     }
 
     private void BuildCalendar()

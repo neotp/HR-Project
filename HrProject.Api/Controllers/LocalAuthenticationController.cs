@@ -16,6 +16,7 @@ public sealed class LocalAuthenticationController(
     PageActionPermissionService actionPermissionService,
     PageAccessService pageAccessService,
     MicrosoftGraphMailService graphMailService,
+    WorkflowEmailNotificationService workflowNotificationService,
     IWebHostEnvironment environment,
     ILogger<LocalAuthenticationController> logger) : ControllerBase
 {
@@ -140,11 +141,29 @@ public sealed class LocalAuthenticationController(
                       SELECT 1 FROM public.local_password_reset_requests pending
                       WHERE pending.local_user_id=account.id AND pending.status='PENDING'
                   )
+                RETURNING employee_id
                 """;
             await using var command = dataSource.CreateCommand(sql);
             command.Parameters.AddWithValue("lookup", lookup.ToUpperInvariant());
             command.Parameters.AddWithValue("ip", ClientIp);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            var employeeId = await command.ExecuteScalarAsync(cancellationToken) as string;
+            if (!string.IsNullOrWhiteSpace(employeeId))
+            {
+                try
+                {
+                    await workflowNotificationService.SendAsync(
+                        "LOCAL_ACCOUNTS", employeeId,
+                        "มีคำขอรีเซ็ตรหัสผ่าน Local ใหม่",
+                        $"พนักงานรหัส {employeeId} ส่งคำขอรีเซ็ตรหัสผ่าน Local",
+                        "/local-accounts", CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(exception,
+                        "Local password reset request for {EmployeeId} was saved but email notification failed",
+                        employeeId);
+                }
+            }
         }
         return Ok("หากพบข้อมูลบัญชี ระบบได้ส่งคำขอรีเซ็ตรหัสผ่านเรียบร้อยแล้ว");
     }

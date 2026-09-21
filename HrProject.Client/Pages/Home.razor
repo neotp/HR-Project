@@ -2,6 +2,7 @@
 @using HrProject.Shared.Models
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>ข้อมูลพนักงาน | HR Project</PageTitle>
 
@@ -12,9 +13,22 @@
                 <h1>ข้อมูลพนักงาน</h1>
                 <p>รายชื่อและข้อมูลการทำงานของพนักงาน</p>
             </div>
-            <button class="add-employee-button" type="button" @onclick="OpenCreateEmployee">
-                + เพิ่มพนักงาน
-            </button>
+            <div class="employee-header-actions">
+                @if (canExportEmployee)
+                {
+                <button class="export-employee-button" type="button"
+                        disabled="@(employees is null || totalItems == 0)"
+                        @onclick="OpenExport">
+                    Export ข้อมูล
+                </button>
+                }
+                @if (canCreateEmployee)
+                {
+                    <button class="add-employee-button" type="button" @onclick="OpenCreateEmployee">
+                        + เพิ่มพนักงาน
+                    </button>
+                }
+            </div>
         </div>
     </header>
 
@@ -23,47 +37,75 @@
         <div class="content-card-body employee-search-body">
             <div class="employee-search-fields">
                 <label>
-                    <span>รหัส ชื่อ หรืออีเมล</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหารหัส ชื่อ หรืออีเมล" />
-                        @if (!string.IsNullOrWhiteSpace(searchText))
-                        {
-                            <button type="button" aria-label="ล้างรหัส ชื่อ หรืออีเมล" @onclick="ClearMainSearch">×</button>
-                        }
-                    </div>
+                    <span>รหัส หรือชื่อพนักงาน</span>
+                    <RemoteEmployeeSearchSelect Value="@selectedEmployeeCode"
+                                                ValueChanged="SetEmployeeFilter"
+                                                Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                 </label>
                 <label>
-                    <span>ตำแหน่ง</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="positionSearch" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหาตำแหน่ง" />
-                        @if (!string.IsNullOrWhiteSpace(positionSearch))
-                        {
-                            <button type="button" aria-label="ล้างตำแหน่ง" @onclick="ClearPositionSearch">×</button>
-                        }
-                    </div>
+                    <span>Business Unit (BU)</span>
+                    <select class="employee-filter-select" @bind="businessUnitFilter" @bind:after="BusinessUnitFilterChanged">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.BusinessUnits) { <option value="@option">@option</option> }
+                    </select>
                 </label>
                 <label>
                     <span>แผนก</span>
+                    <select class="employee-filter-select" @bind="departmentFilter" @bind:after="ReloadFirstPage">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.Departments) { <option value="@option">@option</option> }
+                    </select>
+                </label>
+                <label>
+                    <span>ตำแหน่ง</span>
+                    <select class="employee-filter-select" @bind="positionFilter" @bind:after="ReloadFirstPage">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.Positions) { <option value="@option">@option</option> }
+                    </select>
+                </label>
+                <label>
+                    <span>Ext. ภายใน</span>
                     <div class="employee-search-input">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="departmentSearch" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหาแผนก" />
-                        @if (!string.IsNullOrWhiteSpace(departmentSearch))
+                        <input value="@internalExtensionFilter" @oninput="InternalExtensionFilterChanged"
+                               placeholder="ค้นหา Ext. ภายใน" />
+                        @if (!string.IsNullOrWhiteSpace(internalExtensionFilter))
                         {
-                            <button type="button" aria-label="ล้างแผนก" @onclick="ClearDepartmentSearch">×</button>
+                            <button type="button" aria-label="ล้าง Ext. ภายใน" @onclick="ClearInternalExtensionFilter">×</button>
                         }
                     </div>
                 </label>
+                <label>
+                    <span>Province of Responsibility (จังหวัดที่ดูแล)</span>
+                    <select class="employee-filter-select" @bind="responsibilityProvinceFilter" @bind:after="ReloadFirstPage">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.ResponsibilityProvinces) { <option value="@option">@option</option> }
+                    </select>
+                </label>
+                <label>
+                    <span>Brand</span>
+                    <select class="employee-filter-select" @bind="brandFilter" @bind:after="ReloadFirstPage">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.Brands) { <option value="@option">@option</option> }
+                    </select>
+                </label>
+                <label>
+                    <span>Comm.Group</span>
+                    <select class="employee-filter-select" @bind="commGroupFilter" @bind:after="ReloadFirstPage">
+                        <option value="">ทั้งหมด</option>
+                        @foreach (var option in filterOptions.CommGroups) { <option value="@option">@option</option> }
+                    </select>
+                </label>
+                @if (HasEmployeeFilters)
+                {
+                    <div class="employee-search-actions"><button type="button" @onclick="ClearEmployeeFilters">ล้างตัวกรองทั้งหมด</button></div>
+                }
             </div>
         </div>
     </section>
 
     <section class="content-card">
-        <div class="content-card-header">รายชื่อพนักงาน <span class="employee-result-count">@FilteredEmployees.Count รายการ</span></div>
+        <div class="content-card-header">รายชื่อพนักงาน <span class="employee-result-count">@totalItems รายการ</span></div>
         <div class="content-card-body">
             @if (employees is null)
             {
@@ -71,16 +113,21 @@
             }
             else
             {
+                <div class="employee-table-scroll">
                 <table class="table employee-table">
                     <thead>
-                        <tr><th>รหัสพนักงาน</th><th>ชื่อพนักงาน</th><th>แผนก</th><th>ตำแหน่ง</th><th>Email for Lotus Notes</th><th>Email</th><th></th></tr>
+                        <tr><th>รหัสพนักงาน</th><th>ชื่อ</th><th>Ext. ภายใน</th><th>วันที่เริ่มงาน</th><th>Province of Responsibility (จังหวัดที่ดูแล)</th><th>Brand</th><th>Comm.Group</th><th></th></tr>
                     </thead>
                     <tbody>
-                        @if (FilteredEmployees.Count == 0)
+                        @if (isLoadingEmployees)
                         {
-                            <tr><td colspan="7" class="employee-empty-state">ไม่พบพนักงานตามคำค้นหา</td></tr>
+                            <tr><td colspan="8" class="employee-empty-state">กำลังโหลดข้อมูลพนักงาน...</td></tr>
                         }
-                        @foreach (var employee in PagedEmployees)
+                        else if (employees.Count == 0)
+                        {
+                            <tr><td colspan="8" class="employee-empty-state">ไม่พบพนักงานตามคำค้นหา</td></tr>
+                        }
+                        @foreach (var employee in employees)
                         {
                             <tr class="employee-row" tabindex="0"
                                 title="เปิดข้อมูลพนักงาน"
@@ -88,20 +135,58 @@
                                 @onkeydown="args => HandleRowKey(args, employee.Id)">
                                 <td>@EmployeeCodeFormat.Display(employee.EmployeeCode)</td>
                                 <td><strong>@employee.FullName</strong></td>
-                                <td>@employee.Department</td>
-                                <td>@employee.Position</td>
-                                <td>@employee.LotusNotesEmail</td>
-                                <td>@employee.Email</td>
+                                <td>@DisplayCell(employee.InternalExtension)</td>
+                                <td>@(employee.StartDate == default ? "-" : employee.StartDate.ToString("dd/MM/yyyy"))</td>
+                                <td class="multi-value-cell">@DisplayCell(employee.ResponsibilityProvince)</td>
+                                <td class="multi-value-cell">@DisplayCell(employee.Brand)</td>
+                                <td class="multi-value-cell">@DisplayCell(employee.CommGroup)</td>
                                 <td><span class="view-details">ดูข้อมูล ›</span></td>
                             </tr>
                         }
                     </tbody>
                 </table>
-                <Pagination TotalItems="@FilteredEmployees.Count" @bind-CurrentPage="currentPage" @bind-PageSize="pageSize" />
+                </div>
+                <Pagination TotalItems="@totalItems" CurrentPage="@currentPage" CurrentPageChanged="ChangePage"
+                            PageSize="@pageSize" PageSizeChanged="ChangePageSize" />
             }
         </div>
     </section>
 </section>
+
+@if (isExportOpen)
+{
+    <div class="employee-create-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="export-employee-title" @onclick="CloseExport">
+        <section class="employee-export-modal" @onclick:stopPropagation="true">
+            <header class="employee-create-header">
+                <div>
+                    <h2 id="export-employee-title">Export ข้อมูลพนักงาน</h2>
+                    <p>เลือกชุดข้อมูลที่ต้องการ Export จำนวน @totalItems คนตามตัวกรองปัจจุบัน</p>
+                </div>
+                <button type="button" aria-label="ปิด" disabled="@isExporting" @onclick="CloseExport">×</button>
+            </header>
+            <div class="employee-export-body">
+                <button type="button" disabled="@isExporting" @onclick="ExportAllEmployeeFields">
+                    <strong>ข้อมูลพนักงานทั้งหมดทุกฟิลด์</strong>
+                    <span>รวมข้อมูลส่วนบุคคล ข้อมูลบริษัท ประวัติการทำงาน การศึกษา และการอบรม</span>
+                </button>
+                <div class="tax-export-option">
+                    <label>ปีภาษี
+                        <input type="number" min="2000" max="2200" @bind="exportTaxYear" />
+                    </label>
+                    <button type="button" disabled="@isExporting" @onclick="ExportTaxDeductions">
+                        <strong>ข้อมูลค่าลดหย่อนภาษี</strong>
+                        <span>Export ค่าลดหย่อนภาษีของปีที่เลือก</span>
+                    </button>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(exportError))
+                {
+                    <div class="create-error">@exportError</div>
+                }
+            </div>
+        </section>
+    </div>
+}
 
 @if (isCreateOpen)
 {
@@ -199,14 +284,14 @@
                                 <label><span class="field-label">ตำแหน่ง <span class="required">*</span></span><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
                                 <label>รหัสตำแหน่ง<input @bind="newEmployee.JobCode" /></label>
                                 <label>หัวหน้างาน
-                                    <EmployeeSearchSelect Items="@(employees ?? [])"
+                                    <EmployeeSearchSelect Items="employeeOptions"
                                                           Value="@newEmployee.SupervisorEmployeeId"
                                                           ValueChanged="SelectNewSupervisor"
                                                           ExcludeEmployeeCode="@newEmployee.EmployeeCode"
                                                           Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" />
                                 </label>
                                 <label>Reporting To (Leave Approve)
-                                    <EmployeeSearchSelect Items="@(employees ?? [])"
+                                    <EmployeeSearchSelect Items="employeeOptions"
                                                           Value="@newEmployee.LeaveApproverEmployeeId"
                                                           ValueChanged="SelectNewLeaveApprover"
                                                           ExcludeEmployeeCode="@newEmployee.EmployeeCode"
@@ -389,42 +474,98 @@
 }
 
 @code {
-    private List<Employee>? employees;
+    private List<EmployeeListItemDto>? employees;
+    private List<Employee> employeeOptions = [];
     private List<MasterDataItemDto> masterItems = [];
-    private string searchText = string.Empty;
-    private string positionSearch = string.Empty;
-    private string departmentSearch = string.Empty;
+    private EmployeeListFilterOptions filterOptions = new([], [], [], [], [], []);
+    private int totalItems;
+    private bool isLoadingEmployees;
+    private int employeeLoadVersion;
+    private int extensionFilterVersion;
+    private bool canCreateEmployee;
+    private bool canExportEmployee;
+    private bool isExportOpen;
+    private bool isExporting;
+    private int exportTaxYear = DateTime.Today.Year;
+    private string? exportError;
+    private string selectedEmployeeCode = string.Empty;
+    private string businessUnitFilter = string.Empty;
+    private string departmentFilter = string.Empty;
+    private string positionFilter = string.Empty;
+    private string internalExtensionFilter = string.Empty;
+    private string responsibilityProvinceFilter = string.Empty;
+    private string brandFilter = string.Empty;
+    private string commGroupFilter = string.Empty;
     private int currentPage = 1;
     private int pageSize = 10;
-    private List<Employee> FilteredEmployees => (employees ?? [])
-        .Where(employee =>
-            (string.IsNullOrWhiteSpace(searchText) ||
-             employee.EmployeeCode.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.ThaiFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.EnglishFullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.Nickname.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.LotusNotesEmail.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-             employee.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(positionSearch) ||
-             employee.Position.Contains(positionSearch, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(departmentSearch) ||
-             employee.Department.Contains(departmentSearch, StringComparison.OrdinalIgnoreCase)))
-        .ToList();
-    private IEnumerable<Employee> PagedEmployees
+    private bool HasEmployeeFilters => new[] { selectedEmployeeCode, businessUnitFilter, departmentFilter, positionFilter,
+        internalExtensionFilter, responsibilityProvinceFilter, brandFilter, commGroupFilter }
+        .Any(value => !string.IsNullOrWhiteSpace(value));
+
+    private EmployeeListFilterRequest CurrentFilterRequest(int? page = null, int? size = null) => new(
+        page ?? currentPage, size ?? pageSize, selectedEmployeeCode, businessUnitFilter,
+        departmentFilter, positionFilter, internalExtensionFilter, responsibilityProvinceFilter,
+        brandFilter, commGroupFilter);
+
+    private async Task LoadEmployees()
     {
-        get
+        var loadVersion = ++employeeLoadVersion;
+        isLoadingEmployees = true;
+        try
         {
-            var filtered = FilteredEmployees;
-            var safePage = Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)pageSize)));
-            return filtered.Skip((safePage - 1) * pageSize).Take(pageSize);
+            var result = await Http.PostAsJsonAsync("api/employees/paged", CurrentFilterRequest());
+            result.EnsureSuccessStatusCode();
+            var page = await result.Content.ReadFromJsonAsync<EmployeePagedResult>();
+            if (loadVersion != employeeLoadVersion) return;
+            employees = page?.Items.ToList() ?? [];
+            totalItems = page?.TotalItems ?? 0;
+            currentPage = page?.Page ?? 1;
+            pageSize = page?.PageSize ?? pageSize;
         }
+        finally { if (loadVersion == employeeLoadVersion) isLoadingEmployees = false; }
     }
 
-    private void ResetPaging() => currentPage = 1;
-    private void ClearMainSearch() { searchText = string.Empty; currentPage = 1; }
-    private void ClearPositionSearch() { positionSearch = string.Empty; currentPage = 1; }
-    private void ClearDepartmentSearch() { departmentSearch = string.Empty; currentPage = 1; }
+    private async Task LoadFilterOptions()
+    {
+        filterOptions = await Http.GetFromJsonAsync<EmployeeListFilterOptions>(
+            $"api/employees/filter-options?businessUnit={Uri.EscapeDataString(businessUnitFilter)}")
+            ?? new([], [], [], [], [], []);
+    }
+
+    private async Task ReloadFirstPage()
+    {
+        currentPage = 1;
+        await LoadEmployees();
+    }
+
+    private Task SetEmployeeFilter(string employeeCode)
+    { selectedEmployeeCode = employeeCode; return ReloadFirstPage(); }
+    private async Task ClearInternalExtensionFilter()
+    { extensionFilterVersion++; internalExtensionFilter = string.Empty; await ReloadFirstPage(); }
+    private async Task InternalExtensionFilterChanged(ChangeEventArgs args)
+    {
+        internalExtensionFilter = args.Value?.ToString() ?? string.Empty;
+        var version = ++extensionFilterVersion;
+        await Task.Delay(300);
+        if (version == extensionFilterVersion) await ReloadFirstPage();
+    }
+    private async Task BusinessUnitFilterChanged()
+    {
+        departmentFilter = string.Empty;
+        await LoadFilterOptions();
+        await ReloadFirstPage();
+    }
+    private async Task ClearEmployeeFilters()
+    {
+        extensionFilterVersion++;
+        selectedEmployeeCode = businessUnitFilter = departmentFilter = positionFilter = internalExtensionFilter =
+            responsibilityProvinceFilter = brandFilter = commGroupFilter = string.Empty;
+        await LoadFilterOptions();
+        await ReloadFirstPage();
+    }
+    private async Task ChangePage(int page) { currentPage = page; await LoadEmployees(); }
+    private Task ChangePageSize(int size) { pageSize = size; currentPage = 1; return Task.CompletedTask; }
+    private static string DisplayCell(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private bool isCreateOpen;
     private bool isCreating;
     private string createActiveTab = "basic";
@@ -461,13 +602,120 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var employeesTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
-        var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>(
-            "api/system-master-data/items/all");
-        await Task.WhenAll(employeesTask, masterItemsTask);
-        employees = await employeesTask ?? [];
-        masterItems = await masterItemsTask ?? [];
+        var currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
+        if (!string.IsNullOrWhiteSpace(currentUser?.EmployeeId))
+        {
+            var permissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>(
+                $"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&pageKey=EMPLOYEES");
+            canCreateEmployee = permissions?.AllowedActions.Contains("CREATE", StringComparer.OrdinalIgnoreCase) == true;
+            canExportEmployee = permissions?.AllowedActions.Contains("EXPORT", StringComparer.OrdinalIgnoreCase) == true;
+        }
+        await Task.WhenAll(LoadFilterOptions(), LoadEmployees());
     }
+
+    private void OpenExport()
+    {
+        if (!canExportEmployee || totalItems == 0) return;
+        exportTaxYear = DateTime.Today.Year;
+        exportError = null;
+        isExportOpen = true;
+    }
+
+    private void CloseExport()
+    {
+        if (!isExporting) isExportOpen = false;
+    }
+
+    private async Task ExportAllEmployeeFields()
+    {
+        if (!canExportEmployee || isExporting) return;
+        isExporting = true;
+        exportError = null;
+        try
+        {
+            var employeeIds = await GetFilteredEmployeeIds();
+            if (employeeIds.Count == 0) { exportError = "ไม่พบพนักงานที่ต้องการ Export"; return; }
+            var response = await Http.PostAsJsonAsync("api/employees/export",
+                new EmployeeExportSelectionRequest(employeeIds));
+            if (!response.IsSuccessStatusCode)
+            {
+                exportError = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                return;
+            }
+            var rows = await response.Content.ReadFromJsonAsync<List<Employee>>() ?? [];
+            await DownloadCsv($"employees-all-fields-{DateTime.Now:yyyyMMdd-HHmmss}.csv", rows);
+            isExportOpen = false;
+        }
+        catch (Exception exception)
+        {
+            exportError = $"Export ข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally { isExporting = false; }
+    }
+
+    private async Task ExportTaxDeductions()
+    {
+        if (!canExportEmployee || isExporting) return;
+        if (exportTaxYear is < 2000 or > 2200)
+        {
+            exportError = "ปีภาษีต้องอยู่ระหว่าง 2000–2200";
+            return;
+        }
+        isExporting = true;
+        exportError = null;
+        try
+        {
+            var selectedIds = (await GetFilteredEmployeeIds()).ToHashSet();
+            var rows = await Http.GetFromJsonAsync<List<EmployeeTaxDeductionDto>>(
+                $"api/employee-tax-deductions/report?year={exportTaxYear}") ?? [];
+            rows = rows.Where(item => selectedIds.Contains(item.EmployeeId)).ToList();
+            await DownloadCsv($"employee-tax-deductions-{exportTaxYear}-{DateTime.Now:yyyyMMdd-HHmmss}.csv", rows);
+            isExportOpen = false;
+        }
+        catch (Exception exception)
+        {
+            exportError = $"Export ข้อมูลไม่สำเร็จ: {exception.Message}";
+        }
+        finally { isExporting = false; }
+    }
+
+    private async Task<List<int>> GetFilteredEmployeeIds()
+    {
+        var response = await Http.PostAsJsonAsync("api/employees/filter-ids", CurrentFilterRequest(1, 5000));
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException((await response.Content.ReadAsStringAsync()).Trim().Trim('"'));
+        return await response.Content.ReadFromJsonAsync<List<int>>() ?? [];
+    }
+
+    private async Task DownloadCsv<T>(string fileName, IReadOnlyList<T> rows)
+    {
+        var properties = typeof(T).GetProperties()
+            .Where(property => property.CanRead)
+            .ToArray();
+        var lines = new List<string>
+        {
+            string.Join(",", properties.Select(property => Csv(property.Name)))
+        };
+        lines.AddRange(rows.Select(row => string.Join(",", properties.Select(property =>
+            Csv(ExportValue(property.GetValue(row)))))));
+        await JS.InvokeVoidAsync("hrDownload.downloadText", fileName,
+            "\uFEFF" + string.Join("\r\n", lines), "text/csv;charset=utf-8");
+    }
+
+    private static string ExportValue(object? value) => value switch
+    {
+        null => string.Empty,
+        DateOnly date => date.ToString("yyyy-MM-dd"),
+        DateTime dateTime => dateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+        DateTimeOffset dateTimeOffset => dateTimeOffset.ToString("yyyy-MM-dd HH:mm:ss zzz"),
+        bool boolean => boolean ? "TRUE" : "FALSE",
+        string text => text,
+        IFormattable formattable => formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => System.Text.Json.JsonSerializer.Serialize(value)
+    };
+
+    private static string Csv(string? value) =>
+        "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
 
     private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) =>
         masterItems.Where(item => item.IsActive &&
@@ -540,14 +788,23 @@
         newEmployee.LeaveApproverName = EmployeeName(employeeCode);
     }
 
-    private string EmployeeName(string employeeCode) => (employees ?? [])
+    private string EmployeeName(string employeeCode) => employeeOptions
         .FirstOrDefault(item => string.Equals(
             item.EmployeeCode, employeeCode, StringComparison.OrdinalIgnoreCase))?.FullName ?? string.Empty;
 
     private void OpenEmployee(int id) => Navigation.NavigateTo($"/employees/{id}");
 
-    private void OpenCreateEmployee()
+    private async Task OpenCreateEmployee()
     {
+        var masterTask = masterItems.Count == 0
+            ? Http.GetFromJsonAsync<List<MasterDataItemDto>>("api/system-master-data/items/all")
+            : Task.FromResult<List<MasterDataItemDto>?>(null);
+        var employeesTask = employeeOptions.Count == 0
+            ? Http.GetFromJsonAsync<List<Employee>>("api/employees")
+            : Task.FromResult<List<Employee>?>(null);
+        await Task.WhenAll(masterTask, employeesTask);
+        if (masterTask.Result is not null) masterItems = masterTask.Result;
+        if (employeesTask.Result is not null) employeeOptions = employeesTask.Result;
         newEmployee = CreateBlankEmployee();
         canTravelUpcountry = string.Empty;
         marriageRegistered = string.Empty;
@@ -600,9 +857,10 @@
             }
 
             var created = await response.Content.ReadFromJsonAsync<Employee>();
-            if (created is not null)
-                employees?.Add(created);
+            if (created is not null) employeeOptions.Add(created);
             isCreateOpen = false;
+            await LoadFilterOptions();
+            await LoadEmployees();
         }
         catch (Exception exception)
         {

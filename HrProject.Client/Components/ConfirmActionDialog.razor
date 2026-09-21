@@ -15,7 +15,7 @@
             }
 
             <footer>
-                <button class="confirm-cancel" type="button" disabled="@IsBusy" @onclick="OnCancel">ปิด</button>
+                <button class="confirm-cancel" type="button" disabled="@IsBusy" @onclick="OnCancel">@CancelText</button>
                 <button class="confirm-submit @Tone" type="button" disabled="@IsBusy" @onclick="OnConfirm">
                     @(IsBusy ? BusyText : ConfirmText)
                 </button>
@@ -30,6 +30,7 @@
     [Parameter] public string Title { get; set; } = "ยืนยันการทำรายการ";
     [Parameter] public string Message { get; set; } = "คุณต้องการดำเนินการต่อหรือไม่";
     [Parameter] public string ConfirmText { get; set; } = "ยืนยัน";
+    [Parameter] public string CancelText { get; set; } = "ปิด";
     [Parameter] public string BusyText { get; set; } = "กำลังดำเนินการ...";
     [Parameter] public string Tone { get; set; } = "primary";
     [Parameter] public EventCallback OnConfirm { get; set; }

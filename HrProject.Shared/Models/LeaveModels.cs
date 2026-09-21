@@ -27,7 +27,49 @@ public sealed record LeaveDocumentDto(
     bool? HasMedicalCertificate,
     LeaveEditRequestDto? PendingEditRequest,
     LeaveCancelRequestDto? PendingCancelRequest,
-    bool CanCurrentUserReview = false);
+    bool CanCurrentUserReview = false,
+    int CommentCount = 0);
+
+public sealed record LeaveCommentRecipientDto(
+    string? EmployeeId,
+    string EmployeeName,
+    string Email,
+    bool IsDefault);
+
+public sealed record LeaveDocumentCommentDto(
+    long Id,
+    long LeaveDocumentId,
+    string AuthorEmployeeId,
+    string AuthorName,
+    string? AuthorEmail,
+    string CommentText,
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<LeaveCommentRecipientDto> EmailRecipients,
+    IReadOnlyList<LeaveCommentAttachmentDto> Attachments);
+
+public sealed record LeaveCommentAttachmentDto(
+    long Id,
+    string FileName,
+    string ContentType,
+    long FileSizeBytes,
+    DateTimeOffset UploadedAt);
+
+public sealed record LeaveCommentAttachmentUploadDto(
+    string FileName,
+    string ContentType,
+    byte[] Content);
+
+public sealed record LeaveCommentContextDto(
+    IReadOnlyList<LeaveDocumentCommentDto> Comments,
+    IReadOnlyList<LeaveCommentRecipientDto> DefaultRecipients,
+    bool CanComment);
+
+public sealed record LeaveCommentLinkDestinationDto(string Url);
+
+public sealed record CreateLeaveCommentRequest(
+    string CommentText,
+    IReadOnlyList<string>? AdditionalRecipientEmployeeIds,
+    IReadOnlyList<LeaveCommentAttachmentUploadDto>? Attachments = null);
 
 public sealed record CreateLeaveDocumentRequest(
     long LeaveTypeId,
@@ -211,6 +253,19 @@ public sealed record LeaveQuotaMovementDto(
     string ActionByName,
     DateTimeOffset OccurredAt);
 
+public sealed record LeaveQuotaAnnualReportDto(
+    string EmployeeId,
+    string EmployeeName,
+    string Department,
+    long LeaveTypeId,
+    string LeaveTypeName,
+    int QuotaYear,
+    decimal PreviousYearRemainingHours,
+    decimal NewlyAddedHours,
+    decimal CurrentRemainingHours,
+    decimal ExcessHours,
+    DateTimeOffset? ProcessedAt);
+
 public sealed record LeaveQuotaRequestDto(
     long Id,
     string RequestNo,
@@ -223,7 +278,10 @@ public sealed record LeaveQuotaRequestDto(
     string RequestReason,
     string Status,
     string RequestedByName,
-    DateTimeOffset RequestedAt);
+    DateTimeOffset RequestedAt)
+{
+    public string RequestedBy { get; init; } = string.Empty;
+}
 
 public sealed record CreateLeaveQuotaRequest(
     string EmployeeId,
@@ -251,3 +309,13 @@ public sealed record ReviewLeaveQuotaRequest(
     string? Remark,
     string ReviewedBy,
     string ReviewedByName);
+
+public sealed record LeaveQuotaRequestCommentDto(
+    long Id,
+    long LeaveQuotaRequestId,
+    string CommentText,
+    string CommentedBy,
+    string CommentedByName,
+    DateTimeOffset CommentedAt);
+
+public sealed record AddLeaveQuotaRequestCommentRequest(string CommentText);

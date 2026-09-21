@@ -6,7 +6,8 @@ namespace HrProject.Api.Services;
 
 public sealed class LeaveCancellationEmailService(
     NpgsqlDataSource dataSource,
-    MicrosoftGraphMailService mailService)
+    MicrosoftGraphMailService mailService,
+    WorkflowEmailNotificationService workflowNotificationService)
 {
     public async Task SendAsync(
         long documentId,
@@ -77,7 +78,8 @@ public sealed class LeaveCancellationEmailService(
             SELECT document.id, document.document_no, document.creator_employee_id,
                    document.creator_name, document.sender_email,
                    document.leave_type_name, document.leave_date, document.start_time,
-                   document.leave_hours, document.leave_reason, manager.email_address
+                   document.leave_hours, document.leave_reason,
+                   manager.employee_code, manager.email_address
             FROM document
             LEFT JOIN manager_directory manager
               ON UPPER(BTRIM(COALESCE(document.supervisor_employee_id, ''))) = UPPER(manager.employee_code)
@@ -90,6 +92,7 @@ public sealed class LeaveCancellationEmailService(
 
         MailDetails? result = null;
         var managerEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var managerEmployeeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("document_id", documentId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -102,14 +105,11 @@ public sealed class LeaveCancellationEmailService(
                 reader.GetFieldValue<TimeOnly>(7), reader.GetDecimal(8),
                 reader.GetString(9), managerEmails);
 
-            if (!reader.IsDBNull(10))
-            {
-                var email = reader.GetString(10).Trim();
-                if (email.Contains('@', StringComparison.Ordinal))
-                    managerEmails.Add(email);
-            }
+            if (!reader.IsDBNull(10)) managerEmployeeIds.Add(reader.GetString(10));
         }
 
+        managerEmails.UnionWith(await workflowNotificationService.GetRecipientEmailsAsync(
+            "LEAVE_REVISIONS", managerEmployeeIds, cancellationToken));
         if (!string.IsNullOrWhiteSpace(result?.SenderEmail))
             managerEmails.Remove(result.SenderEmail);
         return result;

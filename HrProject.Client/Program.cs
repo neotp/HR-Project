@@ -19,6 +19,7 @@ var apiScope = builder.Configuration["Api:Scope"]
 builder.Services.AddSingleton<LoadingState>();
 builder.Services.AddTransient<LoadingHttpMessageHandler>();
 builder.Services.AddSingleton<NavPendingRefreshState>();
+builder.Services.AddSingleton<MasterDataLookupService>();
 builder.Services.AddTransient<NavPendingRefreshHttpMessageHandler>();
 // HttpClientFactory constructs handlers in independent DI scopes. The local
 // session must be shared or foreground/background clients can race while

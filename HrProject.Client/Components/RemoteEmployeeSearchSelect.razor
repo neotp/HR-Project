@@ -1,0 +1,152 @@
+@using System.Net.Http.Json
+@using HrProject.Shared.Models
+@implements IDisposable
+@inject IHttpClientFactory HttpClientFactory
+
+<div class="remote-employee-combobox">
+    <input type="text"
+           value="@searchText"
+           @oninput="SearchChanged"
+           placeholder="@Placeholder"
+           autocomplete="off"
+           role="combobox"
+           aria-expanded="@isOpen"
+           aria-autocomplete="list"
+           @onfocus="Open"
+           @onblur="CloseAfterSelection" />
+    @if (synchronizedValue.Length > 0)
+    {
+        <button class="remote-employee-clear" type="button" aria-label="ล้างพนักงานที่เลือก"
+                @onmousedown:preventDefault="true" @onclick="ClearSelection">×</button>
+    }
+    else
+    {
+        <span class="remote-employee-chevron" aria-hidden="true">⌄</span>
+    }
+
+    @if (isOpen)
+    {
+        <div class="remote-employee-options" role="listbox">
+            @if (isLoading)
+            {
+                <div class="remote-employee-state">กำลังค้นหา...</div>
+            }
+            else if (options.Count == 0)
+            {
+                <div class="remote-employee-state">ไม่พบพนักงานที่ค้นหา</div>
+            }
+            else
+            {
+                @foreach (var employee in options)
+                {
+                    <button type="button" class="remote-employee-option" role="option"
+                            @onmousedown:preventDefault="true" @onclick="() => SelectEmployee(employee)">
+                        <strong>@employee.FullName (@EmployeeCodeFormat.Display(employee.EmployeeCode))</strong>
+                        <span>@EmployeeDetails(employee)</span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "-- เลือกหรือพิมพ์ค้นหาพนักงาน --";
+
+    private readonly List<Employee> options = [];
+    private string searchText = string.Empty;
+    private string selectedDisplayText = string.Empty;
+    private string synchronizedValue = string.Empty;
+    private bool isOpen;
+    private bool isLoading;
+    private int searchVersion;
+    private CancellationTokenSource? searchCancellation;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Value, synchronizedValue, StringComparison.OrdinalIgnoreCase)) return;
+        synchronizedValue = Value ?? string.Empty;
+        if (synchronizedValue.Length == 0) searchText = selectedDisplayText = string.Empty;
+    }
+
+    private async Task Open()
+    {
+        isOpen = true;
+        if (options.Count == 0) await QueueSearch(searchText, false);
+    }
+
+    private async Task SearchChanged(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        isOpen = true;
+        await QueueSearch(searchText, true);
+    }
+
+    private async Task QueueSearch(string term, bool debounce)
+    {
+        searchCancellation?.Cancel();
+        searchCancellation?.Dispose();
+        searchCancellation = new CancellationTokenSource();
+        var token = searchCancellation.Token;
+        var version = ++searchVersion;
+        isLoading = true;
+        try
+        {
+            if (debounce) await Task.Delay(250, token);
+            // Employee suggestions are a local dropdown concern. Use the
+            // background client so each keystroke does not open the global
+            // full-page loading overlay.
+            var http = HttpClientFactory.CreateClient("HrApiBackground");
+            var result = await http.GetFromJsonAsync<List<Employee>>(
+                $"api/employees/lookup?search={Uri.EscapeDataString(term.Trim())}", token) ?? [];
+            if (version != searchVersion) return;
+            options.Clear();
+            options.AddRange(result);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (version == searchVersion) isLoading = false;
+        }
+    }
+
+    private async Task SelectEmployee(Employee employee)
+    {
+        searchText = selectedDisplayText = $"{employee.FullName} ({EmployeeCodeFormat.Display(employee.EmployeeCode)})";
+        synchronizedValue = employee.EmployeeCode;
+        isOpen = false;
+        await ValueChanged.InvokeAsync(employee.EmployeeCode);
+    }
+
+    private async Task ClearSelection()
+    {
+        searchCancellation?.Cancel();
+        searchText = selectedDisplayText = string.Empty;
+        synchronizedValue = string.Empty;
+        isOpen = false;
+        options.Clear();
+        await ValueChanged.InvokeAsync(string.Empty);
+    }
+
+    private async Task CloseAfterSelection()
+    {
+        await Task.Delay(150);
+        isOpen = false;
+        if (synchronizedValue.Length > 0) searchText = selectedDisplayText;
+    }
+
+    private static string EmployeeDetails(Employee employee)
+    {
+        var details = new[] { employee.Department, employee.Position }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        return string.Join(" · ", details);
+    }
+
+    public void Dispose()
+    {
+        searchCancellation?.Cancel();
+        searchCancellation?.Dispose();
+    }
+}

@@ -1,0 +1,118 @@
+@using HrProject.Shared.Models
+
+<div class="master-combobox">
+    <input type="text" value="@searchText" placeholder="@Placeholder" autocomplete="off"
+           disabled="@Disabled" role="combobox" aria-expanded="@isOpen" aria-autocomplete="list"
+           @onfocus="Open" @onblur="CloseAfterSelection" @oninput="Search" />
+
+    @if (isOpen && !Disabled)
+    {
+        <div class="master-options" role="listbox">
+            @if (isLoadingOptions)
+            {
+                <div class="master-option-loading"><span></span>กำลังโหลดข้อมูล...</div>
+            }
+            else if (!FilteredItems.Any())
+            {
+                <div class="master-option-empty">ไม่พบข้อมูลที่ค้นหา</div>
+            }
+            else
+            {
+                @foreach (var item in FilteredItems)
+                {
+                    <button type="button" class="master-option" role="option"
+                            @onmousedown:preventDefault="true" @onclick="() => SelectItem(item)">
+                        <strong>@item.NameTh</strong>
+                        @if (ShowDetails && (!string.IsNullOrWhiteSpace(item.NameEn) || !string.IsNullOrWhiteSpace(item.ItemCode)))
+                        {
+                            <span>@ItemDetails(item)</span>
+                        }
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<MasterDataItemDto> Items { get; set; } = [];
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback OnOpen { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ShowDetails { get; set; } = true;
+    [Parameter] public string Placeholder { get; set; } = "-- เลือกหรือพิมพ์ค้นหา --";
+
+    private string searchText = string.Empty;
+    private string synchronizedValue = string.Empty;
+    private bool isOpen;
+    private bool isLoadingOptions;
+
+    private IEnumerable<MasterDataItemDto> FilteredItems
+    {
+        get
+        {
+            var term = searchText.Trim();
+            return Items.Where(item => term.Length == 0 ||
+                    item.NameTh.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (item.NameEn?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    item.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Take(100);
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Value, synchronizedValue, StringComparison.OrdinalIgnoreCase)) return;
+        synchronizedValue = Value ?? string.Empty;
+        searchText = synchronizedValue;
+    }
+
+    private async Task Open()
+    {
+        isOpen = true;
+        if (!OnOpen.HasDelegate) return;
+        isLoadingOptions = true;
+        StateHasChanged();
+        try
+        {
+            await OnOpen.InvokeAsync();
+        }
+        finally
+        {
+            isLoadingOptions = false;
+        }
+    }
+
+    private async Task Search(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        isOpen = true;
+        if (string.IsNullOrEmpty(synchronizedValue)) return;
+        synchronizedValue = string.Empty;
+        await ValueChanged.InvokeAsync(string.Empty);
+    }
+
+    private async Task SelectItem(MasterDataItemDto item)
+    {
+        searchText = item.NameTh;
+        synchronizedValue = item.NameTh;
+        isOpen = false;
+        await ValueChanged.InvokeAsync(item.NameTh);
+    }
+
+    private async Task CloseAfterSelection()
+    {
+        await Task.Delay(150);
+        isOpen = false;
+        if (string.IsNullOrEmpty(synchronizedValue)) searchText = string.Empty;
+    }
+
+    private static string ItemDetails(MasterDataItemDto item)
+    {
+        var details = new[] { item.NameEn, item.ItemCode }.Where(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            !string.Equals(value, item.NameTh, StringComparison.OrdinalIgnoreCase));
+        return string.Join(" · ", details);
+    }
+}

@@ -14,7 +14,9 @@ public sealed record AttendanceDailyDto(
     bool RequiresReview,
     string? ReviewReason,
     DateTimeOffset CalculatedAt,
-    string? OverrideReason);
+    string? OverrideReason,
+    bool IsWorkDayInProgress,
+    bool IsResponseWindowOpen);
 
 public sealed record AttendanceHistoryDto(
     long Id,
@@ -26,6 +28,16 @@ public sealed record AttendanceHistoryDto(
     string ActionByName,
     DateTimeOffset ActionAt);
 
+public sealed record AttendanceCommentDto(
+    long Id,
+    long AttendanceDailyId,
+    string CommentText,
+    string CommentedBy,
+    string CommentedByName,
+    DateTimeOffset CommentedAt);
+
+public sealed record AddAttendanceCommentRequest(string CommentText);
+
 public sealed record OverrideAttendanceRequest(
     string Status,
     string Reason,
@@ -34,7 +46,8 @@ public sealed record OverrideAttendanceRequest(
 
 public sealed record AttendanceResponseRequest(
     string ResponseText,
-    IReadOnlyList<AttendanceAttachmentUploadDto>? Attachments);
+    IReadOnlyList<AttendanceAttachmentUploadDto>? Attachments,
+    IReadOnlyList<string>? IssueTypes = null);
 
 public sealed record AttendanceAttachmentUploadDto(
     string FileName,
@@ -49,7 +62,19 @@ public sealed record AttendanceResponseDto(
     string SubmittedBy,
     string SubmittedByName,
     DateTimeOffset SubmittedAt,
-    IReadOnlyList<AttendanceResponseAttachmentDto> Attachments);
+    IReadOnlyList<AttendanceResponseAttachmentDto> Attachments)
+{
+    public IReadOnlyList<AttendanceResponseIssueDto> Issues { get; init; } = [];
+}
+
+public sealed record AttendanceResponseIssueDto(
+    long Id,
+    string IssueType,
+    string Status,
+    string? ReviewedBy,
+    string? ReviewedByName,
+    DateTimeOffset? ReviewedAt,
+    string? ReviewNote);
 
 public sealed record AttendanceResponseAttachmentDto(
     long Id,
@@ -57,6 +82,15 @@ public sealed record AttendanceResponseAttachmentDto(
     string ContentType,
     long FileSizeBytes,
     DateTimeOffset UploadedAt);
+
+public sealed record AttendanceResponseHistoryItemDto(
+    DateOnly WorkDate,
+    DateTime? FirstScanAt,
+    DateTime? LastScanAt,
+    string CurrentAttendanceStatus,
+    int CurrentLateMinutes,
+    int CurrentMissingMinutes,
+    AttendanceResponseDto Response);
 
 public sealed record AttendanceReviewItemDto(
     long AttendanceDailyId,
@@ -70,10 +104,13 @@ public sealed record AttendanceReviewItemDto(
     string FinalStatus,
     int CalculatedLateMinutes,
     int CalculatedMissingMinutes,
+    int FinalLateMinutes,
+    int FinalMissingMinutes,
     bool RequiresReview,
     string? ReviewReason,
     AttendanceResponseDto? LatestResponse);
 
 public sealed record ReviewAttendanceResponseRequest(
     string Decision,
-    string? ReviewNote);
+    string? ReviewNote,
+    IReadOnlyList<string>? IssueTypes = null);
