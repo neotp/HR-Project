@@ -61,7 +61,8 @@ public sealed class LeaveQuotaAnnualReportsController(
                        COALESCE(rollover.new_default_hours, 0) + COALESCE(excess.credited_hours, 0),
                        0),
                    GREATEST(COALESCE(quota.quota_hours, 0) - COALESCE(usage.used_hours, 0), 0),
-                   COALESCE(rollover.annual_excess_hours, 0) + COALESCE(excess.excess_hours, 0),
+                   COALESCE(quota.annual_excess_hours, rollover.annual_excess_hours, 0)
+                       + COALESCE(excess.excess_hours, 0),
                    rollover.processed_at
             FROM report_keys key
             JOIN public.leave_types leave_type ON leave_type.id = key.leave_type_id
@@ -82,12 +83,12 @@ public sealed class LeaveQuotaAnnualReportsController(
              AND quota.quota_year = key.quota_year
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(document.leave_hours), 0) AS used_hours
-                FROM public.leave_documents document
-                WHERE document.creator_employee_id = key.employee_id
-                  AND document.leave_type_id = key.leave_type_id
-                  AND EXTRACT(YEAR FROM document.leave_date)::INT = key.quota_year
-                  AND document.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(allocation.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations allocation
+                WHERE allocation.employee_id = key.employee_id
+                  AND allocation.leave_type_id = key.leave_type_id
+                  AND (allocation.source_quota_year = key.quota_year OR allocation.leave_year = key.quota_year)
+                  AND allocation.released_at IS NULL
             ) usage ON TRUE
             ORDER BY
                 CASE WHEN key.employee_id ~ '^[0-9]+$' THEN key.employee_id::NUMERIC END NULLS LAST,

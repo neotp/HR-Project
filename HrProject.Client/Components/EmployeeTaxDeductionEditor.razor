@@ -11,12 +11,12 @@
         </div>
         <div class="tax-heading-actions">
             <label>ปีภาษี
-                <select value="@selectedYear" @onchange="ChangeYear">
+                <SearchableSelect><select value="@selectedYear" @onchange="ChangeYear">
                     @foreach (var year in years)
                     {
                         <option value="@year">@year</option>
                     }
-                </select>
+                </select></SearchableSelect>
             </label>
             @if (model is not null)
             {
@@ -47,14 +47,14 @@
                 <h3>ข้อมูลครอบครัวและผู้มีอุปการะ</h3>
                 <div class="tax-grid">
                     <label>สถานภาพการสมรส
-                        <select @bind="model.MaritalStatus"><option value="">-- เลือก --</option><option>โสด</option><option>สมรส</option><option>หย่า</option><option>หม้าย</option></select>
+                        <SearchableSelect><select @bind="model.MaritalStatus"><option value="">-- เลือก --</option><option>โสด</option><option>สมรส</option><option>หย่า</option><option>หม้าย</option></select></SearchableSelect>
                     </label>
                     <label>การจดทะเบียนสมรส
-                        <select @bind="marriageRegistered"><option value="">-- ไม่ระบุ --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select>
+                        <SearchableSelect><select @bind="marriageRegistered"><option value="">-- ไม่ระบุ --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select></SearchableSelect>
                     </label>
                     <label>ชื่อ-นามสกุลคู่สมรส<input @bind="model.SpouseName" /></label>
                     <label>คู่สมรสมีเงินได้
-                        <select @bind="spouseHasIncome"><option value="">-- ไม่ระบุ --</option><option value="true">มีเงินได้</option><option value="false">ไม่มีเงินได้</option></select>
+                        <SearchableSelect><select @bind="spouseHasIncome"><option value="">-- ไม่ระบุ --</option><option value="true">มีเงินได้</option><option value="false">ไม่มีเงินได้</option></select></SearchableSelect>
                     </label>
                     <label>เลขบัตรประชาชนคู่สมรส<input @bind="model.SpouseNationalId" maxlength="13" /></label>
                     <label>จำนวนบุตรทั้งหมด (คน)<input type="number" min="0" @bind="model.ChildCount" /></label>

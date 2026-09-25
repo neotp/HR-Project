@@ -13,6 +13,7 @@ public sealed class AttendanceController(
     PageAccessService pageAccessService,
     PageActionPermissionService actionPermissionService,
     AttendanceReviewEmailNotificationService emailNotificationService,
+    WorkflowEmailNotificationService workflowNotificationService,
     ILogger<AttendanceController> logger) : ControllerBase
 {
     [HttpGet]
@@ -36,7 +37,10 @@ public sealed class AttendanceController(
                    calculated_at, override_reason,
                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') < schedule.work_end_at,
                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') >= schedule.work_end_at
-                     AND (daily.calculated_at AT TIME ZONE 'Asia/Bangkok') >= schedule.work_end_at
+                     AND (daily.calculated_at AT TIME ZONE 'Asia/Bangkok') >= schedule.work_end_at,
+                   (SELECT COUNT(*)::int FROM public.attendance_comments comment
+                    WHERE comment.attendance_daily_id=daily.id AND comment.is_active=TRUE),
+                   daily.calculation_detail->>'firstScanSource'
             FROM public.attendance_daily_records daily
             CROSS JOIN LATERAL
             (
@@ -86,9 +90,34 @@ public sealed class AttendanceController(
                 reader.IsDBNull(11) ? null : reader.GetString(11),
                 reader.GetFieldValue<DateTimeOffset>(12),
                 reader.IsDBNull(13) ? null : reader.GetString(13),
-                reader.GetBoolean(14), reader.GetBoolean(15)));
+                reader.GetBoolean(14), reader.GetBoolean(15), reader.GetInt32(16),
+                reader.IsDBNull(17) ? null : reader.GetString(17)));
         }
         return Ok(result);
+    }
+
+    [HttpGet("{id:long}/link-destination")]
+    public async Task<ActionResult<AttendanceLinkDestinationDto>> GetLinkDestination(
+        long id, CancellationToken cancellationToken)
+    {
+        var actor = await GetAuthenticatedEmployee(cancellationToken);
+        if (actor is null) return Unauthorized();
+        await using var command = dataSource.CreateCommand(
+            "SELECT employee_id, work_date FROM public.attendance_daily_records WHERE id=@id");
+        command.Parameters.AddWithValue("id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return Ok(new AttendanceLinkDestinationDto("/attendance?notice=unavailable"));
+        var owner = reader.GetString(0);
+        var workDate = reader.GetFieldValue<DateOnly>(1);
+        await reader.DisposeAsync();
+        if (string.Equals(owner, actor.Value.EmployeeId, StringComparison.OrdinalIgnoreCase))
+            return Ok(new AttendanceLinkDestinationDto(
+                $"/attendance/records?dailyId={id}&workDate={workDate:yyyy-MM-dd}"));
+        if (await pageAccessService.HasAccess(actor.Value.EmployeeId, "ATTENDANCE_REVIEWS", cancellationToken))
+            return Ok(new AttendanceLinkDestinationDto(
+                $"/attendance/reviews?dailyId={id}&workDate={workDate:yyyy-MM-dd}"));
+        return Ok(new AttendanceLinkDestinationDto("/attendance?notice=unavailable"));
     }
 
     [HttpGet("{id:long}/history")]
@@ -145,6 +174,12 @@ public sealed class AttendanceController(
             result.Add(new AttendanceCommentDto(
                 reader.GetInt64(0), reader.GetInt64(1), reader.GetString(2),
                 reader.GetString(3), reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5)));
+        await reader.DisposeAsync();
+        for (var index = 0; index < result.Count; index++)
+            result[index] = result[index] with
+            {
+                Attachments = await LoadCommentAttachments(result[index].Id, cancellationToken)
+            };
         return Ok(result);
     }
 
@@ -163,6 +198,8 @@ public sealed class AttendanceController(
             return BadRequest("กรุณากรอกความคิดเห็น");
         if (commentText.Length > 4000)
             return BadRequest("ความคิดเห็นต้องไม่เกิน 4,000 ตัวอักษร");
+        var attachmentError = ValidateCommentAttachments(request.Attachments);
+        if (attachmentError is not null) return BadRequest(attachmentError);
 
         const string sql = """
             INSERT INTO public.attendance_comments
@@ -183,9 +220,71 @@ public sealed class AttendanceController(
             commentId = reader.GetInt64(0);
             commentedAt = reader.GetFieldValue<DateTimeOffset>(1);
         }
+        foreach (var attachment in request.Attachments ?? [])
+        {
+            await using var attachmentCommand = dataSource.CreateCommand("""
+                INSERT INTO public.attendance_comment_attachments
+                    (attendance_comment_id,original_file_name,content_type,file_size_bytes,file_content)
+                VALUES (@comment_id,@name,@type,@size,@content)
+                """);
+            attachmentCommand.Parameters.AddWithValue("comment_id", commentId);
+            attachmentCommand.Parameters.AddWithValue("name", Path.GetFileName(attachment.FileName));
+            attachmentCommand.Parameters.AddWithValue("type", attachment.ContentType.ToLowerInvariant());
+            attachmentCommand.Parameters.AddWithValue("size", (long)attachment.Content.Length);
+            attachmentCommand.Parameters.Add("content", NpgsqlDbType.Bytea).Value = attachment.Content;
+            await attachmentCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        try
+        {
+            await using var ownerCommand = dataSource.CreateCommand(
+                "SELECT employee_id, work_date FROM public.attendance_daily_records WHERE id=@id");
+            ownerCommand.Parameters.AddWithValue("id", id);
+            await using var ownerReader = await ownerCommand.ExecuteReaderAsync(cancellationToken);
+            if (await ownerReader.ReadAsync(cancellationToken))
+            {
+                var owner = ownerReader.GetString(0);
+                var date = ownerReader.GetFieldValue<DateOnly>(1);
+                await ownerReader.DisposeAsync();
+                var title = $"มีความคิดเห็นใหม่ในรายการการมาทำงานวันที่ {date:dd/MM/yyyy}";
+                var route = $"/open/attendance/{id}";
+                if (string.Equals(owner, actor.Value.EmployeeId, StringComparison.OrdinalIgnoreCase))
+                    await workflowNotificationService.SendAsync("ATTENDANCE_REVIEWS", actor.Value.EmployeeId,
+                        title, commentText, route, CancellationToken.None);
+                else
+                    await workflowNotificationService.SendToEmployeesAsync(actor.Value.EmployeeId, [owner],
+                        title, commentText, route, CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Attendance comment {CommentId} saved but email failed", commentId);
+        }
 
         return Ok(new AttendanceCommentDto(commentId, id, commentText,
-            actor.Value.EmployeeId, actor.Value.Name, commentedAt));
+            actor.Value.EmployeeId, actor.Value.Name, commentedAt)
+        { Attachments = await LoadCommentAttachments(commentId, cancellationToken) });
+    }
+
+    [HttpGet("{id:long}/comments/{commentId:long}/attachments/{attachmentId:long}/preview")]
+    public async Task<IActionResult> PreviewCommentAttachment(
+        long id, long commentId, long attachmentId, CancellationToken cancellationToken)
+    {
+        var accessError = await ValidateOwnOrReviewerRecord(id, cancellationToken);
+        if (accessError is not null) return accessError;
+        await using var command = dataSource.CreateCommand("""
+            SELECT attachment.content_type,attachment.file_content
+            FROM public.attendance_comment_attachments attachment
+            JOIN public.attendance_comments comment ON comment.id=attachment.attendance_comment_id
+            WHERE comment.attendance_daily_id=@id AND comment.id=@comment_id AND attachment.id=@attachment_id
+            """);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("comment_id", commentId);
+        command.Parameters.AddWithValue("attachment_id", attachmentId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? File((byte[])reader[1], reader.GetString(0))
+            : NotFound();
     }
 
     [HttpGet("{id:long}/responses")]
@@ -461,7 +560,9 @@ public sealed class AttendanceController(
                    daily.late_minutes, daily.missing_minutes,
                    daily.requires_review, daily.review_reason,
                    response.id, response.response_text, response.status,
-                   response.submitted_by, response.submitted_by_name, response.submitted_at
+                   response.submitted_by, response.submitted_by_name, response.submitted_at,
+                   (SELECT COUNT(*)::int FROM public.attendance_comments comment
+                    WHERE comment.attendance_daily_id=daily.id AND comment.is_active=TRUE)
             FROM public.attendance_daily_records daily
             JOIN public.employees employee
               ON employee.employee_code = daily.employee_id AND employee.is_active = TRUE
@@ -508,7 +609,7 @@ public sealed class AttendanceController(
             DateOnly WorkDate, DateTime? First, DateTime? Last, string CalculatedStatus, string FinalStatus,
             int Late, int Missing, int FinalLate, int FinalMissing, bool RequiresReview, string? ReviewReason,
             long? ResponseId, string? ResponseText, string? ResponseStatus,
-            string? SubmittedBy, string? SubmittedByName, DateTimeOffset? SubmittedAt)>();
+            string? SubmittedBy, string? SubmittedByName, DateTimeOffset? SubmittedAt, int CommentCount)>();
         await using (var command = dataSource.CreateCommand(sql))
         {
             command.Parameters.AddWithValue("start_date", from);
@@ -525,7 +626,7 @@ public sealed class AttendanceController(
                     reader.IsDBNull(17) ? null : reader.GetString(17),
                     reader.IsDBNull(18) ? null : reader.GetString(18),
                     reader.IsDBNull(19) ? null : reader.GetString(19),
-                    reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20)));
+                    reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20),reader.GetInt32(21)));
         }
 
         var result = new List<AttendanceReviewItemDto>(rows.Count);
@@ -543,7 +644,7 @@ public sealed class AttendanceController(
             result.Add(new AttendanceReviewItemDto(row.DailyId, row.EmployeeId, row.EmployeeName,
                 row.Department, row.WorkDate, row.First, row.Last, row.CalculatedStatus, row.FinalStatus,
                 row.Late, row.Missing, row.FinalLate, row.FinalMissing,
-                row.RequiresReview, row.ReviewReason, response));
+                row.RequiresReview, row.ReviewReason, response,row.CommentCount));
         }
         return Ok(result);
     }
@@ -569,10 +670,12 @@ public sealed class AttendanceController(
         string responseStatus;
         int currentLateMinutes;
         int currentMissingMinutes;
+        string submittedBy;
         const string lockSql = """
             SELECT response.attendance_daily_id, response.status, daily.final_status,
                    daily.calculated_late_minutes, daily.calculated_missing_minutes,
-                   daily.late_minutes, daily.missing_minutes
+                   daily.late_minutes, daily.missing_minutes,
+                   response.submitted_by
             FROM public.attendance_responses response
             JOIN public.attendance_daily_records daily ON daily.id = response.attendance_daily_id
             WHERE response.id = @response_id
@@ -588,7 +691,12 @@ public sealed class AttendanceController(
             statusBefore = reader.GetString(2);
             currentLateMinutes = reader.GetInt32(5);
             currentMissingMinutes = reader.GetInt32(6);
+            submittedBy = reader.GetString(7);
         }
+        if (string.Equals(actor.Value.EmployeeId, submittedBy, StringComparison.OrdinalIgnoreCase))
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                "ไม่สามารถอนุมัติหรือไม่อนุมัติข้อโต้แย้งที่ตนเองเป็นผู้ส่งได้");
         if (responseStatus != "SUBMITTED")
             return Conflict(responseStatus == "APPROVED" ? "ข้อโต้แย้งนี้อนุมัติแล้ว" : "ข้อโต้แย้งนี้ดำเนินการแล้ว");
         var responseBlockReason = await GetResponseBlockReason(dailyId, cancellationToken, blockPresent: false);
@@ -959,6 +1067,35 @@ public sealed class AttendanceController(
         }
         foreach (var pair in grouped) result[pair.Key] = pair.Value;
         return result;
+    }
+
+    private async Task<IReadOnlyList<LeaveCommentAttachmentDto>> LoadCommentAttachments(
+        long commentId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT id,original_file_name,content_type,file_size_bytes,uploaded_at
+            FROM public.attendance_comment_attachments
+            WHERE attendance_comment_id=@comment_id
+            ORDER BY uploaded_at,id
+            """;
+        var result = new List<LeaveCommentAttachmentDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("comment_id", commentId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(new LeaveCommentAttachmentDto(reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetInt64(3),reader.GetFieldValue<DateTimeOffset>(4)));
+        return result;
+    }
+
+    private static string? ValidateCommentAttachments(IReadOnlyList<LeaveCommentAttachmentUploadDto>? attachments)
+    {
+        if ((attachments?.Count ?? 0) > 5) return "แนบรูปได้ไม่เกิน 5 รูปต่อ Comment";
+        foreach (var attachment in attachments ?? [])
+            if (string.IsNullOrWhiteSpace(attachment.FileName) ||
+                attachment.ContentType.ToLowerInvariant() is not ("image/png" or "image/jpeg" or "image/webp") ||
+                attachment.Content is null || attachment.Content.Length is < 1 or > 3145728)
+                return "รองรับเฉพาะ PNG, JPG และ WEBP ขนาดไม่เกิน 3 MB";
+        return null;
     }
 
     private static string? ValidateAttachments(IReadOnlyList<AttendanceAttachmentUploadDto>? attachments)

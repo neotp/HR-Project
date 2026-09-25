@@ -1,14 +1,15 @@
 @page "/employees/edit-requests"
 @inject HttpClient Http
+@inject IJSRuntime JS
 
-<PageTitle>ขอแก้ไขข้อมูลพนักงาน | HR Project</PageTitle>
+<PageTitle>รออนุมัติขอแก้ไขเอกสาร | HR Project</PageTitle>
 
 <section class="manage-page employee-request-page">
     <header class="page-header-card">
         <div class="page-header-content">
             <div class="page-header-text">
-                <h1>ขอแก้ไขข้อมูลพนักงาน</h1>
-                <p>เอกสารคำขอแก้ไขข้อมูลพนักงานและสถานะการดำเนินการ</p>
+                <h1>รออนุมัติขอแก้ไขเอกสาร</h1>
+                <p>ตรวจสอบและพิจารณาคำขอแก้ไขข้อมูลพนักงาน</p>
             </div>
         </div>
     </header>
@@ -71,6 +72,7 @@
                     <table class="employee-edit-request-table">
                         <thead>
                             <tr>
+                                <th class="comment-expand-column"></th>
                                 @if (CanBulkApprove || CanBulkReject)
                                 {
                                     <th class="select-column"><input type="checkbox" aria-label="เลือกทั้งหมดในหน้านี้" checked="@AreAllPageItemsSelected" @onchange="ToggleCurrentPage" /></th>
@@ -88,7 +90,7 @@
                             @if (FilteredRequests.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="@(CanBulkApprove || CanBulkReject ? 8 : 7)" class="request-state">ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน</td>
+                                    <td colspan="@(CanBulkApprove || CanBulkReject ? 9 : 8)" class="request-state">ไม่พบเอกสารขอแก้ไขข้อมูลพนักงาน</td>
                                 </tr>
                             }
                             else
@@ -96,9 +98,10 @@
                                 @foreach (var request in PagedRequests)
                                 {
                                     <tr>
+                                        <td><CommentToggleButton CommentCount="@request.CommentCount" IsExpanded="@(expandedCommentRequestId == request.Id)" AriaLabel="@($"ความคิดเห็นของ {request.RequestNo}")" OnToggle="() => ToggleComments(request.Id)" /></td>
                                         @if (CanBulkApprove || CanBulkReject)
                                         {
-                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(request.Status != "PENDING")" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
+                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(!CanReviewRequest(request))" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
                                         }
                                         <td>
                                             <button class="request-number" type="button"
@@ -123,6 +126,10 @@
                                         <td>@request.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
                                         <td><span class="request-status @StatusClass(request.Status)" data-status="@request.Status">@StatusText(request.Status)</span></td>
                                     </tr>
+                                    @if (expandedCommentRequestId == request.Id)
+                                    {
+                                        <tr class="request-comment-row"><td colspan="@(CanBulkApprove || CanBulkReject ? 9 : 8)"><LeaveCommentThread EntityId="@request.Id" ApiPath="@($"api/employee-edit-requests/{request.Id}/comments")" DocumentLabel="@request.RequestNo" CurrentEmployeeId="@(currentUser?.EmployeeId ?? string.Empty)" CommentCountChanged="count => UpdateCommentCount(request.Id, count)" /></td></tr>
+                                    }
                                 }
                             }
                         </tbody>
@@ -159,6 +166,23 @@
                     เหตุผลในการขอแก้ไข
                     <textarea rows="3" disabled>@selectedRequest.RequestReason</textarea>
                 </label>
+                @if (selectedRequest.Attachments.Count > 0)
+                {
+                    <section class="request-attachment-section">
+                        <h3>เอกสารแนบ <span>@selectedRequest.Attachments.Count ไฟล์</span></h3>
+                        <div class="request-attachment-list">
+                            @foreach (var attachment in selectedRequest.Attachments)
+                            {
+                                <button type="button" disabled="@(downloadingAttachmentId == attachment.Id)"
+                                        @onclick="() => DownloadAttachment(selectedRequest.Id, attachment)">
+                                    <span class="request-attachment-icon">↧</span>
+                                    <span><strong>@attachment.FileName</strong><small>@FormatFileSize(attachment.FileSizeBytes)</small></span>
+                                    <em>@(downloadingAttachmentId == attachment.Id ? "กำลังดาวน์โหลด..." : "ดาวน์โหลด")</em>
+                                </button>
+                            }
+                        </div>
+                    </section>
+                }
                 <h3>ข้อมูลที่ขอแก้ไข</h3>
                 <div class="change-sections">
                     @foreach (var changeSection in GroupedChanges(selectedRequest))
@@ -218,7 +242,7 @@
                         </section>
                     }
                 </div>
-                @if (selectedRequest.Status == "PENDING")
+                @if (CanReviewRequest(selectedRequest))
                 {
                     <label class="review-remark">หมายเหตุการพิจารณา
                         <textarea rows="3" @bind="reviewRemark"
@@ -234,7 +258,7 @@
             <footer>
                 <button class="close-request" type="button" disabled="@isReviewing"
                         @onclick="CloseRequest">ปิด</button>
-                @if (selectedRequest.Status == "PENDING")
+                @if (CanReviewRequest(selectedRequest))
                 {
                     <button class="reject-request" type="button" disabled="@isReviewing"
                             @onclick="() => ReviewRequest(false)">
@@ -251,6 +275,7 @@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "requestId")] public long? RequestId { get; set; }
     private bool isLoading = true;
     private string? loadError;
     private string searchText = string.Empty;
@@ -261,10 +286,12 @@
     private int currentPage = 1;
     private int pageSize = 10;
     private EmployeeEditRequestDto? selectedRequest;
+    private long? expandedCommentRequestId;
     private bool isReviewing;
     private bool reviewSucceeded;
     private string reviewRemark = string.Empty;
     private string? reviewMessage;
+    private long? downloadingAttachmentId;
     private CurrentMicrosoftUserDto? currentUser;
     private HashSet<string> allowedActions = new(StringComparer.OrdinalIgnoreCase);
     private bool isBulkReviewing;
@@ -296,8 +323,11 @@
             return filtered.Skip((safePage - 1) * pageSize).Take(pageSize);
         }
     }
-    private List<EmployeeEditRequestDto> PageSelectableRequests => PagedRequests.Where(item => item.Status == "PENDING").ToList();
+    private List<EmployeeEditRequestDto> PageSelectableRequests => PagedRequests.Where(CanReviewRequest).ToList();
     private bool AreAllPageItemsSelected => PageSelectableRequests.Count > 0 && PageSelectableRequests.All(item => selectedIds.Contains(item.Id));
+    private bool CanReviewRequest(EmployeeEditRequestDto request) =>
+        request.Status == "PENDING" &&
+        !string.Equals(request.RequestedBy, currentUser?.EmployeeId, StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -311,6 +341,11 @@
             allowedActions = permissions?.AllowedActions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             requests = await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>(
                 "api/employee-edit-requests") ?? [];
+            if (RequestId.HasValue)
+            {
+                var target = requests.FirstOrDefault(item => item.Id == RequestId.Value);
+                if (target is not null) OpenRequest(target);
+            }
         }
         catch (Exception exception)
         {
@@ -330,6 +365,12 @@
     }
 
     private void ResetPaging() => currentPage = 1;
+    private void ToggleComments(long id) => expandedCommentRequestId = expandedCommentRequestId == id ? null : id;
+    private void UpdateCommentCount(long id, int count)
+    {
+        var index = requests.FindIndex(item => item.Id == id);
+        if (index >= 0) requests[index] = requests[index] with { CommentCount = count };
+    }
 
     private Task SetStatusFilters(IReadOnlyCollection<string> values)
     {
@@ -350,9 +391,48 @@
             selectedRequest = null;
     }
 
+    private async Task DownloadAttachment(
+        long requestId, EmployeeEditRequestAttachmentDto attachment)
+    {
+        if (downloadingAttachmentId.HasValue) return;
+        downloadingAttachmentId = attachment.Id;
+        reviewMessage = null;
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/employee-edit-requests/{requestId}/attachments/{attachment.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var details = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+                reviewSucceeded = false;
+                reviewMessage = string.IsNullOrWhiteSpace(details)
+                    ? $"ดาวน์โหลดไฟล์ไม่สำเร็จ (HTTP {(int)response.StatusCode})"
+                    : details;
+                return;
+            }
+
+            await JS.InvokeVoidAsync("hrDownload.downloadBytes",
+                attachment.FileName, attachment.ContentType,
+                await response.Content.ReadAsByteArrayAsync());
+        }
+        catch (Exception exception)
+        {
+            reviewSucceeded = false;
+            reviewMessage = $"ดาวน์โหลดไฟล์ไม่สำเร็จ: {exception.Message}";
+        }
+        finally
+        {
+            downloadingAttachmentId = null;
+        }
+    }
+
+    private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / 1024d / 1024d:0.##} MB"
+        : $"{Math.Max(1, bytes / 1024d):0.##} KB";
+
     private async Task ReviewRequest(bool approve)
     {
-        if (selectedRequest is null || selectedRequest.Status != "PENDING")
+        if (selectedRequest is null || !CanReviewRequest(selectedRequest))
             return;
 
         isReviewing = true;
@@ -425,7 +505,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && CanReviewRequest(item)).ToList())
         {
             try
             {
@@ -451,7 +531,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && CanReviewRequest(item)).ToList())
         {
             try
             {
@@ -477,6 +557,7 @@
             ("basic", "ข้อมูลพื้นฐาน"),
             ("personal", "ข้อมูลส่วนบุคคล"),
             ("internal", "ข้อมูลภายในบริษัท"),
+            ("accounting", "ข้อมูลทางบัญชี"),
             ("work", "ประวัติการทำงาน"),
             ("education", "ประวัติการศึกษา"),
             ("training", "ประวัติการอบรม & สัมมนา"),

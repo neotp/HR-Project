@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "dgSpecHash": "6A8I2lOdxMo=",
+  "success": true,
+  "projectFilePath": "C:\\project reference\\HR-Project\\HrProject.Client\\HrProject.Client.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.authorization\\8.0.22\\microsoft.aspnetcore.authorization.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components\\8.0.22\\microsoft.aspnetcore.components.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.analyzers\\8.0.22\\microsoft.aspnetcore.components.analyzers.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.authorization\\8.0.22\\microsoft.aspnetcore.components.authorization.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.forms\\8.0.22\\microsoft.aspnetcore.components.forms.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.web\\8.0.22\\microsoft.aspnetcore.components.web.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.webassembly\\8.0.22\\microsoft.aspnetcore.components.webassembly.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.webassembly.authentication\\8.0.22\\microsoft.aspnetcore.components.webassembly.authentication.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.components.webassembly.devserver\\8.0.22\\microsoft.aspnetcore.components.webassembly.devserver.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.aspnetcore.metadata\\8.0.22\\microsoft.aspnetcore.metadata.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.authentication.webassembly.msal\\8.0.22\\microsoft.authentication.webassembly.msal.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.configuration\\8.0.0\\microsoft.extensions.configuration.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\8.0.0\\microsoft.extensions.configuration.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.configuration.binder\\8.0.2\\microsoft.extensions.configuration.binder.8.0.2.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.configuration.fileextensions\\8.0.1\\microsoft.extensions.configuration.fileextensions.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.configuration.json\\8.0.1\\microsoft.extensions.configuration.json.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.dependencyinjection\\8.0.1\\microsoft.extensions.dependencyinjection.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\8.0.2\\microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.diagnostics\\8.0.1\\microsoft.extensions.diagnostics.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.diagnostics.abstractions\\8.0.1\\microsoft.extensions.diagnostics.abstractions.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.fileproviders.abstractions\\8.0.0\\microsoft.extensions.fileproviders.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.fileproviders.physical\\8.0.0\\microsoft.extensions.fileproviders.physical.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.filesystemglobbing\\8.0.0\\microsoft.extensions.filesystemglobbing.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.http\\8.0.1\\microsoft.extensions.http.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.logging\\8.0.1\\microsoft.extensions.logging.8.0.1.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\8.0.3\\microsoft.extensions.logging.abstractions.8.0.3.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.options\\8.0.2\\microsoft.extensions.options.8.0.2.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.options.configurationextensions\\8.0.0\\microsoft.extensions.options.configurationextensions.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.extensions.primitives\\8.0.0\\microsoft.extensions.primitives.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.jsinterop\\8.0.22\\microsoft.jsinterop.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.jsinterop.webassembly\\8.0.22\\microsoft.jsinterop.webassembly.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.22\\microsoft.net.illink.tasks.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.net.sdk.webassembly.pack\\8.0.22\\microsoft.net.sdk.webassembly.pack.8.0.22.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\system.io.pipelines\\8.0.0\\system.io.pipelines.8.0.0.nupkg.sha512",
+    "C:\\Users\\chaitanachote\\.nuget\\packages\\microsoft.netcore.app.runtime.mono.browser-wasm\\8.0.22\\microsoft.netcore.app.runtime.mono.browser-wasm.8.0.22.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1900",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "Error occurred while getting package vulnerability data: Unable to load the service index for source https://api.nuget.org/v3/index.json."
+    }
+  ]
+}

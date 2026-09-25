@@ -89,6 +89,7 @@ internal static class JobApplicationImporter
             var sourceReferenceId = Cell(reader, headers, "เลขที่ใบสมัคร");
             var thaiFullName = Cell(reader, headers, "Name Thai");
             var englishFullName = Cell(reader, headers, "Name Eng");
+            var recruitUrl = NormalizeRecruitUrl(Cell(reader, headers, "URL"), rowNumber);
             if (string.IsNullOrWhiteSpace(sourceReferenceId) &&
                 string.IsNullOrWhiteSpace(thaiFullName) &&
                 string.IsNullOrWhiteSpace(englishFullName))
@@ -136,7 +137,8 @@ internal static class JobApplicationImporter
             rows.Add(new ImportRow(
                 sourceReferenceId.Trim(),
                 employee,
-                JsonSerializer.Serialize(payload, JsonOptions)));
+                JsonSerializer.Serialize(payload, JsonOptions),
+                recruitUrl));
         }
 
         return rows;
@@ -156,14 +158,14 @@ internal static class JobApplicationImporter
                  personal_mobile, company_name, business_unit, department, position_name,
                  start_date, supervisor_name, leave_approver_name, employment_type,
                  work_location, status, validation_message, imported_by, imported_by_name,
-                 imported_at, created_by, created_by_name, employee_data)
+                 imported_at, created_by, created_by_name, employee_data, recruit_url)
             VALUES
                 (@source_system, @source_reference_id, @source_payload, NULL, @title,
                  @first_name, @last_name, @full_name_en, @nickname, NULL,
                  NULL, NULL, NULL, @department, @position,
                  @start_date, @supervisor, NULL, NULL,
                  NULL, 'INCOMPLETE', @validation, 'SYSTEM', 'Job Application Import',
-                 CURRENT_TIMESTAMP, 'SYSTEM', 'Job Application Import', @employee_data)
+                 CURRENT_TIMESTAMP, 'SYSTEM', 'Job Application Import', @employee_data, @recruit_url)
             ON CONFLICT (source_system, source_reference_id)
                 WHERE source_system IS NOT NULL AND source_reference_id IS NOT NULL
             DO NOTHING
@@ -185,6 +187,7 @@ internal static class JobApplicationImporter
         AddText(command, "validation", validation);
         command.Parameters.Add("employee_data", NpgsqlDbType.Jsonb).Value =
             JsonSerializer.Serialize(row.Employee, JsonOptions);
+        AddText(command, "recruit_url", row.RecruitUrl);
         return await command.ExecuteScalarAsync(cancellationToken) is long;
     }
 
@@ -289,6 +292,20 @@ internal static class JobApplicationImporter
         return digits.Length == 9 ? $"0{digits}" : value.Trim();
     }
 
+    private static string? NormalizeRecruitUrl(string value, int rowNumber)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var url = value.Trim();
+        if (url.Length > 2048 ||
+            !Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException(
+                $"URL เอกสาร Recruit แถว {rowNumber} ต้องเป็นลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://");
+        }
+        return url;
+    }
+
     private static void AddText(NpgsqlCommand command, string name, string? value) =>
         command.Parameters.Add(name, NpgsqlDbType.Text).Value =
             string.IsNullOrWhiteSpace(value) ? DBNull.Value : value.Trim();
@@ -299,5 +316,6 @@ internal static class JobApplicationImporter
     private sealed record ImportRow(
         string SourceReferenceId,
         Employee Employee,
-        string SourcePayload);
+        string SourcePayload,
+        string? RecruitUrl);
 }

@@ -1,0 +1,5 @@
+@page "/open/employee-edit-request/{Id:long}"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+<div class="route-resolver">กำลังเปิดคำขอ...</div>
+@code { [Parameter] public long Id { get; set; } protected override async Task OnInitializedAsync(){try{var destination=await Http.GetFromJsonAsync<EmployeeEditRequestLinkDestinationDto>($"api/employee-edit-requests/{Id}/link-destination");Navigation.NavigateTo(destination?.Url??"/employees/my-edit-requests?notice=unavailable",replace:true);}catch{Navigation.NavigateTo("/employees/my-edit-requests?notice=unavailable",replace:true);}} }

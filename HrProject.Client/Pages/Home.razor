@@ -35,71 +35,91 @@
     <section class="content-card employee-search-card">
         <div class="content-card-header">ค้นหาพนักงาน</div>
         <div class="content-card-body employee-search-body">
-            <div class="employee-search-fields">
-                <label>
-                    <span>รหัส หรือชื่อพนักงาน</span>
-                    <RemoteEmployeeSearchSelect Value="@selectedEmployeeCode"
-                                                ValueChanged="SetEmployeeFilter"
-                                                Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
-                </label>
-                <label>
-                    <span>Business Unit (BU)</span>
-                    <select class="employee-filter-select" @bind="businessUnitFilter" @bind:after="BusinessUnitFilterChanged">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.BusinessUnits) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                <label>
-                    <span>แผนก</span>
-                    <select class="employee-filter-select" @bind="departmentFilter" @bind:after="ReloadFirstPage">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.Departments) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                <label>
-                    <span>ตำแหน่ง</span>
-                    <select class="employee-filter-select" @bind="positionFilter" @bind:after="ReloadFirstPage">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.Positions) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                <label>
-                    <span>Ext. ภายใน</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input value="@internalExtensionFilter" @oninput="InternalExtensionFilterChanged"
-                               placeholder="ค้นหา Ext. ภายใน" />
-                        @if (!string.IsNullOrWhiteSpace(internalExtensionFilter))
-                        {
-                            <button type="button" aria-label="ล้าง Ext. ภายใน" @onclick="ClearInternalExtensionFilter">×</button>
-                        }
-                    </div>
-                </label>
-                <label>
-                    <span>Province of Responsibility (จังหวัดที่ดูแล)</span>
-                    <select class="employee-filter-select" @bind="responsibilityProvinceFilter" @bind:after="ReloadFirstPage">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.ResponsibilityProvinces) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                <label>
-                    <span>Brand</span>
-                    <select class="employee-filter-select" @bind="brandFilter" @bind:after="ReloadFirstPage">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.Brands) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                <label>
-                    <span>Comm.Group</span>
-                    <select class="employee-filter-select" @bind="commGroupFilter" @bind:after="ReloadFirstPage">
-                        <option value="">ทั้งหมด</option>
-                        @foreach (var option in filterOptions.CommGroups) { <option value="@option">@option</option> }
-                    </select>
-                </label>
-                @if (HasEmployeeFilters)
-                {
-                    <div class="employee-search-actions"><button type="button" @onclick="ClearEmployeeFilters">ล้างตัวกรองทั้งหมด</button></div>
-                }
+            <div class="employee-search-accordion">
+                <section class="employee-search-section @(activeSearchSection == EmployeeSearchSection ? "active" : null)">
+                    <button class="employee-search-toggle" type="button"
+                            aria-expanded="@(activeSearchSection == EmployeeSearchSection)"
+                            @onclick="() => ToggleSearchSection(EmployeeSearchSection)">
+                        <span class="employee-search-chevron" aria-hidden="true"></span>
+                        <span class="employee-search-toggle-copy"><strong>ค้นหาจากข้อมูลพนักงาน</strong><small>รหัสหรือชื่อ, BU, แผนก, ตำแหน่ง, Ext. และจังหวัดที่ดูแล</small></span>
+                    </button>
+                    @if (activeSearchSection == EmployeeSearchSection)
+                    {
+                        <div class="employee-search-panel">
+                            <div class="employee-search-fields">
+                                <label>
+                                    <span>รหัส หรือชื่อพนักงาน</span>
+                                    <RemoteEmployeeSearchSelect Value="@selectedEmployeeCode"
+                                                                ValueChanged="SetEmployeeFilter"
+                                                                Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
+                                </label>
+                                <label>
+                                    <span>Business Unit (BU)</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.BusinessUnits, businessUnitFilter).ToList())" @bind-Value="businessUnitFilter" @bind-Value:after="StructuralFilterChanged" />
+                                </label>
+                                <label>
+                                    <span>แผนก</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.Departments, departmentFilter).ToList())" @bind-Value="departmentFilter" @bind-Value:after="StructuralFilterChanged" />
+                                </label>
+                                <label>
+                                    <span>ตำแหน่ง</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.Positions, positionFilter).ToList())" @bind-Value="positionFilter" @bind-Value:after="StructuralFilterChanged" />
+                                </label>
+                                <label>
+                                    <span>Ext. ภายใน</span>
+                                    <div class="employee-search-input">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                                        <input value="@internalExtensionFilter" @oninput="InternalExtensionFilterChanged" placeholder="ค้นหา Ext. ภายใน" />
+                                        @if (!string.IsNullOrWhiteSpace(internalExtensionFilter))
+                                        {
+                                            <button type="button" aria-label="ล้าง Ext. ภายใน" @onclick="ClearInternalExtensionFilter">×</button>
+                                        }
+                                    </div>
+                                </label>
+                                <label>
+                                    <span>Province of Responsibility (จังหวัดที่ดูแล)</span>
+                                    <StringSearchSelect Items="@(filterOptions.ResponsibilityProvinces.ToList())" @bind-Value="responsibilityProvinceFilter" @bind-Value:after="ReloadFirstPage" />
+                                </label>
+                                @if (HasEmployeeSectionFilters)
+                                {
+                                    <div class="employee-search-actions"><button type="button" @onclick="ClearActiveSearchFilters">ล้างตัวกรองส่วนนี้</button></div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
+
+                <section class="employee-search-section @(activeSearchSection == ProductSearchSection ? "active" : null)">
+                    <button class="employee-search-toggle" type="button"
+                            aria-expanded="@(activeSearchSection == ProductSearchSection)"
+                            @onclick="() => ToggleSearchSection(ProductSearchSection)">
+                        <span class="employee-search-chevron" aria-hidden="true"></span>
+                        <span class="employee-search-toggle-copy"><strong>ค้นหาจากข้อมูล Product</strong><small>Product BU, Brand และ Comm.Group ของรอบข้อมูลปัจจุบัน</small></span>
+                    </button>
+                    @if (activeSearchSection == ProductSearchSection)
+                    {
+                        <div class="employee-search-panel">
+                            <div class="employee-search-fields product-search-fields">
+                                <label>
+                                    <span>Product BU</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.ProductBusinessUnits, productBusinessUnitFilter).ToList())" @bind-Value="productBusinessUnitFilter" @bind-Value:after="ProductFilterChanged" />
+                                </label>
+                                <label>
+                                    <span>Brand</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.Brands, brandFilter).ToList())" @bind-Value="brandFilter" @bind-Value:after="ProductFilterChanged" />
+                                </label>
+                                <label>
+                                    <span>Comm.Group</span>
+                                    <StringSearchSelect Items="@(PreserveSelected(filterOptions.CommGroups, commGroupFilter).ToList())" @bind-Value="commGroupFilter" @bind-Value:after="ProductFilterChanged" />
+                                </label>
+                                @if (HasProductSectionFilters)
+                                {
+                                    <div class="employee-search-actions"><button type="button" @onclick="ClearActiveSearchFilters">ล้างตัวกรองส่วนนี้</button></div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
             </div>
         </div>
     </section>
@@ -246,7 +266,7 @@
                                     </div>
                                 </div>
                                 <label><span class="field-label">รหัสพนักงาน <span class="required">*</span></span><input @bind="newEmployee.EmployeeCode" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="xxxxxx" /></label>
-                                <label>คำนำหน้าชื่อ<select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>คำนำหน้าชื่อ<SearchableSelect><select @bind="newEmployee.Title"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("TITLE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
                                 <label><span class="field-label">ชื่อ <span class="required">*</span></span><input @bind="newEmployee.FirstName" /></label>
                                 <label><span class="field-label">นามสกุล <span class="required">*</span></span><input @bind="newEmployee.LastName" /></label>
                                 <label>ชื่อ-นามสกุล (ไทย)<input @bind="newEmployee.ThaiFullName" /></label>
@@ -260,15 +280,29 @@
                             break;
                         case "personal":
                             <div class="create-form-grid">
-                                <label>ศาสนา<select @bind="newEmployee.Religion"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("RELIGION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>หมู่เลือด<select @bind="newEmployee.BloodType"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BLOOD_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label class="wide-field">ที่อยู่<textarea rows="2" @bind="newEmployee.CurrentAddress" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
-                                <label>จังหวัด<select @bind="newEmployee.ResidenceProvince" @bind:after="ResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>อำเภอ / เขต<select @bind="newEmployee.ResidenceDistrict" @bind:after="ResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>ตำบล / แขวง<select @bind="newEmployee.ResidenceSubdistrict" @bind:after="ResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>รหัสไปรษณีย์<select @bind="newEmployee.ResidencePostalCode" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="2" @bind="newEmployee.IdCardAddress"></textarea></label>
-                                <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="2" @bind="newEmployee.HouseRegistrationAddress"></textarea></label>
+                                <label>ศาสนา<SearchableSelect><select @bind="newEmployee.Religion"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("RELIGION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                <label>หมู่เลือด<SearchableSelect><select @bind="newEmployee.BloodType"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BLOOD_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                <div class="create-address-section"><h3>ที่อยู่ปัจจุบัน</h3><div class="create-address-grid">
+                                    <label class="wide-field">ที่อยู่<textarea rows="2" @bind="newEmployee.CurrentAddress" @bind:event="oninput" @bind:after="SyncNewEmployeeAddresses" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
+                                    <label>จังหวัด<SearchableSelect><select @bind="newEmployee.ResidenceProvince" @bind:after="ResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>อำเภอ / เขต<SearchableSelect><select @bind="newEmployee.ResidenceDistrict" @bind:after="ResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>ตำบล / แขวง<SearchableSelect><select @bind="newEmployee.ResidenceSubdistrict" @bind:after="ResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>รหัสไปรษณีย์<SearchableSelect><select @bind="newEmployee.ResidencePostalCode" @bind:after="SyncNewEmployeeAddresses" disabled="@string.IsNullOrWhiteSpace(newEmployee.ResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in ResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                </div></div>
+                                <div class="create-address-section"><div class="create-address-heading"><h3>ที่อยู่ตามบัตรประชาชน</h3><label class="same-address-option"><input type="checkbox" @bind="newEmployee.IdCardSameAsCurrent" @bind:after="NewIdCardSameChanged" /> เหมือนที่อยู่ปัจจุบัน</label></div><div class="create-address-grid">
+                                    <label class="wide-field">ที่อยู่<textarea rows="2" @bind="newEmployee.IdCardAddress" disabled="@newEmployee.IdCardSameAsCurrent"></textarea></label>
+                                    <label>จังหวัด<SearchableSelect><select @bind="newEmployee.IdCardProvince" @bind:after="NewIdCardProvinceChanged" disabled="@newEmployee.IdCardSameAsCurrent"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>อำเภอ / เขต<SearchableSelect><select @bind="newEmployee.IdCardDistrict" @bind:after="NewIdCardDistrictChanged" disabled="@(newEmployee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.IdCardProvince))"><option value="">-- เลือก --</option>@foreach (var item in NewIdCardDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>ตำบล / แขวง<SearchableSelect><select @bind="newEmployee.IdCardSubdistrict" @bind:after="NewIdCardSubdistrictChanged" disabled="@(newEmployee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.IdCardDistrict))"><option value="">-- เลือก --</option>@foreach (var item in NewIdCardSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>รหัสไปรษณีย์<SearchableSelect><select @bind="newEmployee.IdCardPostalCode" disabled="@(newEmployee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.IdCardSubdistrict))"><option value="">-- เลือก --</option>@foreach (var item in NewIdCardPostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                </div></div>
+                                <div class="create-address-section"><div class="create-address-heading"><h3>ที่อยู่ตามทะเบียนบ้าน</h3><label class="same-address-option"><input type="checkbox" @bind="newEmployee.HouseRegistrationSameAsCurrent" @bind:after="NewHouseSameChanged" /> เหมือนที่อยู่ปัจจุบัน</label></div><div class="create-address-grid">
+                                    <label class="wide-field">ที่อยู่<textarea rows="2" @bind="newEmployee.HouseRegistrationAddress" disabled="@newEmployee.HouseRegistrationSameAsCurrent"></textarea></label>
+                                    <label>จังหวัด<SearchableSelect><select @bind="newEmployee.HouseRegistrationProvince" @bind:after="NewHouseProvinceChanged" disabled="@newEmployee.HouseRegistrationSameAsCurrent"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>อำเภอ / เขต<SearchableSelect><select @bind="newEmployee.HouseRegistrationDistrict" @bind:after="NewHouseDistrictChanged" disabled="@(newEmployee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.HouseRegistrationProvince))"><option value="">-- เลือก --</option>@foreach (var item in NewHouseDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>ตำบล / แขวง<SearchableSelect><select @bind="newEmployee.HouseRegistrationSubdistrict" @bind:after="NewHouseSubdistrictChanged" disabled="@(newEmployee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.HouseRegistrationDistrict))"><option value="">-- เลือก --</option>@foreach (var item in NewHouseSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                    <label>รหัสไปรษณีย์<SearchableSelect><select @bind="newEmployee.HouseRegistrationPostalCode" disabled="@(newEmployee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(newEmployee.HouseRegistrationSubdistrict))"><option value="">-- เลือก --</option>@foreach (var item in NewHousePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                </div></div>
                                 <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="newEmployee.EmergencyContactName" /></label>
                                 <label>เบอร์ติดต่อฉุกเฉิน<input @bind="newEmployee.EmergencyContactPhone" /></label>
                                 <label class="wide-field">ที่อยู่ผู้ติดต่อฉุกเฉิน<textarea rows="2" @bind="newEmployee.EmergencyContactAddress"></textarea></label>
@@ -276,12 +310,12 @@
                             break;
                         case "internal":
                             <div class="create-form-grid">
-                                <label>บริษัท<select @bind="newEmployee.Company"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("COMPANY")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>Business Unit<select @bind="newEmployee.BusinessUnit" @bind:after="BusinessUnitChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BUSINESS_UNIT")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>บริษัท<SearchableSelect><select @bind="newEmployee.Company"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("COMPANY")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                <label>Business Unit<SearchableSelect><select @bind="newEmployee.BusinessUnit" @bind:after="BusinessUnitChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("BUSINESS_UNIT")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
                                 <label>ฝ่าย<input @bind="newEmployee.Division" /></label>
-                                <label><span class="field-label">แผนก <span class="required">*</span></span><select @bind="newEmployee.Department" disabled="@string.IsNullOrWhiteSpace(newEmployee.BusinessUnit)"><option value="">-- เลือก --</option>@foreach (var item in DepartmentOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label><span class="field-label">แผนก <span class="required">*</span></span><SearchableSelect><select @bind="newEmployee.Department" disabled="@string.IsNullOrWhiteSpace(newEmployee.BusinessUnit)"><option value="">-- เลือก --</option>@foreach (var item in DepartmentOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
                                 <label>ส่วนงาน<input @bind="newEmployee.Section" /></label>
-                                <label><span class="field-label">ตำแหน่ง <span class="required">*</span></span><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label><span class="field-label">ตำแหน่ง <span class="required">*</span></span><SearchableSelect><select @bind="newEmployee.Position"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("POSITION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
                                 <label>รหัสตำแหน่ง<input @bind="newEmployee.JobCode" /></label>
                                 <label>หัวหน้างาน
                                     <EmployeeSearchSelect Items="employeeOptions"
@@ -299,13 +333,13 @@
                                 </label>
                                 <label>Buddy<input @bind="newEmployee.BuddyName" /></label>
                                 <label>ประเภทการจ้าง
-                                    <select @bind="newEmployee.EmploymentType">
+                                    <SearchableSelect><select @bind="newEmployee.EmploymentType">
                                         <option value="">-- เลือก --</option>
                                         @foreach (var item in MasterOptions("EMPLOYMENT_TYPE")) { <option value="@item.NameTh">@item.NameTh</option> }
-                                    </select>
+                                    </select></SearchableSelect>
                                 </label>
-                                <label>เวลาทำงาน<select @bind="newEmployee.WorkSchedule"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_SCHEDULE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                <label>สถานที่ทำงาน<select @bind="newEmployee.WorkLocation"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_LOCATION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
+                                <label>เวลาทำงาน<SearchableSelect><select @bind="newEmployee.WorkSchedule"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_SCHEDULE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                <label>สถานที่ทำงาน<SearchableSelect><select @bind="newEmployee.WorkLocation"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("WORK_LOCATION")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
                                 <label><span class="field-label">วันที่เริ่มงาน <span class="required">*</span></span><DateOnlyPicker Value="@newEmployee.StartDate" ValueChanged="value => newEmployee.StartDate = value ?? newEmployee.StartDate" AriaLabel="วันที่เริ่มงาน" /></label>
                                 <label>Ext. ภายใน<input @bind="newEmployee.InternalExtension" /></label>
                                 <label>เบอร์โทรสายตรง<input @bind="newEmployee.DirectPhone" /></label>
@@ -313,10 +347,17 @@
                                 <label>รหัสสาขา<input @bind="newEmployee.BranchCode" /></label>
                                 <label>ชื่อสาขา<input @bind="newEmployee.BranchName" /></label>
                                 <label>สถานะพนักงาน
-                                    <select @bind="newEmployee.EmployeeStatus">
+                                    <SearchableSelect><select @bind="newEmployee.EmployeeStatus">
                                         <option value="พนักงาน">พนักงาน</option>
                                         <option value="ลาออก">ลาออก</option>
-                                    </select>
+                                    </select></SearchableSelect>
+                                </label>
+                                <label>สามารถเดินทางไปต่างจังหวัดได้
+                                    <SearchableSelect><select @bind="canTravelUpcountry">
+                                        <option value="">-- เลือก --</option>
+                                        <option value="true">ได้</option>
+                                        <option value="false">ไม่ได้</option>
+                                    </select></SearchableSelect>
                                 </label>
                                 <label class="attendance-exclusion-option">
                                     <input type="checkbox" @bind="newEmployee.ExcludeAttendanceCalculation" />
@@ -331,32 +372,26 @@
                             </div>
                             <div class="editable-table-scroll">
                                 <table class="editable-history-table">
-                                    <thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง/หน้าที่</th><th>บริษัทที่ทำงาน</th><th></th></tr></thead>
+                                    <thead><tr><th>ระยะเวลา</th><th>BU</th><th>แผนก</th><th>ตำแหน่ง</th><th>Brand</th><th>Comm.Group</th><th></th></tr></thead>
                                     <tbody>
                                         @if (newEmployee.WorkHistory.Count == 0)
                                         {
-                                            <tr><td colspan="4" class="empty-editable-row">ยังไม่มีประวัติ กรุณากดเพิ่มรายการ</td></tr>
+                                            <tr><td colspan="7" class="empty-editable-row">ยังไม่มีประวัติ กรุณากดเพิ่มรายการ</td></tr>
                                         }
                                         @foreach (var item in newEmployee.WorkHistory)
                                         {
                                             <tr>
                                                 <td><input @bind="item.Period" placeholder="เช่น 01/05/2023 - 13/09/2024" /></td>
+                                                <td><input @bind="item.BusinessUnit" /></td>
+                                                <td><input @bind="item.Department" /></td>
                                                 <td><input @bind="item.Position" /></td>
-                                                <td><input @bind="item.Company" /></td>
+                                                <td><input @bind="item.Brand" /></td>
+                                                <td><input @bind="item.CommGroup" /></td>
                                                 <td><button type="button" class="remove-row-button" @onclick="() => RemoveWorkHistory(item)">×</button></td>
                                             </tr>
                                         }
                                     </tbody>
                                 </table>
-                            </div>
-                            <div class="create-form-grid form-after-table">
-                                <label>สามารถเดินทางไปต่างจังหวัดได้
-                                    <select @bind="canTravelUpcountry">
-                                        <option value="">-- เลือก --</option>
-                                        <option value="true">ได้</option>
-                                        <option value="false">ไม่ได้</option>
-                                    </select>
-                                </label>
                             </div>
                             break;
                         case "education":
@@ -418,18 +453,18 @@
                         case "family":
                             <div class="create-form-grid">
                                 <label>สถานะภาพการสมรส
-                                    <select @bind="newEmployee.MaritalStatus">
+                                    <SearchableSelect><select @bind="newEmployee.MaritalStatus">
                                         <option value="">-- เลือก --</option>@foreach (var item in MasterOptions("MARITAL_STATUS")) { <option value="@item.NameTh">@item.NameTh</option> }
-                                    </select>
+                                    </select></SearchableSelect>
                                 </label>
                                 <label>จดทะเบียนสมรส
-                                    <select @bind="marriageRegistered"><option value="">-- เลือก --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select>
+                                    <SearchableSelect><select @bind="marriageRegistered"><option value="">-- เลือก --</option><option value="true">จดทะเบียน</option><option value="false">ไม่ได้จดทะเบียน</option></select></SearchableSelect>
                                 </label>
                                 <label>คำนำหน้าคู่สมรส<input @bind="newEmployee.SpouseTitle" /></label>
                                 <label>ชื่อ-นามสกุลคู่สมรส<input @bind="newEmployee.SpouseName" /></label>
                                 <label>วันที่สมรส<DateOnlyPicker @bind-Value="newEmployee.MarriageDate" AriaLabel="วันที่สมรส" /></label>
                                 <label>คู่สมรสมีรายได้
-                                    <select @bind="spouseHasIncome"><option value="">-- เลือก --</option><option value="true">มีรายได้</option><option value="false">ไม่มีรายได้</option></select>
+                                    <SearchableSelect><select @bind="spouseHasIncome"><option value="">-- เลือก --</option><option value="true">มีรายได้</option><option value="false">ไม่มีรายได้</option></select></SearchableSelect>
                                 </label>
                                 <label>เลขบัตรประชาชนคู่สมรส<input @bind="newEmployee.SpouseNationalId" /></label>
                                 <label>Passport ID คู่สมรส<input @bind="newEmployee.SpousePassportId" /></label>
@@ -477,7 +512,7 @@
     private List<EmployeeListItemDto>? employees;
     private List<Employee> employeeOptions = [];
     private List<MasterDataItemDto> masterItems = [];
-    private EmployeeListFilterOptions filterOptions = new([], [], [], [], [], []);
+    private EmployeeListFilterOptions filterOptions = new([], [], [], [], [], [], []);
     private int totalItems;
     private bool isLoadingEmployees;
     private int employeeLoadVersion;
@@ -494,18 +529,32 @@
     private string positionFilter = string.Empty;
     private string internalExtensionFilter = string.Empty;
     private string responsibilityProvinceFilter = string.Empty;
+    private string productBusinessUnitFilter = string.Empty;
     private string brandFilter = string.Empty;
     private string commGroupFilter = string.Empty;
+    private const string EmployeeSearchSection = "employee";
+    private const string ProductSearchSection = "product";
+    private string? activeSearchSection = EmployeeSearchSection;
     private int currentPage = 1;
     private int pageSize = 10;
-    private bool HasEmployeeFilters => new[] { selectedEmployeeCode, businessUnitFilter, departmentFilter, positionFilter,
-        internalExtensionFilter, responsibilityProvinceFilter, brandFilter, commGroupFilter }
+    private bool HasEmployeeSectionFilters => new[] { selectedEmployeeCode, businessUnitFilter, departmentFilter,
+        positionFilter, internalExtensionFilter, responsibilityProvinceFilter }
+        .Any(value => !string.IsNullOrWhiteSpace(value));
+    private bool HasProductSectionFilters => new[] { productBusinessUnitFilter, brandFilter, commGroupFilter }
         .Any(value => !string.IsNullOrWhiteSpace(value));
 
     private EmployeeListFilterRequest CurrentFilterRequest(int? page = null, int? size = null) => new(
-        page ?? currentPage, size ?? pageSize, selectedEmployeeCode, businessUnitFilter,
-        departmentFilter, positionFilter, internalExtensionFilter, responsibilityProvinceFilter,
-        brandFilter, commGroupFilter);
+        page ?? currentPage,
+        size ?? pageSize,
+        activeSearchSection == EmployeeSearchSection ? selectedEmployeeCode : string.Empty,
+        activeSearchSection == EmployeeSearchSection ? businessUnitFilter : string.Empty,
+        activeSearchSection == EmployeeSearchSection ? departmentFilter : string.Empty,
+        activeSearchSection == EmployeeSearchSection ? positionFilter : string.Empty,
+        activeSearchSection == EmployeeSearchSection ? internalExtensionFilter : string.Empty,
+        activeSearchSection == EmployeeSearchSection ? responsibilityProvinceFilter : string.Empty,
+        activeSearchSection == ProductSearchSection ? productBusinessUnitFilter : string.Empty,
+        activeSearchSection == ProductSearchSection ? brandFilter : string.Empty,
+        activeSearchSection == ProductSearchSection ? commGroupFilter : string.Empty);
 
     private async Task LoadEmployees()
     {
@@ -527,9 +576,29 @@
 
     private async Task LoadFilterOptions()
     {
+        var useEmployeeFilters = activeSearchSection == EmployeeSearchSection;
+        var useProductFilters = activeSearchSection == ProductSearchSection;
         filterOptions = await Http.GetFromJsonAsync<EmployeeListFilterOptions>(
-            $"api/employees/filter-options?businessUnit={Uri.EscapeDataString(businessUnitFilter)}")
-            ?? new([], [], [], [], [], []);
+            $"api/employees/filter-options?businessUnit={Uri.EscapeDataString(useEmployeeFilters ? businessUnitFilter : string.Empty)}" +
+            $"&department={Uri.EscapeDataString(useEmployeeFilters ? departmentFilter : string.Empty)}" +
+            $"&position={Uri.EscapeDataString(useEmployeeFilters ? positionFilter : string.Empty)}" +
+            $"&productBusinessUnit={Uri.EscapeDataString(useProductFilters ? productBusinessUnitFilter : string.Empty)}" +
+            $"&brand={Uri.EscapeDataString(useProductFilters ? brandFilter : string.Empty)}" +
+            $"&commGroup={Uri.EscapeDataString(useProductFilters ? commGroupFilter : string.Empty)}")
+            ?? new([], [], [], [], [], [], []);
+    }
+
+    private static IEnumerable<string> PreserveSelected(
+        IEnumerable<string> options, string selectedValue)
+    {
+        var values = options
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(selectedValue) &&
+            !values.Any(value => string.Equals(value, selectedValue, StringComparison.OrdinalIgnoreCase)))
+            values.Insert(0, selectedValue);
+        return values;
     }
 
     private async Task ReloadFirstPage()
@@ -549,17 +618,35 @@
         await Task.Delay(300);
         if (version == extensionFilterVersion) await ReloadFirstPage();
     }
-    private async Task BusinessUnitFilterChanged()
+    private async Task StructuralFilterChanged()
     {
-        departmentFilter = string.Empty;
         await LoadFilterOptions();
         await ReloadFirstPage();
     }
-    private async Task ClearEmployeeFilters()
+    private async Task ProductFilterChanged()
+    {
+        await LoadFilterOptions();
+        await ReloadFirstPage();
+    }
+    private async Task ToggleSearchSection(string section)
     {
         extensionFilterVersion++;
-        selectedEmployeeCode = businessUnitFilter = departmentFilter = positionFilter = internalExtensionFilter =
-            responsibilityProvinceFilter = brandFilter = commGroupFilter = string.Empty;
+        activeSearchSection = activeSearchSection == section ? null : section;
+        await LoadFilterOptions();
+        await ReloadFirstPage();
+    }
+    private async Task ClearActiveSearchFilters()
+    {
+        extensionFilterVersion++;
+        if (activeSearchSection == EmployeeSearchSection)
+        {
+            selectedEmployeeCode = businessUnitFilter = departmentFilter = positionFilter = internalExtensionFilter =
+                responsibilityProvinceFilter = string.Empty;
+        }
+        else if (activeSearchSection == ProductSearchSection)
+        {
+            productBusinessUnitFilter = brandFilter = commGroupFilter = string.Empty;
+        }
         await LoadFilterOptions();
         await ReloadFirstPage();
     }
@@ -727,6 +814,18 @@
         "SUBDISTRICT", "DISTRICT", newEmployee.ResidenceDistrict, ResidenceDistrictOptions);
     private IEnumerable<MasterDataItemDto> ResidencePostalCodeOptions => ChildAddressOptions(
         "POSTAL_CODE", "SUBDISTRICT", newEmployee.ResidenceSubdistrict, ResidenceSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> NewIdCardDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", newEmployee.IdCardProvince);
+    private IEnumerable<MasterDataItemDto> NewIdCardSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", newEmployee.IdCardDistrict, NewIdCardDistrictOptions);
+    private IEnumerable<MasterDataItemDto> NewIdCardPostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", newEmployee.IdCardSubdistrict, NewIdCardSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> NewHouseDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", newEmployee.HouseRegistrationProvince);
+    private IEnumerable<MasterDataItemDto> NewHouseSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", newEmployee.HouseRegistrationDistrict, NewHouseDistrictOptions);
+    private IEnumerable<MasterDataItemDto> NewHousePostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", newEmployee.HouseRegistrationSubdistrict, NewHouseSubdistrictOptions);
 
     private IEnumerable<MasterDataItemDto> ChildAddressOptions(
         string childCategory, string parentCategory, string parentName,
@@ -742,19 +841,34 @@
         newEmployee.ResidenceDistrict = string.Empty;
         newEmployee.ResidenceSubdistrict = string.Empty;
         newEmployee.ResidencePostalCode = string.Empty;
+        SyncNewEmployeeAddresses();
     }
 
     private void ResidenceDistrictChanged()
     {
         newEmployee.ResidenceSubdistrict = string.Empty;
         newEmployee.ResidencePostalCode = string.Empty;
+        SyncNewEmployeeAddresses();
     }
 
     private void ResidenceSubdistrictChanged()
     {
         var postalCodes = ResidencePostalCodeOptions.ToList();
         newEmployee.ResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+        SyncNewEmployeeAddresses();
     }
+
+    private void NewIdCardSameChanged() { if (newEmployee.IdCardSameAsCurrent) CopyNewCurrentToIdCard(); }
+    private void NewHouseSameChanged() { if (newEmployee.HouseRegistrationSameAsCurrent) CopyNewCurrentToHouse(); }
+    private void NewIdCardProvinceChanged() { newEmployee.IdCardDistrict = string.Empty; newEmployee.IdCardSubdistrict = string.Empty; newEmployee.IdCardPostalCode = string.Empty; }
+    private void NewIdCardDistrictChanged() { newEmployee.IdCardSubdistrict = string.Empty; newEmployee.IdCardPostalCode = string.Empty; }
+    private void NewIdCardSubdistrictChanged() { var values = NewIdCardPostalCodeOptions.ToList(); newEmployee.IdCardPostalCode = values.Count == 1 ? values[0].NameTh : string.Empty; }
+    private void NewHouseProvinceChanged() { newEmployee.HouseRegistrationDistrict = string.Empty; newEmployee.HouseRegistrationSubdistrict = string.Empty; newEmployee.HouseRegistrationPostalCode = string.Empty; }
+    private void NewHouseDistrictChanged() { newEmployee.HouseRegistrationSubdistrict = string.Empty; newEmployee.HouseRegistrationPostalCode = string.Empty; }
+    private void NewHouseSubdistrictChanged() { var values = NewHousePostalCodeOptions.ToList(); newEmployee.HouseRegistrationPostalCode = values.Count == 1 ? values[0].NameTh : string.Empty; }
+    private void SyncNewEmployeeAddresses() { if (newEmployee.IdCardSameAsCurrent) CopyNewCurrentToIdCard(); if (newEmployee.HouseRegistrationSameAsCurrent) CopyNewCurrentToHouse(); }
+    private void CopyNewCurrentToIdCard() { newEmployee.IdCardAddress = newEmployee.CurrentAddress; newEmployee.IdCardProvince = newEmployee.ResidenceProvince; newEmployee.IdCardDistrict = newEmployee.ResidenceDistrict; newEmployee.IdCardSubdistrict = newEmployee.ResidenceSubdistrict; newEmployee.IdCardPostalCode = newEmployee.ResidencePostalCode; }
+    private void CopyNewCurrentToHouse() { newEmployee.HouseRegistrationAddress = newEmployee.CurrentAddress; newEmployee.HouseRegistrationProvince = newEmployee.ResidenceProvince; newEmployee.HouseRegistrationDistrict = newEmployee.ResidenceDistrict; newEmployee.HouseRegistrationSubdistrict = newEmployee.ResidenceSubdistrict; newEmployee.HouseRegistrationPostalCode = newEmployee.ResidencePostalCode; }
 
     private IEnumerable<MasterDataItemDto> DepartmentOptions
     {

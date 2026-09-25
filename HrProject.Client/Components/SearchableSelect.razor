@@ -1,0 +1,207 @@
+@inject IJSRuntime JS
+
+<div class="searchable-select" @ref="rootElement">
+    @ChildContent
+    <div class="searchable-select-control">
+        <input type="text"
+               value="@searchText"
+               placeholder="@effectivePlaceholder"
+               autocomplete="off"
+               disabled="@isDisabled"
+               role="combobox"
+               aria-expanded="@isOpen"
+               aria-autocomplete="list"
+               @onfocus="OpenAsync"
+               @oninput="Search"
+               @onkeydown="HandleKeyDown"
+               @onblur="CloseAfterSelectionAsync" />
+        <span class="searchable-select-chevron" aria-hidden="true">⌄</span>
+    </div>
+
+    @if (isOpen && !isDisabled)
+    {
+        <div class="searchable-select-options" role="listbox">
+            @if (FilteredOptions.Count == 0)
+            {
+                <div class="searchable-select-empty">ไม่พบข้อมูลที่ค้นหา</div>
+            }
+            else
+            {
+                @for (var index = 0; index < FilteredOptions.Count; index++)
+                {
+                    var option = FilteredOptions[index];
+                    var optionIndex = index;
+                    <button type="button"
+                            class="searchable-select-option @(optionIndex == activeIndex ? "active" : string.Empty)"
+                            disabled="@option.Disabled"
+                            role="option"
+                            aria-selected="@option.Selected"
+                            @onmousedown:preventDefault="true"
+                            @onclick="() => SelectAsync(option)">
+                        @option.Text
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "-- เลือกหรือพิมพ์ค้นหา --";
+
+    private ElementReference rootElement;
+    private List<NativeSelectOption> options = [];
+    private string searchText = string.Empty;
+    private string selectedText = string.Empty;
+    private string effectivePlaceholder = "-- เลือกหรือพิมพ์ค้นหา --";
+    private bool isDisabled;
+    private bool isOpen;
+    private int activeIndex = -1;
+
+    private List<NativeSelectOption> FilteredOptions
+    {
+        get
+        {
+            var term = searchText.Trim();
+            return options
+                .Where(option => !string.IsNullOrWhiteSpace(option.Text))
+                .Where(option => term.Length == 0 ||
+                    option.Text.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    option.Value.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Take(150)
+                .ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Refresh the option list when the control is opened. Refreshing it on every
+        // render while the popup is open causes a render loop (especially for
+        // cascading selects such as BU -> department -> position).
+        await SynchronizeAsync(updateOptions: firstRender);
+    }
+
+    private async Task SynchronizeAsync(bool updateOptions)
+    {
+        NativeSelectState? state;
+        try
+        {
+            state = await JS.InvokeAsync<NativeSelectState?>("hrSearchableSelect.read", rootElement);
+        }
+        catch (JSException)
+        {
+            return;
+        }
+
+        if (state is null)
+            return;
+
+        var changed = false;
+        if (updateOptions)
+        {
+            options = state.Options ?? [];
+            changed = true;
+        }
+
+        if (isDisabled != state.Disabled)
+        {
+            isDisabled = state.Disabled;
+            changed = true;
+        }
+
+        var placeholder = string.IsNullOrWhiteSpace(state.Placeholder) ? Placeholder : state.Placeholder;
+        if (!string.Equals(effectivePlaceholder, placeholder, StringComparison.Ordinal))
+        {
+            effectivePlaceholder = placeholder;
+            changed = true;
+        }
+
+        if (!isOpen && !string.Equals(selectedText, state.SelectedText, StringComparison.Ordinal))
+        {
+            selectedText = state.SelectedText ?? string.Empty;
+            searchText = selectedText;
+            changed = true;
+        }
+
+        if (changed)
+            StateHasChanged();
+    }
+
+    private async Task OpenAsync()
+    {
+        await SynchronizeAsync(updateOptions: true);
+        if (isDisabled)
+            return;
+
+        isOpen = true;
+        activeIndex = Math.Max(0, FilteredOptions.FindIndex(option => option.Selected));
+    }
+
+    private void Search(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        isOpen = true;
+        activeIndex = FilteredOptions.Count > 0 ? 0 : -1;
+    }
+
+    private async Task SelectAsync(NativeSelectOption option)
+    {
+        if (option.Disabled)
+            return;
+
+        await JS.InvokeVoidAsync("hrSearchableSelect.select", rootElement, option.Value);
+        selectedText = option.Text;
+        searchText = option.Text;
+        isOpen = false;
+        activeIndex = -1;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        var filtered = FilteredOptions;
+        if (args.Key == "ArrowDown" && filtered.Count > 0)
+        {
+            activeIndex = (activeIndex + 1) % filtered.Count;
+        }
+        else if (args.Key == "ArrowUp" && filtered.Count > 0)
+        {
+            activeIndex = activeIndex <= 0 ? filtered.Count - 1 : activeIndex - 1;
+        }
+        else if (args.Key == "Enter" && activeIndex >= 0 && activeIndex < filtered.Count)
+        {
+            await SelectAsync(filtered[activeIndex]);
+        }
+        else if (args.Key == "Escape")
+        {
+            isOpen = false;
+            searchText = selectedText;
+        }
+    }
+
+    private async Task CloseAfterSelectionAsync()
+    {
+        await Task.Delay(160);
+        if (!isOpen)
+            return;
+
+        isOpen = false;
+        searchText = selectedText;
+    }
+
+    private sealed class NativeSelectState
+    {
+        public bool Disabled { get; set; }
+        public string? Placeholder { get; set; }
+        public string? SelectedText { get; set; }
+        public List<NativeSelectOption>? Options { get; set; }
+    }
+
+    private sealed class NativeSelectOption
+    {
+        public string Value { get; set; } = string.Empty;
+        public string Text { get; set; } = string.Empty;
+        public bool Disabled { get; set; }
+        public bool Selected { get; set; }
+    }
+}

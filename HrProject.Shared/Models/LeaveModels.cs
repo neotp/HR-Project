@@ -281,6 +281,7 @@ public sealed record LeaveQuotaRequestDto(
     DateTimeOffset RequestedAt)
 {
     public string RequestedBy { get; init; } = string.Empty;
+    public int CommentCount { get; init; }
 }
 
 public sealed record CreateLeaveQuotaRequest(
@@ -316,6 +317,11 @@ public sealed record LeaveQuotaRequestCommentDto(
     string CommentText,
     string CommentedBy,
     string CommentedByName,
-    DateTimeOffset CommentedAt);
+    DateTimeOffset CommentedAt)
+{
+    public IReadOnlyList<LeaveCommentAttachmentDto> Attachments { get; init; } = [];
+}
 
-public sealed record AddLeaveQuotaRequestCommentRequest(string CommentText);
+public sealed record AddLeaveQuotaRequestCommentRequest(
+    string CommentText,
+    IReadOnlyList<LeaveCommentAttachmentUploadDto>? Attachments = null);

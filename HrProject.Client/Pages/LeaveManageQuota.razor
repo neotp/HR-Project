@@ -23,10 +23,10 @@
             <div class="content-card-header">ค้นหาพนักงาน</div>
             <div class="content-card-body quota-search-grid">
                 <label>รหัสหรือชื่อพนักงาน
-                    <input type="search" placeholder="ค้นหารหัสหรือชื่อพนักงาน" @bind="EmployeeSearch" @bind:event="oninput" />
+                    <EmployeeSearchSelect Items="employees" @bind-Value="EmployeeSearch" Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                 </label>
                 <label>แผนก
-                    <input type="search" placeholder="ค้นหาแผนก" @bind="DepartmentSearch" @bind:event="oninput" />
+                    <StringSearchSelect Items="@DepartmentSearchOptions" @bind-Value="DepartmentSearch" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" />
                 </label>
             </div>
         </section>
@@ -85,7 +85,7 @@
             <div class="content-card-header">ค้นหาโควต้า</div>
             <div class="content-card-body quota-detail-search">
                 <label>ประเภทการลา
-                    <input type="search" placeholder="ค้นหาประเภทการลา" @bind="LeaveTypeSearch" @bind:event="oninput" />
+                    <StringSearchSelect Items="@LeaveTypeSearchOptions" @bind-Value="LeaveTypeSearch" Placeholder="-- เลือกหรือพิมพ์ค้นหาประเภทการลา --" />
                 </label>
             </div>
         </section>
@@ -135,13 +135,13 @@
                                               Disabled="@(editingQuotaId.HasValue || selectedEmployee is not null)" />
                     </label>
                     <label>ประเภทการลา
-                        <select @bind="quotaLeaveTypeId" disabled="@editingQuotaId.HasValue">
+                        <SearchableSelect><select @bind="quotaLeaveTypeId" disabled="@editingQuotaId.HasValue">
                             <option value="0">-- เลือกประเภทการลา --</option>
                             @foreach (var type in leaveTypes)
                             {
                                 <option value="@type.Id">@type.NameTh</option>
                             }
-                        </select>
+                        </select></SearchableSelect>
                     </label>
                     <label>โควต้ารวม (ชั่วโมง)
                         <input type="number" min="0" step="0.5" @bind="quotaHours" />
@@ -210,6 +210,20 @@
     private string employeeSearch = string.Empty;
     private string departmentSearch = string.Empty;
     private string leaveTypeSearch = string.Empty;
+    private IReadOnlyList<string> DepartmentSearchOptions => employees
+        .Select(employee => employee.Department)
+        .Where(department => !string.IsNullOrWhiteSpace(department))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(department => department)
+        .ToList();
+    private IReadOnlyList<string> LeaveTypeSearchOptions => quotas
+        .Where(quota => selectedEmployee is not null &&
+            string.Equals(quota.EmployeeId, selectedEmployee.EmployeeCode, StringComparison.OrdinalIgnoreCase))
+        .Select(quota => quota.LeaveTypeName)
+        .Where(leaveType => !string.IsNullOrWhiteSpace(leaveType))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(leaveType => leaveType)
+        .ToList();
     private Employee? selectedEmployee;
     private string EmployeeSearch
     {

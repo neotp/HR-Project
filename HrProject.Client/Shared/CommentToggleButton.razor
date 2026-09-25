@@ -1,0 +1,15 @@
+<button type="button"
+        class="comment-toggle-button @(CommentCount == 0 ? "empty" : "has-comments")"
+        aria-label="@AriaLabel"
+        aria-expanded="@IsExpanded"
+        title="@(CommentCount == 0 ? "เพิ่มความคิดเห็น" : $"เปิดความคิดเห็น {CommentCount} ข้อความ")"
+        @onclick="OnToggle">
+    <span aria-hidden="true">@(CommentCount == 0 ? "+" : "›")</span>
+</button>
+
+@code {
+    [Parameter] public int CommentCount { get; set; }
+    [Parameter] public bool IsExpanded { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "เปิดหรือปิดความคิดเห็น";
+    [Parameter] public EventCallback OnToggle { get; set; }
+}

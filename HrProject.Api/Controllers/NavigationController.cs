@@ -173,7 +173,8 @@ public sealed class NavigationController(
                 ELSE 0 END,
                 CASE WHEN @can_pre_employees THEN
                     (SELECT COUNT(*)::int FROM public.pre_employees
-                     WHERE status IN ('DRAFT', 'INCOMPLETE', 'READY'))
+                     WHERE status IN ('DRAFT', 'INCOMPLETE', 'READY')
+                       AND did_not_start_work = FALSE)
                 ELSE 0 END,
                 CASE WHEN @can_local_passwords THEN
                     (SELECT COUNT(*)::int FROM public.local_password_reset_requests WHERE status = 'PENDING')

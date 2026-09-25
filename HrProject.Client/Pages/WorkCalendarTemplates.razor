@@ -33,12 +33,12 @@
                 <div class="version-row">
                     <label>
                         เวอร์ชัน
-                        <select value="@SelectedId" @onchange="SelectVersion">
+                        <SearchableSelect><select value="@SelectedId" @onchange="SelectVersion">
                             @foreach (var version in Versions)
                             {
                                 <option value="@version.Id">v@version.Version - @version.TemplateName @(version.IsPublished ? "(เผยแพร่แล้ว)" : "(ฉบับร่าง)")</option>
                             }
-                        </select>
+                        </select></SearchableSelect>
                     </label>
                     @if (Selected?.IsPublished == true)
                     {
@@ -60,8 +60,8 @@
                     <legend>หัวเอกสาร</legend>
                     <div class="check-row"><input id="show-logo" type="checkbox" @bind="Settings.ShowLogo" /><label for="show-logo">แสดงโลโก้</label></div>
                     <div class="two-columns">
-                        <label>ตำแหน่งโลโก้<select @bind="Settings.LogoPosition"><option value="LEFT">ซ้าย</option><option value="RIGHT">ขวา</option></select></label>
-                        <label>จัดแนวหัวข้อ<select @bind="Settings.TitleAlignment"><option value="LEFT">ซ้าย</option><option value="CENTER">กึ่งกลาง</option><option value="RIGHT">ขวา</option></select></label>
+                        <label>ตำแหน่งโลโก้<SearchableSelect><select @bind="Settings.LogoPosition"><option value="LEFT">ซ้าย</option><option value="RIGHT">ขวา</option></select></SearchableSelect></label>
+                        <label>จัดแนวหัวข้อ<SearchableSelect><select @bind="Settings.TitleAlignment"><option value="LEFT">ซ้าย</option><option value="CENTER">กึ่งกลาง</option><option value="RIGHT">ขวา</option></select></SearchableSelect></label>
                     </div>
                     <label>หัวข้อภาษาไทย<textarea @bind="Settings.TitleThai" rows="2"></textarea></label>
                     <div class="check-row"><input id="show-english" type="checkbox" @bind="Settings.ShowEnglishTitle" /><label for="show-english">แสดงหัวข้อภาษาอังกฤษ</label></div>

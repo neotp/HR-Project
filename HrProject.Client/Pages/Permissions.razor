@@ -57,13 +57,13 @@
             else
             {
                 <label>App Role
-                    <select @bind="selectedRoleId" @bind:after="LoadPermissions">
+                    <SearchableSelect><select @bind="selectedRoleId" @bind:after="LoadPermissions">
                         <option value="0">-- เลือก Role --</option>
                         @foreach (var role in roles)
                         {
                             <option value="@role.Id">@role.RoleName</option>
                         }
-                    </select>
+                    </select></SearchableSelect>
                 </label>
             }
             <label>ค้นหาสิทธิ์

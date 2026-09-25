@@ -11,6 +11,7 @@ public sealed class HikvisionAttendanceWorker(
     IOptions<AttendanceWorkerOptions> options,
     NpgsqlDataSource dataSource,
     AttendanceProcessor processor,
+    WifiAttendanceImporter wifiImporter,
     ILogger<HikvisionAttendanceWorker> logger) : BackgroundService
 {
     private const string SourceSystem = "HIKVISION";
@@ -24,7 +25,18 @@ public sealed class HikvisionAttendanceWorker(
         {
             try
             {
-                var affected = await ImportAsync(stoppingToken);
+                HashSet<AttendanceKey> affected;
+                try
+                {
+                    affected = await ImportAsync(stoppingToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+                {
+                    logger.LogError(exception, "Hikvision attendance import failed");
+                    await SaveSyncError(exception.Message, stoppingToken);
+                    affected = [];
+                }
+                affected.UnionWith(await wifiImporter.ImportAsync(stoppingToken));
                 await processor.RecalculateAsync(affected, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -33,8 +45,7 @@ public sealed class HikvisionAttendanceWorker(
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, "Attendance import cycle failed");
-                await SaveSyncError(exception.Message, stoppingToken);
+                logger.LogError(exception, "Attendance calculation cycle failed");
             }
 
             await Task.Delay(interval, stoppingToken);

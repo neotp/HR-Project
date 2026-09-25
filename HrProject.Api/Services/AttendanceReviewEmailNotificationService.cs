@@ -24,7 +24,7 @@ public sealed class AttendanceReviewEmailNotificationService(
             notification.SenderEmail,
             notification.RecipientEmails,
             subject,
-            BuildBody(notification),
+            BuildBody(notification, attendanceDailyId),
             cancellationToken);
     }
 
@@ -149,12 +149,12 @@ public sealed class AttendanceReviewEmailNotificationService(
         return result;
     }
 
-    private string BuildBody(Notification item)
+    private string BuildBody(Notification item, long attendanceDailyId)
     {
         static string E(string value) => WebUtility.HtmlEncode(value);
         var clientBaseUrl = (configuration["Application:ClientBaseUrl"] ?? "http://localhost:5043")
             .TrimEnd('/');
-        var reviewUrl = $"{clientBaseUrl}/attendance/reviews";
+        var reviewUrl = $"{clientBaseUrl}/open/attendance/{attendanceDailyId}";
         var workDate = item.WorkDate.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         return $$"""
             <div style="font-family:Arial,'Tahoma',sans-serif;color:#1e293b;line-height:1.6">

@@ -1,5 +1,6 @@
 @page "/employees/{Id:int}"
 @inject HttpClient Http
+@inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
 
 <PageTitle>@(employee is null ? "ข้อมูลพนักงาน" : employee.FullName) | HR Project</PageTitle>
@@ -62,7 +63,13 @@
                 <div>
                     @if (CanRequestEdit(activeTab))
                     {
-                        <button class="request-edit-button" type="button" @onclick="OpenEditor">ขอแก้ไขข้อมูล</button>
+                        <button class="request-edit-button" type="button" disabled="@isPreparingEditor" @onclick="OpenEditor">
+                            @(activeTab == "documents" ? "ขอเพิ่มเอกสาร" : "ขอแก้ไขข้อมูล")
+                        </button>
+                    }
+                    else if (CanDirectEdit(activeTab))
+                    {
+                        <button class="request-edit-button" type="button" disabled="@isPreparingEditor" @onclick="OpenEditor">แก้ไขข้อมูล</button>
                     }
                 </div>
             </div>
@@ -91,6 +98,7 @@
                                 <DetailField Label="วันที่เริ่มงาน" Value="@FormatDate(employee.StartDate)" />
                                 <DetailField Label="Branch" Value="@DisplayValue(employee.BranchName)" />
                                 <DetailField Label="Province of Residence (จังหวัดที่อาศัยอยู่)" Value="@DisplayValue(employee.ResidenceProvince)" />
+                                <DetailField Label="ที่อยู่ปัจจุบัน" Value="@FormatCurrentAddress(employee)" />
                                 <DetailField Label="Province of Responsibility (จังหวัดที่ให้ดูแล)" Value="@DisplayValue(employee.ResponsibilityProvince)" />
                                 <DetailField Label="Brand" Value="@DisplayValue(employee.Brand)" />
                                 <DetailField Label="Comm.Group" Value="@DisplayValue(employee.CommGroup)" />
@@ -108,15 +116,39 @@
                                 <DetailField Label="ชื่อเล่น" Value="@employee.Nickname" />
                                 <DetailField Label="เบอร์มือถือส่วนตัว" Value="@employee.PersonalMobile" />
                                 <DetailField Label="โทรศัพท์บ้าน" Value="@employee.HomePhone" />
+                                <DetailField Label="MAC Address" Value="@DisplayValue(employee.MacAddress)" />
                                 <DetailField Label="ศาสนา" Value="@employee.Religion" />
                                 <DetailField Label="หมู่เลือด" Value="@employee.BloodType" />
-                                <DetailField Label="ที่อยู่" Value="@employee.CurrentAddress" />
-                                <DetailField Label="ตำบล / แขวง" Value="@employee.ResidenceSubdistrict" />
-                                <DetailField Label="อำเภอ / เขต" Value="@employee.ResidenceDistrict" />
-                                <DetailField Label="จังหวัด" Value="@employee.ResidenceProvince" />
-                                <DetailField Label="รหัสไปรษณีย์" Value="@employee.ResidencePostalCode" />
-                                <DetailField Label="ที่อยู่ตามบัตรประชาชน" Value="@employee.IdCardAddress" />
-                                <DetailField Label="ที่อยู่ตามทะเบียนบ้าน" Value="@employee.HouseRegistrationAddress" />
+                                <div class="address-detail-section">
+                                    <h3>ที่อยู่ปัจจุบัน</h3>
+                                    <div class="address-detail-grid">
+                                        <DetailField Label="ที่อยู่" Value="@employee.CurrentAddress" />
+                                        <DetailField Label="ตำบล / แขวง" Value="@employee.ResidenceSubdistrict" />
+                                        <DetailField Label="อำเภอ / เขต" Value="@employee.ResidenceDistrict" />
+                                        <DetailField Label="จังหวัด" Value="@employee.ResidenceProvince" />
+                                        <DetailField Label="รหัสไปรษณีย์" Value="@employee.ResidencePostalCode" />
+                                    </div>
+                                </div>
+                                <div class="address-detail-section">
+                                    <h3>ที่อยู่ตามบัตรประชาชน @if (employee.IdCardSameAsCurrent) { <span>เหมือนที่อยู่ปัจจุบัน</span> }</h3>
+                                    <div class="address-detail-grid">
+                                        <DetailField Label="ที่อยู่" Value="@employee.IdCardAddress" />
+                                        <DetailField Label="ตำบล / แขวง" Value="@employee.IdCardSubdistrict" />
+                                        <DetailField Label="อำเภอ / เขต" Value="@employee.IdCardDistrict" />
+                                        <DetailField Label="จังหวัด" Value="@employee.IdCardProvince" />
+                                        <DetailField Label="รหัสไปรษณีย์" Value="@employee.IdCardPostalCode" />
+                                    </div>
+                                </div>
+                                <div class="address-detail-section">
+                                    <h3>ที่อยู่ตามทะเบียนบ้าน @if (employee.HouseRegistrationSameAsCurrent) { <span>เหมือนที่อยู่ปัจจุบัน</span> }</h3>
+                                    <div class="address-detail-grid">
+                                        <DetailField Label="ที่อยู่" Value="@employee.HouseRegistrationAddress" />
+                                        <DetailField Label="ตำบล / แขวง" Value="@employee.HouseRegistrationSubdistrict" />
+                                        <DetailField Label="อำเภอ / เขต" Value="@employee.HouseRegistrationDistrict" />
+                                        <DetailField Label="จังหวัด" Value="@employee.HouseRegistrationProvince" />
+                                        <DetailField Label="รหัสไปรษณีย์" Value="@employee.HouseRegistrationPostalCode" />
+                                    </div>
+                                </div>
                                 <DetailField Label="บุคคลติดต่อกรณีฉุกเฉิน" Value="@employee.EmergencyContactName" />
                                 <DetailField Label="เบอร์ติดต่อฉุกเฉิน" Value="@employee.EmergencyContactPhone" />
                                 <DetailField Label="ที่อยู่ผู้ติดต่อฉุกเฉิน" Value="@employee.EmergencyContactAddress" />
@@ -150,9 +182,18 @@
                                 <DetailField Label="ประสบการณ์การทำงาน" Value="@DisplayValue(employee.WorkExperienceType)" />
                                 <DetailField Label="บริษัทมีที่จอดรถให้" Value="@ParkingText(employee.HasCompanyParking)" />
                                 <DetailField Label="สามารถเดินทางไปต่างจังหวัดได้" Value="@BooleanText(employee.CanTravelUpcountry, "ได้", "ไม่ได้")" />
-                                <DetailField Label="MAC Address" Value="@DisplayValue(employee.MacAddress)" />
                                 <DetailField Label="สถานะพนักงาน" Value="@DisplayValue(employee.EmployeeStatus)" />
                                 <DetailField Label="การคำนวณการมาทำงาน" Value="@(employee.ExcludeAttendanceCalculation ? "ไม่ต้องคำนวณ" : "คำนวณตามปกติ")" />
+                            </div>
+                        </section>
+                        break;
+                    case "accounting":
+                        <section aria-labelledby="accounting-title">
+                            <h2 id="accounting-title">ข้อมูลทางบัญชี</h2>
+                            <div class="detail-grid">
+                                <DetailField Label="เลขที่บัตรประกันสังคม" Value="@DisplayValue(employee.SocialSecurityNumber)" />
+                                <DetailField Label="เลขที่บัตรประจำตัวผู้เสียภาษี" Value="@DisplayValue(employee.TaxpayerIdentificationNumber)" />
+                                <DetailField Label="เลขที่บัญชีรับเงินเดือน" Value="@DisplayValue(employee.SalaryAccountNumber)" />
                             </div>
                         </section>
                         break;
@@ -161,20 +202,19 @@
                             <h2 id="work-title">ประวัติการทำงาน</h2>
                             <div class="employee-history-scroll">
                                 <table class="employee-history-table">
-                                    <thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง/หน้าที่</th><th>บริษัทที่ทำงาน</th></tr></thead>
+                                    <thead><tr><th>ระยะเวลา</th><th>BU</th><th>แผนก</th><th>ตำแหน่ง</th><th>Brand</th><th>Comm.Group</th></tr></thead>
                                     <tbody>
                                         @if (employee.WorkHistory.Count == 0)
                                         {
-                                            <tr><td colspan="3" class="history-empty">ยังไม่มีรายการประวัติการทำงาน</td></tr>
+                                            <tr><td colspan="6" class="history-empty">ยังไม่มีรายการประวัติการทำงาน</td></tr>
                                         }
                                         @foreach (var item in employee.WorkHistory)
                                         {
-                                            <tr><td>@item.Period</td><td>@item.Position</td><td>@item.Company</td></tr>
+                                            <tr><td>@item.Period</td><td>@item.BusinessUnit</td><td>@item.Department</td><td>@item.Position</td><td>@item.Brand</td><td>@item.CommGroup</td></tr>
                                         }
                                     </tbody>
                                 </table>
                             </div>
-                            <div class="history-summary"><span>สามารถเดินทางไปต่างจังหวัดได้</span><strong>@BooleanText(employee.CanTravelUpcountry, "ได้", "ไม่ได้")</strong></div>
                         </section>
                         break;
                     case "education":
@@ -232,9 +272,11 @@
                                 </div>
                                 <span class="confidential-badge">ข้อมูลลับ</span>
                             </div>
-                            <EmployeePersonalDocuments EmployeeId="@employee.Id" />
+                            <EmployeePersonalDocuments EmployeeId="@employee.Id" CanManage="false" />
                         </section>
-                        <section class="personal-documents-section recruit-documents-section" aria-labelledby="recruit-documents-title">
+                        break;
+                    case "recruit-documents":
+                        <section class="personal-documents-section" aria-labelledby="recruit-documents-title">
                             <div class="personal-documents-heading">
                                 <div>
                                     <h2 id="recruit-documents-title">เอกสาร Recruit</h2>
@@ -242,7 +284,7 @@
                                 </div>
                                 <span class="confidential-badge">ข้อมูลลับ</span>
                             </div>
-                            <EmployeeRecruitDocumentLinks EmployeeId="@employee.Id" />
+                            <EmployeeRecruitDocumentLinks EmployeeId="@employee.Id" CanManage="false" />
                         </section>
                         break;
                     case "change-history":
@@ -261,16 +303,16 @@
 {
     <div class="employee-edit-overlay" role="dialog" aria-modal="true"
          aria-labelledby="employee-edit-title">
-        <section class="employee-edit-modal">
+        <section class="employee-edit-modal @(IsEditRequestReadOnly ? "request-readonly" : null)">
             <header class="employee-edit-modal-header">
                 <div>
-                    <h2 id="employee-edit-title">ขอแก้ไขข้อมูลพนักงาน</h2>
+                    <h2 id="employee-edit-title">@(IsDirectEdit ? $"แก้ไข{TabLabel(editActiveTab)}" : editingRequest is null ? "ขอแก้ไขข้อมูลพนักงาน" : $"แก้ไขคำขอ {editingRequest.RequestNo}")</h2>
                     <p>@EmployeeCodeFormat.Display(employee.EmployeeCode) · @employee.FullName</p>
                 </div>
                 <button type="button" aria-label="ปิด" @onclick="CloseEditRequest">×</button>
             </header>
             <div class="employee-edit-modal-body">
-                <p class="edit-hint">คำขอนี้มีเฉพาะ @TabLabel(editActiveTab) และข้อมูลหลักจะเปลี่ยนหลังได้รับอนุมัติ</p>
+                <p class="edit-hint">@(IsDirectEdit ? $"บันทึก{TabLabel(editActiveTab)}ได้โดยตรงตามสิทธิ์ที่ได้รับ" : $"คำขอนี้มีเฉพาะ {TabLabel(editActiveTab)} และข้อมูลหลักจะเปลี่ยนหลังได้รับอนุมัติ")</p>
                 <section class="edit-tab-panel">
                     @switch (editActiveTab)
                     {
@@ -309,22 +351,46 @@
                                     <label>ชื่อ-นามสกุล (อังกฤษ)<input @bind="proposedEnglishFullName" /></label>
                                     <label>เลขบัตรประชาชน<input @bind="personalNationalId" placeholder="ระบุข้อมูลที่ต้องการแก้ไข" /></label>
                                     <label>วันเกิด<DateOnlyPicker @bind-Value="personalBirthDate" AriaLabel="วันเกิด" /></label>
-                                    <label>เพศ<select @bind="personalGender"><option value="">-- เลือก --</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option><option value="ไม่ระบุ">ไม่ระบุ</option></select></label>
+                                    <label>เพศ<SearchableSelect><select @bind="personalGender"><option value="">-- เลือก --</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option><option value="ไม่ระบุ">ไม่ระบุ</option></select></SearchableSelect></label>
                                     <label>ศาสนา<input @bind="personalReligion" /></label>
                                     <label>หมู่เลือด<input @bind="personalBloodType" /></label>
-                                    <label class="wide-field">ที่อยู่<textarea rows="3" @bind="personalCurrentAddress" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
-                                    <label>จังหวัด<select @bind="personalResidenceProvince" @bind:after="PersonalResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                    <label>อำเภอ / เขต<select @bind="personalResidenceDistrict" @bind:after="PersonalResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                    <label>ตำบล / แขวง<select @bind="personalResidenceSubdistrict" @bind:after="PersonalResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                    <label>รหัสไปรษณีย์<select @bind="personalResidencePostalCode" disabled="@string.IsNullOrWhiteSpace(personalResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></label>
-                                    <label class="wide-field">ที่อยู่ตามบัตรประชาชน<textarea rows="3" @bind="personalIdCardAddress"></textarea></label>
-                                    <label class="wide-field">ที่อยู่ตามทะเบียนบ้าน<textarea rows="3" @bind="personalHouseRegistrationAddress"></textarea></label>
+                                    <div class="address-editor-section">
+                                        <h3>ที่อยู่ปัจจุบัน</h3>
+                                        <div class="address-editor-grid">
+                                            <label class="wide-field">ที่อยู่<textarea rows="3" @bind="personalCurrentAddress" @bind:event="oninput" @bind:after="SyncMatchingPersonalAddresses" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></label>
+                                            <label>จังหวัด<SearchableSelect><select @bind="personalResidenceProvince" @bind:after="PersonalResidenceProvinceChanged"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>อำเภอ / เขต<SearchableSelect><select @bind="personalResidenceDistrict" @bind:after="PersonalResidenceDistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceProvince)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>ตำบล / แขวง<SearchableSelect><select @bind="personalResidenceSubdistrict" @bind:after="PersonalResidenceSubdistrictChanged" disabled="@string.IsNullOrWhiteSpace(personalResidenceDistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidenceSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>รหัสไปรษณีย์<SearchableSelect><select @bind="personalResidencePostalCode" @bind:after="SyncMatchingPersonalAddresses" disabled="@string.IsNullOrWhiteSpace(personalResidenceSubdistrict)"><option value="">-- เลือก --</option>@foreach (var item in PersonalResidencePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                        </div>
+                                    </div>
+                                    <div class="address-editor-section">
+                                        <div class="address-editor-heading"><h3>ที่อยู่ตามบัตรประชาชน</h3><label class="same-address-check"><input type="checkbox" @bind="personalIdCardSameAsCurrent" @bind:after="IdCardSameAsCurrentChanged" /> เหมือนที่อยู่ปัจจุบัน</label></div>
+                                        <div class="address-editor-grid">
+                                            <label class="wide-field">ที่อยู่<textarea rows="3" @bind="personalIdCardAddress" disabled="@personalIdCardSameAsCurrent"></textarea></label>
+                                            <label>จังหวัด<SearchableSelect><select @bind="personalIdCardProvince" @bind:after="PersonalIdCardProvinceChanged" disabled="@(personalIdCardSameAsCurrent)"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>อำเภอ / เขต<SearchableSelect><select @bind="personalIdCardDistrict" @bind:after="PersonalIdCardDistrictChanged" disabled="@(personalIdCardSameAsCurrent || string.IsNullOrWhiteSpace(personalIdCardProvince))"><option value="">-- เลือก --</option>@foreach (var item in PersonalIdCardDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>ตำบล / แขวง<SearchableSelect><select @bind="personalIdCardSubdistrict" @bind:after="PersonalIdCardSubdistrictChanged" disabled="@(personalIdCardSameAsCurrent || string.IsNullOrWhiteSpace(personalIdCardDistrict))"><option value="">-- เลือก --</option>@foreach (var item in PersonalIdCardSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>รหัสไปรษณีย์<SearchableSelect><select @bind="personalIdCardPostalCode" disabled="@(personalIdCardSameAsCurrent || string.IsNullOrWhiteSpace(personalIdCardSubdistrict))"><option value="">-- เลือก --</option>@foreach (var item in PersonalIdCardPostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                        </div>
+                                    </div>
+                                    <div class="address-editor-section">
+                                        <div class="address-editor-heading"><h3>ที่อยู่ตามทะเบียนบ้าน</h3><label class="same-address-check"><input type="checkbox" @bind="personalHouseRegistrationSameAsCurrent" @bind:after="HouseRegistrationSameAsCurrentChanged" /> เหมือนที่อยู่ปัจจุบัน</label></div>
+                                        <div class="address-editor-grid">
+                                            <label class="wide-field">ที่อยู่<textarea rows="3" @bind="personalHouseRegistrationAddress" disabled="@personalHouseRegistrationSameAsCurrent"></textarea></label>
+                                            <label>จังหวัด<SearchableSelect><select @bind="personalHouseRegistrationProvince" @bind:after="PersonalHouseProvinceChanged" disabled="@personalHouseRegistrationSameAsCurrent"><option value="">-- เลือก --</option>@foreach (var item in MasterOptions("PROVINCE")) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>อำเภอ / เขต<SearchableSelect><select @bind="personalHouseRegistrationDistrict" @bind:after="PersonalHouseDistrictChanged" disabled="@(personalHouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(personalHouseRegistrationProvince))"><option value="">-- เลือก --</option>@foreach (var item in PersonalHouseDistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>ตำบล / แขวง<SearchableSelect><select @bind="personalHouseRegistrationSubdistrict" @bind:after="PersonalHouseSubdistrictChanged" disabled="@(personalHouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(personalHouseRegistrationDistrict))"><option value="">-- เลือก --</option>@foreach (var item in PersonalHouseSubdistrictOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                            <label>รหัสไปรษณีย์<SearchableSelect><select @bind="personalHouseRegistrationPostalCode" disabled="@(personalHouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(personalHouseRegistrationSubdistrict))"><option value="">-- เลือก --</option>@foreach (var item in PersonalHousePostalCodeOptions) { <option value="@item.NameTh">@item.NameTh</option> }</select></SearchableSelect></label>
+                                        </div>
+                                    </div>
                                 }
                                 @if (true)
                                 {
                                     <label>ชื่อเล่น<input @bind="proposedNickname" /></label>
                                     <label>เบอร์มือถือส่วนตัว<input @bind="proposedPersonalMobile" /></label>
                                     <label>โทรศัพท์บ้าน<input @bind="proposedHomePhone" /></label>
+                                    <label>MAC Address<input @bind="personalMacAddress" /></label>
                                     <label>บุคคลติดต่อกรณีฉุกเฉิน<input @bind="personalEmergencyContactName" /></label>
                                     <label>เบอร์ติดต่อฉุกเฉิน<input @bind="personalEmergencyContactPhone" /></label>
                                     <label class="wide-field">ที่อยู่ผู้ติดต่อฉุกเฉิน<textarea rows="3" @bind="personalEmergencyContactAddress"></textarea></label>
@@ -335,71 +401,62 @@
                             <div class="employee-edit-grid">
                                 <label>Email for Lotus Notes<input @bind="proposedLotusNotesEmail" /></label>
                                 <label>Email<input type="email" @bind="proposedEmail" /></label>
-                                <label>บริษัท<input @bind="internalCompany" /></label>
-                                <label>Business Unit<input @bind="internalBusinessUnit" /></label>
-                                <label>ฝ่าย<input @bind="internalDivision" /></label>
-                                <label>แผนก<input @bind="internalDepartment" /></label>
-                                <label>ส่วนงาน<input @bind="internalSection" /></label>
-                                <label>ตำแหน่ง<input @bind="internalPosition" /></label>
-                                <label>รหัสตำแหน่ง<input @bind="internalJobCode" /></label>
+                                <label>บริษัท<MasterDataSearchSelect Items="@(MasterOptions("COMPANY").ToList())" Value="@internalCompany" ValueChanged="value => internalCompany = value" Placeholder="-- เลือกหรือพิมพ์ค้นหาบริษัท --" /></label>
+                                <label>Business Unit<MasterDataSearchSelect Items="@(MasterOptions("BUSINESS_UNIT").ToList())" Value="@internalBusinessUnit" ValueChanged="InternalBusinessUnitSelected" Placeholder="-- เลือกหรือพิมพ์ค้นหา Business Unit --" /></label>
+                                <label>แผนก<MasterDataSearchSelect Items="@(InternalDepartmentOptions.ToList())" Value="@internalDepartment" ValueChanged="InternalDepartmentSelected" Disabled="@string.IsNullOrWhiteSpace(internalBusinessUnit)" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" /></label>
+                                <label>ตำแหน่ง<MasterDataSearchSelect Items="@(InternalPositionOptions.ToList())" Value="@internalPosition" ValueChanged="value => internalPosition = value" Disabled="@string.IsNullOrWhiteSpace(internalDepartment)" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำแหน่ง --" /></label>
                                 <label>หัวหน้างาน
-                                    <EmployeeSearchSelect Items="employeeOptions"
-                                                          Value="@internalSupervisorEmployeeId"
-                                                          ValueChanged="SelectInternalSupervisor"
-                                                          ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
-                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" />
+                                    <RemoteEmployeeSearchSelect Value="@internalSupervisorEmployeeId"
+                                                                ValueChanged="value => internalSupervisorEmployeeId = value"
+                                                                EmployeeChanged="SelectInternalSupervisor"
+                                                                SelectedDisplayText="@ManagerDisplayText(internalSupervisorName, internalSupervisorEmployeeId)"
+                                                                ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
+                                                                Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" />
                                 </label>
                                 <label>Reporting To (Leave Approve)
-                                    <EmployeeSearchSelect Items="employeeOptions"
-                                                          Value="@internalLeaveApproverEmployeeId"
-                                                          ValueChanged="SelectInternalLeaveApprover"
-                                                          ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
-                                                          Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" />
+                                    <RemoteEmployeeSearchSelect Value="@internalLeaveApproverEmployeeId"
+                                                                ValueChanged="value => internalLeaveApproverEmployeeId = value"
+                                                                EmployeeChanged="SelectInternalLeaveApprover"
+                                                                SelectedDisplayText="@ManagerDisplayText(internalLeaveApproverName, internalLeaveApproverEmployeeId)"
+                                                                ExcludeEmployeeCode="@(employee?.EmployeeCode ?? string.Empty)"
+                                                                Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" />
                                 </label>
-                                <label>หัวหน้างาน (Functional Boss)<input @bind="internalFunctionalSupervisorName" /></label>
                                 <label>Buddy<input @bind="internalBuddyName" /></label>
-                                <label>ประเภทการจ้าง
-                                    <select @bind="internalEmploymentType">
-                                        <option value="">-- เลือก --</option>
-                                        <option value="พนักงานประจำ">พนักงานประจำ</option>
-                                        <option value="พนักงานสัญญาจ้าง">พนักงานสัญญาจ้าง</option>
-                                        <option value="พนักงานทดลองงาน">พนักงานทดลองงาน</option>
-                                        <option value="นักศึกษาฝึกงาน">นักศึกษาฝึกงาน</option>
-                                    </select>
-                                </label>
-                                <label>ประเภทพนักงานและเวลาทำงาน<input @bind="internalWorkSchedule" /></label>
-                                <label>สถานที่ทำงาน<input @bind="internalWorkLocation" /></label>
+                                <label>ประเภทพนักงานและเวลาทำงาน<MasterDataSearchSelect Items="@(MasterOptions("WORK_SCHEDULE").ToList())" Value="@internalWorkSchedule" ValueChanged="value => internalWorkSchedule = value" Placeholder="-- เลือกหรือพิมพ์ค้นหาเวลาทำงาน --" /></label>
                                 <label>Ext. ภายใน<input @bind="internalExtension" /></label>
                                 <label>เบอร์โทรสายตรง<input @bind="internalDirectPhone" /></label>
                                 <label>เบอร์มือถือบริษัท<input @bind="internalCompanyMobile" /></label>
-                                <label>MAC Address<input @bind="internalMacAddress" /></label>
-                                <label>รหัสสาขา<input @bind="internalBranchCode" /></label>
                                 <label>ชื่อสาขา<input @bind="internalBranchName" /></label>
                                 <label>Province of Responsibility (จังหวัดที่ให้ดูแล)<MasterDataMultiSelect Items="@(MasterOptions("PROVINCE").ToList())" Values="@internalResponsibilityProvinces" ValuesChanged="SetInternalResponsibilityProvinces" Placeholder="-- เลือกหรือพิมพ์ค้นหาจังหวัด --" /></label>
                                 <label>ประเภท Checklist<input @bind="internalChecklistType" /></label>
                                 <label>สินค้าที่ให้ขาย<input @bind="internalProductsResponsible" /></label>
                                 <label>วันที่เริ่มงาน<DateOnlyPicker Value="@proposedStartDate" ValueChanged="value => proposedStartDate = value ?? proposedStartDate" AriaLabel="วันที่เริ่มงาน" /></label>
-                                <label>วันที่บรรจุ<DateOnlyPicker @bind-Value="internalAppointmentDate" AriaLabel="วันที่บรรจุ" /></label>
-                                <label>วันที่เปิดกองทุนเงินสะสม<DateOnlyPicker @bind-Value="internalProvidentFundStartDate" AriaLabel="วันที่เปิดกองทุนเงินสะสม" /></label>
                                 <label>ประสบการณ์การทำงาน
-                                    <select @bind="internalWorkExperienceType">
+                                    <SearchableSelect><select @bind="internalWorkExperienceType">
                                         <option value="">-- เลือก --</option>
                                         <option value="เพิ่งจบการศึกษา">เพิ่งจบการศึกษา</option>
                                         <option value="มีประสบการณ์การทำงาน">มีประสบการณ์การทำงาน</option>
-                                    </select>
+                                    </select></SearchableSelect>
                                 </label>
                                 <label>บริษัทมีที่จอดรถให้
-                                    <select @bind="internalHasCompanyParking">
+                                    <SearchableSelect><select @bind="internalHasCompanyParking">
                                         <option value="">-- เลือก --</option>
                                         <option value="มี">มี</option>
                                         <option value="ไม่มี">ไม่มี</option>
-                                    </select>
+                                    </select></SearchableSelect>
+                                </label>
+                                <label>สามารถเดินทางไปต่างจังหวัดได้
+                                    <SearchableSelect><select @bind="internalCanTravelUpcountry">
+                                        <option value="">-- เลือก --</option>
+                                        <option value="True">ได้</option>
+                                        <option value="False">ไม่ได้</option>
+                                    </select></SearchableSelect>
                                 </label>
                                 <label>สถานะพนักงาน
-                                    <select @bind="internalEmployeeStatus">
+                                    <SearchableSelect><select @bind="internalEmployeeStatus">
                                         <option value="พนักงาน">พนักงาน</option>
                                         <option value="ลาออก">ลาออก</option>
-                                    </select>
+                                    </select></SearchableSelect>
                                 </label>
                                 <label class="attendance-exclusion-option">
                                     <input type="checkbox" @bind="internalExcludeAttendanceCalculation" />
@@ -410,12 +467,19 @@
                         case "work":
                             <div class="modal-table-toolbar"><strong>รายการประวัติการทำงาน</strong><button type="button" @onclick="AddEditableWork">+ เพิ่มรายการ</button></div>
                             <div class="employee-history-scroll">
-                                <table class="editable-modal-table"><thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง/หน้าที่</th><th>บริษัท</th><th></th></tr></thead><tbody>
+                                <table class="editable-modal-table"><thead><tr><th>ระยะเวลา</th><th>BU</th><th>แผนก</th><th>ตำแหน่ง</th><th>Brand</th><th>Comm.Group</th><th></th></tr></thead><tbody>
                                     @foreach (var item in editableWorkHistory)
                                     {
-                                        <tr><td><input @bind="item.Period" /></td><td><input @bind="item.Position" /></td><td><input @bind="item.Company" /></td><td><button type="button" class="remove-table-row" @onclick="() => editableWorkHistory.Remove(item)">×</button></td></tr>
+                                        <tr><td><input @bind="item.Period" /></td><td><input @bind="item.BusinessUnit" /></td><td><input @bind="item.Department" /></td><td><input @bind="item.Position" /></td><td><input @bind="item.Brand" /></td><td><input @bind="item.CommGroup" /></td><td><button type="button" class="remove-table-row" @onclick="() => editableWorkHistory.Remove(item)">×</button></td></tr>
                                     }
                                 </tbody></table>
+                            </div>
+                            break;
+                        case "accounting":
+                            <div class="employee-edit-grid">
+                                <label>เลขที่บัตรประกันสังคม<input @bind="accountingSocialSecurityNumber" maxlength="50" inputmode="numeric" /></label>
+                                <label>เลขที่บัตรประจำตัวผู้เสียภาษี<input @bind="accountingTaxpayerIdentificationNumber" maxlength="50" inputmode="numeric" /></label>
+                                <label>เลขที่บัญชีรับเงินเดือน<input @bind="accountingSalaryAccountNumber" maxlength="50" inputmode="numeric" /></label>
                             </div>
                             break;
                         case "education":
@@ -440,11 +504,14 @@
                                 </tbody></table>
                             </div>
                             break;
+                        case "documents":
+                            <div class="edit-hint">เลือกไฟล์ที่ต้องการเพิ่มในส่วนเอกสารแนบด้านล่าง เมื่อคำขอได้รับอนุมัติ ไฟล์จะถูกเพิ่มในเอกสารส่วนตัวอัตโนมัติ</div>
+                            break;
                         case "family":
                             <div class="employee-edit-grid">
                                 @if (true)
                                 {
-                                    <label>สถานภาพการสมรส<select @bind="familyMaritalStatus"><option value="โสด">โสด</option><option value="สมรส">สมรส</option><option value="หย่า">หย่า</option><option value="หม้าย">หม้าย</option></select></label>
+                                    <label>สถานภาพการสมรส<SearchableSelect><select @bind="familyMaritalStatus"><option value="โสด">โสด</option><option value="สมรส">สมรส</option><option value="หย่า">หย่า</option><option value="หม้าย">หม้าย</option></select></SearchableSelect></label>
                                     <label>ชื่อ-นามสกุลคู่สมรส<input @bind="familySpouseName" /></label>
                                     <label>เลขบัตรประชาชนคู่สมรส<input @bind="familySpouseNationalId" /></label>
                                 }
@@ -457,9 +524,47 @@
                             break;
                     }
                 </section>
+                @if (!IsDirectEdit)
+                {
                 <label class="edit-reason">เหตุผลที่ขอแก้ไข
                     <textarea rows="3" @bind="editReason" placeholder="ระบุเหตุผลในการขอแก้ไขข้อมูล"></textarea>
                 </label>
+                <section class="edit-request-attachments">
+                    <div class="edit-request-attachment-heading">
+                        <div><strong>เอกสารแนบ</strong><small>PDF, JPG, PNG หรือ WEBP · สูงสุด 5 ไฟล์ · ไฟล์ละไม่เกิน 3 MB</small></div>
+                        <label class="edit-request-file-button">+ เลือกไฟล์
+                            <InputFile @key="editAttachmentInputVersion" OnChange="SelectEditRequestAttachments"
+                                       multiple accept=".pdf,.jpg,.jpeg,.png,.webp" />
+                        </label>
+                    </div>
+                    @if (editingRequest is not null && ExistingAttachments.Count > 0)
+                    {
+                        <div class="edit-request-attachment-list existing-files">
+                            @foreach (var attachment in ExistingAttachments)
+                            {
+                                <div>
+                                    <a href="@($"/api/employee-edit-requests/{editingRequest.Id}/attachments/{attachment.Id}")"
+                                       target="_blank" title="@attachment.FileName">@attachment.FileName</a>
+                                    <small>@FormatFileSize(attachment.FileSizeBytes)</small>
+                                    @if (!IsEditRequestReadOnly)
+                                    {
+                                        <button type="button" aria-label="ลบไฟล์" @onclick="() => RemoveExistingAttachment(attachment.Id)">×</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (editRequestAttachments.Count > 0)
+                    {
+                        <div class="edit-request-attachment-list">
+                            @foreach (var attachment in editRequestAttachments)
+                            {
+                                <div><span title="@attachment.FileName">@attachment.FileName</span><small>@FormatFileSize(attachment.Content.LongLength)</small><button type="button" aria-label="ลบไฟล์" @onclick="() => RemoveEditRequestAttachment(attachment)">×</button></div>
+                            }
+                        </div>
+                    }
+                </section>
+                }
                 @if (!string.IsNullOrWhiteSpace(editError))
                 {
                     <div class="edit-error" role="alert">@editError</div>
@@ -468,9 +573,12 @@
             <footer class="employee-edit-modal-footer">
                 <button class="cancel-edit-button" type="button"
                         disabled="@isSubmittingEdit" @onclick="CloseEditRequest">ปิด</button>
-                <button class="submit-edit-button" type="button" disabled="@isSubmittingEdit" @onclick="SubmitEditRequest">
-                    @(isSubmittingEdit ? "กำลังส่งคำขอ..." : "ส่งคำขอแก้ไข")
-                </button>
+                @if (!IsEditRequestReadOnly)
+                {
+                    <button class="submit-edit-button" type="button" disabled="@isSubmittingEdit" @onclick="SubmitEditor">
+                        @(isSubmittingEdit ? "กำลังบันทึก..." : IsDirectEdit ? "บันทึกข้อมูล" : editingRequest is null ? "ส่งคำขอแก้ไข" : "บันทึกการแก้ไข")
+                    </button>
+                }
             </footer>
         </section>
     </div>
@@ -490,9 +598,13 @@
     [SupplyParameterFromQuery(Name = "from")]
     public string? SourcePage { get; set; }
 
+    [SupplyParameterFromQuery(Name = "editRequestId")]
+    public long? EditRequestId { get; set; }
+
     [Parameter] public int Id { get; set; }
 
     private bool isLoading = true;
+    private bool isPreparingEditor;
     private bool isEditRequestOpen;
     private bool isSubmittingEdit;
     private Employee? employee;
@@ -512,6 +624,7 @@
     private string proposedEmail = string.Empty;
     private string proposedPersonalMobile = string.Empty;
     private string proposedHomePhone = string.Empty;
+    private string personalMacAddress = string.Empty;
     private string proposedProfileImageDataUrl = string.Empty;
     private const long MaxProfileImageBytes = 2 * 1024 * 1024;
     private DateOnly proposedStartDate;
@@ -526,7 +639,17 @@
     private string personalResidencePostalCode = string.Empty;
     private string personalCurrentAddress = string.Empty;
     private string personalIdCardAddress = string.Empty;
+    private bool personalIdCardSameAsCurrent;
+    private string personalIdCardProvince = string.Empty;
+    private string personalIdCardDistrict = string.Empty;
+    private string personalIdCardSubdistrict = string.Empty;
+    private string personalIdCardPostalCode = string.Empty;
     private string personalHouseRegistrationAddress = string.Empty;
+    private bool personalHouseRegistrationSameAsCurrent;
+    private string personalHouseRegistrationProvince = string.Empty;
+    private string personalHouseRegistrationDistrict = string.Empty;
+    private string personalHouseRegistrationSubdistrict = string.Empty;
+    private string personalHouseRegistrationPostalCode = string.Empty;
     private string personalEmergencyContactName = string.Empty;
     private string personalEmergencyContactPhone = string.Empty;
     private string personalEmergencyContactAddress = string.Empty;
@@ -549,7 +672,6 @@
     private string internalExtension = string.Empty;
     private string internalDirectPhone = string.Empty;
     private string internalCompanyMobile = string.Empty;
-    private string internalMacAddress = string.Empty;
     private string internalBranchCode = string.Empty;
     private string internalBranchName = string.Empty;
     private List<string> internalResponsibilityProvinces = [];
@@ -559,6 +681,7 @@
     private DateOnly? internalProvidentFundStartDate;
     private string internalWorkExperienceType = string.Empty;
     private string internalHasCompanyParking = string.Empty;
+    private string internalCanTravelUpcountry = string.Empty;
     private string internalEmployeeStatus = string.Empty;
     private bool internalExcludeAttendanceCalculation;
     private string workCompany = string.Empty;
@@ -571,7 +694,6 @@
     private string educationGraduationYear = string.Empty;
     private string trainingCourse = string.Empty;
     private string trainingOrganizer = string.Empty;
-    private DateOnly? trainingDate;
     private string trainingDetails = string.Empty;
     private string familyMemberName = string.Empty;
     private string familyRelationship = string.Empty;
@@ -581,11 +703,18 @@
     private string familySpouseName = string.Empty;
     private string familySpouseNationalId = string.Empty;
     private string familyCurrentAddressMapUrl = string.Empty;
+    private string accountingSocialSecurityNumber = string.Empty;
+    private string accountingTaxpayerIdentificationNumber = string.Empty;
+    private string accountingSalaryAccountNumber = string.Empty;
     private List<EmployeeWorkHistoryItem> editableWorkHistory = [];
     private List<EmployeeEducationItem> editableEducationHistory = [];
     private List<EmployeeTrainingItem> editableTrainingHistory = [];
     private string editReason = string.Empty;
-    private List<Employee> employeeOptions = [];
+    private readonly List<EmployeeEditRequestAttachmentUploadDto> editRequestAttachments = [];
+    private EmployeeEditRequestDto? editingRequest;
+    private readonly HashSet<long> removedEditRequestAttachmentIds = [];
+    private long? openedEditRequestId;
+    private int editAttachmentInputVersion;
     private List<MasterDataItemDto> masterItems = [];
 
     private static readonly (string Key, string Label)[] Tabs =
@@ -593,11 +722,13 @@
         ("basic", "ข้อมูลพื้นฐาน"),
         ("personal", "ข้อมูลส่วนบุคคล"),
         ("internal", "ข้อมูลภายในบริษัท"),
+        ("accounting", "ข้อมูลทางบัญชี"),
         ("work", "ประวัติการทำงาน"),
         ("education", "ประวัติการศึกษา"),
         ("training", "ประวัติการอบรม & สัมมนา"),
         ("family", "บันทึกค่าลดหย่อนภาษี"),
         ("documents", "เอกสารส่วนตัว"),
+        ("recruit-documents", "เอกสาร Recruit"),
         ("change-history", "ประวัติการเปลี่ยนแปลง")
     ];
 
@@ -605,13 +736,16 @@
         string.Equals(employee.EmployeeCode, currentUser.EmployeeId, StringComparison.OrdinalIgnoreCase);
     private IEnumerable<(string Key, string Label)> VisibleTabs => Tabs.Where(tab =>
         tab.Key == "basic" ||
-        (IsOwnEmployee && tab.Key is not ("documents" or "change-history")) ||
-        (!IsOwnEmployee && tab.Key is "personal" or "education" or "training" or "family" &&
-            allowedActions.Contains("VIEW_PERSONAL")) ||
-        (!IsOwnEmployee && tab.Key is "internal" or "work" &&
-            allowedActions.Contains("VIEW_COMPANY")) ||
-        (tab.Key is "documents" or "change-history" &&
-            allowedActions.Contains("VIEW_PERSONAL_DOCUMENTS")));
+        (tab.Key == "personal" && (IsOwnEmployee || allowedActions.Contains("VIEW_PERSONAL"))) ||
+        (tab.Key == "internal" && (IsOwnEmployee || allowedActions.Contains("VIEW_COMPANY") || allowedActions.Contains("EDIT_INTERNAL"))) ||
+        (tab.Key == "accounting" && (allowedActions.Contains("VIEW_ACCOUNTING") || allowedActions.Contains("EDIT_ACCOUNTING"))) ||
+        (tab.Key == "work" && (IsOwnEmployee || allowedActions.Contains("VIEW_WORK_HISTORY") || allowedActions.Contains("EDIT_WORK_HISTORY"))) ||
+        (tab.Key == "education" && (IsOwnEmployee || allowedActions.Contains("VIEW_EDUCATION"))) ||
+        (tab.Key == "training" && (IsOwnEmployee || allowedActions.Contains("VIEW_TRAINING") || allowedActions.Contains("EDIT_TRAINING"))) ||
+        (tab.Key == "family" && (IsOwnEmployee || allowedActions.Contains("VIEW_TAX_DEDUCTION"))) ||
+        (tab.Key == "documents" && (IsOwnEmployee || allowedActions.Contains("VIEW_PERSONAL_DOCUMENTS"))) ||
+        (tab.Key == "recruit-documents" && allowedActions.Contains("VIEW_RECRUIT_DOCUMENTS")) ||
+        (tab.Key == "change-history" && allowedActions.Contains("VIEW_CHANGE_HISTORY")));
 
     protected override async Task OnParametersSetAsync()
     {
@@ -637,6 +771,9 @@
             {
                 allowedActions = new(StringComparer.OrdinalIgnoreCase);
             }
+
+            if (EditRequestId.HasValue && openedEditRequestId != EditRequestId.Value)
+                await OpenExistingEditRequest(EditRequestId.Value);
         }
         catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -648,29 +785,87 @@
         }
     }
 
-    private void BackToList() => Navigation.NavigateTo(
-        string.Equals(SourcePage, "resigned", StringComparison.OrdinalIgnoreCase)
-            ? "/employees/resigned"
-            : "/");
+    private void BackToList() => Navigation.NavigateTo(SourcePage?.ToLowerInvariant() switch
+    {
+        "resigned" => "/employees/resigned",
+        "my-edit-requests" => "/employees/my-edit-requests",
+        _ => "/"
+    });
 
     private async Task OpenEditor()
     {
-        if (employee is null)
+        if (employee is null || isPreparingEditor)
             return;
 
-        if (!CanRequestEdit(activeTab))
+        if (!CanRequestEdit(activeTab) && !CanDirectEdit(activeTab))
             return;
 
-        if (employeeOptions.Count == 0 || masterItems.Count == 0)
+        isPreparingEditor = true;
+        actionMessage = null;
+        try
         {
-            var employeeOptionsTask = Http.GetFromJsonAsync<List<Employee>>("api/employees");
-            var masterItemsTask = Http.GetFromJsonAsync<List<MasterDataItemDto>>(
-                "api/system-master-data/items/all");
-            await Task.WhenAll(employeeOptionsTask, masterItemsTask);
-            employeeOptions = await employeeOptionsTask ?? [];
-            masterItems = await masterItemsTask ?? [];
-            ResolveLegacyManagerIds();
+            PrepareEditorForActiveTab();
+            isEditRequestOpen = true;
+            await InvokeAsync(StateHasChanged);
+
+            if ((activeTab is "personal" or "internal") && masterItems.Count == 0)
+            {
+                var backgroundHttp = HttpClientFactory.CreateClient("HrApiBackground");
+                masterItems = await backgroundHttp.GetFromJsonAsync<List<MasterDataItemDto>>(
+                    "api/system-master-data/items/all") ?? [];
+            }
         }
+        catch (Exception exception)
+        {
+            actionMessage = $"ไม่สามารถเตรียมข้อมูลสำหรับแก้ไขได้: {exception.Message}";
+        }
+        finally
+        {
+            isPreparingEditor = false;
+        }
+    }
+
+    private void PrepareEditorForActiveTab()
+    {
+        if (employee is null) return;
+
+        editActiveTab = activeTab;
+        editReason = string.Empty;
+        editRequestAttachments.Clear();
+        editingRequest = null;
+        removedEditRequestAttachmentIds.Clear();
+        editAttachmentInputVersion++;
+        editError = null;
+        actionMessage = null;
+
+        switch (activeTab)
+        {
+            case "personal":
+                PreparePersonalEditor();
+                break;
+            case "internal":
+                PrepareInternalEditor();
+                break;
+            case "work":
+                editableWorkHistory = CloneList(employee.WorkHistory);
+                break;
+            case "education":
+                editableEducationHistory = CloneList(employee.EducationHistory);
+                break;
+            case "training":
+                editableTrainingHistory = CloneList(employee.TrainingHistory);
+                break;
+            case "accounting":
+                accountingSocialSecurityNumber = employee.SocialSecurityNumber;
+                accountingTaxpayerIdentificationNumber = employee.TaxpayerIdentificationNumber;
+                accountingSalaryAccountNumber = employee.SalaryAccountNumber;
+                break;
+        }
+    }
+
+    private void PreparePersonalEditor()
+    {
+        if (employee is null) return;
 
         proposedTitle = employee.Title;
         proposedFirstName = employee.FirstName;
@@ -678,16 +873,13 @@
         proposedThaiFullName = employee.ThaiFullName;
         proposedEnglishFullName = employee.EnglishFullName;
         proposedNickname = employee.Nickname;
-        proposedLotusNotesEmail = employee.LotusNotesEmail;
-        proposedEmail = employee.Email;
         proposedPersonalMobile = employee.PersonalMobile;
         proposedHomePhone = employee.HomePhone;
+        personalMacAddress = employee.MacAddress;
         proposedProfileImageDataUrl = employee.ProfileImageDataUrl;
-        proposedStartDate = employee.StartDate;
-        editActiveTab = activeTab;
-        personalNationalId = string.Empty;
-        personalBirthDate = null;
-        personalGender = string.Empty;
+        personalNationalId = employee.NationalId;
+        personalBirthDate = employee.BirthDate;
+        personalGender = employee.Gender;
         personalReligion = employee.Religion;
         personalBloodType = employee.BloodType;
         personalResidenceProvince = employee.ResidenceProvince;
@@ -696,77 +888,206 @@
         personalResidencePostalCode = employee.ResidencePostalCode;
         personalCurrentAddress = employee.CurrentAddress;
         personalIdCardAddress = employee.IdCardAddress;
+        personalIdCardSameAsCurrent = employee.IdCardSameAsCurrent;
+        personalIdCardProvince = employee.IdCardProvince;
+        personalIdCardDistrict = employee.IdCardDistrict;
+        personalIdCardSubdistrict = employee.IdCardSubdistrict;
+        personalIdCardPostalCode = employee.IdCardPostalCode;
         personalHouseRegistrationAddress = employee.HouseRegistrationAddress;
+        personalHouseRegistrationSameAsCurrent = employee.HouseRegistrationSameAsCurrent;
+        personalHouseRegistrationProvince = employee.HouseRegistrationProvince;
+        personalHouseRegistrationDistrict = employee.HouseRegistrationDistrict;
+        personalHouseRegistrationSubdistrict = employee.HouseRegistrationSubdistrict;
+        personalHouseRegistrationPostalCode = employee.HouseRegistrationPostalCode;
         personalEmergencyContactName = employee.EmergencyContactName;
         personalEmergencyContactPhone = employee.EmergencyContactPhone;
         personalEmergencyContactAddress = employee.EmergencyContactAddress;
+    }
+
+    private void PrepareInternalEditor()
+    {
+        if (employee is null) return;
+
+        proposedLotusNotesEmail = employee.LotusNotesEmail;
+        proposedEmail = employee.Email;
+        proposedStartDate = employee.StartDate;
         internalCompany = employee.Company;
         internalBusinessUnit = employee.BusinessUnit;
-        internalDivision = employee.Division;
         internalDepartment = employee.Department;
-        internalSection = employee.Section;
         internalPosition = employee.Position;
-        internalJobCode = employee.JobCode;
         internalSupervisorName = employee.SupervisorName;
         internalSupervisorEmployeeId = employee.SupervisorEmployeeId;
         internalLeaveApproverName = employee.LeaveApproverName;
         internalLeaveApproverEmployeeId = employee.LeaveApproverEmployeeId;
-        internalFunctionalSupervisorName = employee.FunctionalSupervisorName;
         internalBuddyName = employee.BuddyName;
-        internalEmploymentType = employee.EmploymentType;
         internalWorkSchedule = employee.WorkSchedule;
-        internalWorkLocation = employee.WorkLocation;
         internalExtension = employee.InternalExtension;
         internalDirectPhone = employee.DirectPhone;
         internalCompanyMobile = employee.CompanyMobile;
-        internalMacAddress = employee.MacAddress;
-        internalBranchCode = employee.BranchCode;
         internalBranchName = employee.BranchName;
         internalResponsibilityProvinces = employee.ResponsibilityProvinces.Count > 0
             ? [.. employee.ResponsibilityProvinces]
             : SplitProvinceValues(employee.ResponsibilityProvince);
         internalChecklistType = employee.ChecklistType;
         internalProductsResponsible = employee.ProductsResponsible;
-        internalAppointmentDate = employee.AppointmentDate;
-        internalProvidentFundStartDate = employee.ProvidentFundStartDate;
         internalWorkExperienceType = employee.WorkExperienceType;
         internalHasCompanyParking = ParkingEditValue(employee.HasCompanyParking);
+        internalCanTravelUpcountry = BooleanEditValue(employee.CanTravelUpcountry);
         internalEmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
         internalExcludeAttendanceCalculation = employee.ExcludeAttendanceCalculation;
-        workCompany = employee.PreviousCompany;
-        workPosition = employee.PreviousPosition;
-        workPeriod = employee.PreviousWorkPeriod;
-        workDetails = employee.PreviousWorkDetails;
-        educationLevel = employee.EducationLevel;
-        educationInstitution = employee.EducationInstitution;
-        educationMajor = employee.EducationMajor;
-        educationGraduationYear = employee.EducationGraduationYear;
-        trainingCourse = employee.TrainingCourse;
-        trainingOrganizer = employee.TrainingOrganizer;
-        trainingDate = employee.TrainingDate;
-        trainingDetails = employee.TrainingDetails;
-        familyMemberName = employee.FamilyMemberName;
-        familyRelationship = employee.FamilyRelationship;
-        familyPhone = employee.FamilyPhone;
-        familyOccupation = employee.FamilyOccupation;
-        familyMaritalStatus = employee.MaritalStatus;
-        familySpouseName = employee.SpouseName;
-        familySpouseNationalId = employee.SpouseNationalId;
-        familyCurrentAddressMapUrl = employee.CurrentAddressMapUrl;
-        editableWorkHistory = CloneList(employee.WorkHistory);
-        editableEducationHistory = CloneList(employee.EducationHistory);
-        editableTrainingHistory = CloneList(employee.TrainingHistory);
-        editReason = string.Empty;
-        editError = null;
-        actionMessage = null;
-        isEditRequestOpen = true;
     }
 
     private void CloseEditRequest()
     {
         if (!isSubmittingEdit)
+        {
             isEditRequestOpen = false;
+            if (editingRequest is not null && string.Equals(SourcePage, "my-edit-requests", StringComparison.OrdinalIgnoreCase))
+                Navigation.NavigateTo($"/employees/my-edit-requests?requestId={editingRequest.Id}");
+        }
     }
+
+    private async Task OpenExistingEditRequest(long requestId)
+    {
+        var request = await Http.GetFromJsonAsync<EmployeeEditRequestDto>($"api/employee-edit-requests/{requestId}");
+        if (request is null || employee is null ||
+            !string.Equals(request.EmployeeId, employee.EmployeeCode, StringComparison.OrdinalIgnoreCase))
+        {
+            actionMessage = "ไม่พบคำขอแก้ไขที่ระบุ";
+            return;
+        }
+
+        activeTab = RequestTab(request.Changes.FirstOrDefault()?.FieldKey);
+        await OpenEditor();
+        if (!isEditRequestOpen)
+        {
+            actionMessage = "คุณไม่มีสิทธิ์เปิดแบบฟอร์มคำขอนี้";
+            return;
+        }
+
+        editingRequest = request;
+        openedEditRequestId = requestId;
+        editReason = request.RequestReason;
+        removedEditRequestAttachmentIds.Clear();
+        foreach (var change in request.Changes)
+            ApplyExistingChange(change);
+    }
+
+    private static string RequestTab(string? fieldKey)
+    {
+        if (string.IsNullOrWhiteSpace(fieldKey)) return "personal";
+        if (fieldKey.StartsWith("documents.", StringComparison.OrdinalIgnoreCase)) return "documents";
+        if (fieldKey.StartsWith("work.", StringComparison.OrdinalIgnoreCase)) return "work";
+        if (fieldKey.StartsWith("education.", StringComparison.OrdinalIgnoreCase)) return "education";
+        if (fieldKey.StartsWith("training.", StringComparison.OrdinalIgnoreCase)) return "training";
+        if (fieldKey.StartsWith("family.", StringComparison.OrdinalIgnoreCase)) return "family";
+        if (fieldKey.StartsWith("accounting.", StringComparison.OrdinalIgnoreCase)) return "accounting";
+        if (fieldKey.StartsWith("internal.", StringComparison.OrdinalIgnoreCase) &&
+            !fieldKey.Equals("internal.macAddress", StringComparison.OrdinalIgnoreCase)) return "internal";
+        if (fieldKey is "email" or "lotusNotesEmail") return "internal";
+        return "personal";
+    }
+
+    private void ApplyExistingChange(EmployeeFieldChangeDto change)
+    {
+        var value = change.NewValue ?? string.Empty;
+        switch (change.FieldKey)
+        {
+            case "profileImage": proposedProfileImageDataUrl = value; break;
+            case "title": proposedTitle = value; break;
+            case "firstName": proposedFirstName = value; break;
+            case "lastName": proposedLastName = value; break;
+            case "thaiFullName": proposedThaiFullName = value; break;
+            case "englishFullName": proposedEnglishFullName = value; break;
+            case "nickname": proposedNickname = value; break;
+            case "personalMobile": proposedPersonalMobile = value; break;
+            case "homePhone": proposedHomePhone = value; break;
+            case "lotusNotesEmail": proposedLotusNotesEmail = value; break;
+            case "email": proposedEmail = value; break;
+            case "personal.nationalId": personalNationalId = value; break;
+            case "personal.birthDate": personalBirthDate = ParseDate(value); break;
+            case "personal.gender": personalGender = value; break;
+            case "personal.religion": personalReligion = value; break;
+            case "personal.bloodType": personalBloodType = value; break;
+            case "personal.residenceProvince": personalResidenceProvince = value; break;
+            case "personal.residenceDistrict": personalResidenceDistrict = value; break;
+            case "personal.residenceSubdistrict": personalResidenceSubdistrict = value; break;
+            case "personal.residencePostalCode": personalResidencePostalCode = value; break;
+            case "personal.currentAddress": personalCurrentAddress = value; break;
+            case "personal.idCardAddress": personalIdCardAddress = value; break;
+            case "personal.idCardSameAsCurrent": personalIdCardSameAsCurrent = ParseBool(value); break;
+            case "personal.idCardProvince": personalIdCardProvince = value; break;
+            case "personal.idCardDistrict": personalIdCardDistrict = value; break;
+            case "personal.idCardSubdistrict": personalIdCardSubdistrict = value; break;
+            case "personal.idCardPostalCode": personalIdCardPostalCode = value; break;
+            case "personal.houseRegistrationAddress": personalHouseRegistrationAddress = value; break;
+            case "personal.houseRegistrationSameAsCurrent": personalHouseRegistrationSameAsCurrent = ParseBool(value); break;
+            case "personal.houseRegistrationProvince": personalHouseRegistrationProvince = value; break;
+            case "personal.houseRegistrationDistrict": personalHouseRegistrationDistrict = value; break;
+            case "personal.houseRegistrationSubdistrict": personalHouseRegistrationSubdistrict = value; break;
+            case "personal.houseRegistrationPostalCode": personalHouseRegistrationPostalCode = value; break;
+            case "personal.emergencyContactName": personalEmergencyContactName = value; break;
+            case "personal.emergencyContactPhone": personalEmergencyContactPhone = value; break;
+            case "personal.emergencyContactAddress": personalEmergencyContactAddress = value; break;
+            case "internal.company": internalCompany = value; break;
+            case "internal.businessUnit": internalBusinessUnit = value; break;
+            case "internal.division": internalDivision = value; break;
+            case "internal.department": internalDepartment = value; break;
+            case "internal.section": internalSection = value; break;
+            case "internal.position": internalPosition = value; break;
+            case "internal.jobCode": internalJobCode = value; break;
+            case "internal.supervisor": internalSupervisorName = value; break;
+            case "internal.supervisorEmployeeId": internalSupervisorEmployeeId = value; break;
+            case "internal.leaveApprover": internalLeaveApproverName = value; break;
+            case "internal.leaveApproverEmployeeId": internalLeaveApproverEmployeeId = value; break;
+            case "internal.functionalSupervisor": internalFunctionalSupervisorName = value; break;
+            case "internal.buddy": internalBuddyName = value; break;
+            case "internal.employmentType": internalEmploymentType = value; break;
+            case "internal.workSchedule": internalWorkSchedule = value; break;
+            case "internal.workLocation": internalWorkLocation = value; break;
+            case "internal.extension": internalExtension = value; break;
+            case "internal.directPhone": internalDirectPhone = value; break;
+            case "internal.companyMobile": internalCompanyMobile = value; break;
+            case "internal.macAddress": personalMacAddress = value; break;
+            case "internal.branchCode": internalBranchCode = value; break;
+            case "internal.branchName": internalBranchName = value; break;
+            case "internal.responsibilityProvince": internalResponsibilityProvinces = SplitProvinceValues(value); break;
+            case "internal.checklistType": internalChecklistType = value; break;
+            case "internal.productsResponsible": internalProductsResponsible = value; break;
+            case "internal.startDate": proposedStartDate = ParseDate(value) ?? proposedStartDate; break;
+            case "internal.appointmentDate": internalAppointmentDate = ParseDate(value); break;
+            case "internal.providentFundStartDate": internalProvidentFundStartDate = ParseDate(value); break;
+            case "internal.workExperienceType": internalWorkExperienceType = value; break;
+            case "internal.hasCompanyParking": internalHasCompanyParking = ParkingEditValue(ParseOptionalBoolean(value)); break;
+            case "internal.employeeStatus": internalEmployeeStatus = value; break;
+            case "internal.excludeAttendance": internalExcludeAttendanceCalculation = ParseBool(value); break;
+            case "accounting.socialSecurityNumber": accountingSocialSecurityNumber = value; break;
+            case "accounting.taxpayerIdentificationNumber": accountingTaxpayerIdentificationNumber = value; break;
+            case "accounting.salaryAccountNumber": accountingSalaryAccountNumber = value; break;
+            case "work.history": editableWorkHistory = DeserializeList<EmployeeWorkHistoryItem>(value); break;
+            case "education.history": editableEducationHistory = DeserializeList<EmployeeEducationItem>(value); break;
+            case "training.history": editableTrainingHistory = DeserializeList<EmployeeTrainingItem>(value); break;
+            case "family.maritalStatus": familyMaritalStatus = value; break;
+            case "family.spouseName": familySpouseName = value; break;
+            case "family.spouseNationalId": familySpouseNationalId = value; break;
+            case "family.phone": familyPhone = value; break;
+            case "family.currentAddressMapUrl": familyCurrentAddressMapUrl = value; break;
+        }
+    }
+
+    private static DateOnly? ParseDate(string value) =>
+        DateOnly.TryParse(value, out var parsed) ? parsed : null;
+    private static bool ParseBool(string value) => bool.TryParse(value, out var parsed) && parsed;
+    private static List<T> DeserializeList<T>(string value)
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<T>>(value) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+
+    private IReadOnlyList<EmployeeEditRequestAttachmentDto> ExistingAttachments =>
+        editingRequest?.Attachments.Where(item => !removedEditRequestAttachmentIds.Contains(item.Id)).ToList() ?? [];
+    private bool IsEditRequestReadOnly => editingRequest is not null && editingRequest.Status != "PENDING";
+    private void RemoveExistingAttachment(long id) => removedEditRequestAttachmentIds.Add(id);
 
     private async Task SaveDirectChanges()
     {
@@ -780,6 +1101,7 @@
                 employee.Nickname = proposedNickname.Trim();
                 employee.PersonalMobile = proposedPersonalMobile.Trim();
                 employee.HomePhone = proposedHomePhone.Trim();
+                employee.MacAddress = personalMacAddress.Trim();
                 employee.CurrentAddress = personalCurrentAddress.Trim();
                 employee.EmergencyContactName = personalEmergencyContactName.Trim();
                 employee.EmergencyContactPhone = personalEmergencyContactPhone.Trim();
@@ -790,40 +1112,39 @@
                 employee.Email = proposedEmail.Trim();
                 employee.Company = internalCompany.Trim();
                 employee.BusinessUnit = internalBusinessUnit.Trim();
-                employee.Division = internalDivision.Trim();
                 employee.Department = internalDepartment.Trim();
-                employee.Section = internalSection.Trim();
                 employee.Position = internalPosition.Trim();
-                employee.JobCode = internalJobCode.Trim();
                 employee.SupervisorName = internalSupervisorName.Trim();
                 employee.SupervisorEmployeeId = internalSupervisorEmployeeId.Trim();
                 employee.LeaveApproverName = internalLeaveApproverName.Trim();
                 employee.LeaveApproverEmployeeId = internalLeaveApproverEmployeeId.Trim();
-                employee.FunctionalSupervisorName = internalFunctionalSupervisorName.Trim();
                 employee.BuddyName = internalBuddyName.Trim();
-                employee.EmploymentType = internalEmploymentType.Trim();
                 employee.WorkSchedule = internalWorkSchedule.Trim();
-                employee.WorkLocation = internalWorkLocation.Trim();
                 employee.InternalExtension = internalExtension.Trim();
                 employee.DirectPhone = internalDirectPhone.Trim();
                 employee.CompanyMobile = internalCompanyMobile.Trim();
-                employee.MacAddress = internalMacAddress.Trim();
-                employee.BranchCode = internalBranchCode.Trim();
                 employee.BranchName = internalBranchName.Trim();
                 employee.ResponsibilityProvinces = [.. internalResponsibilityProvinces];
                 employee.ResponsibilityProvince = JoinProvinceValues(internalResponsibilityProvinces);
                 employee.ChecklistType = internalChecklistType.Trim();
                 employee.ProductsResponsible = internalProductsResponsible.Trim();
                 employee.StartDate = proposedStartDate;
-                employee.AppointmentDate = internalAppointmentDate;
-                employee.ProvidentFundStartDate = internalProvidentFundStartDate;
                 employee.WorkExperienceType = internalWorkExperienceType.Trim();
                 employee.HasCompanyParking = ParseOptionalBoolean(internalHasCompanyParking);
+                employee.CanTravelUpcountry = ParseOptionalBoolean(internalCanTravelUpcountry);
                 employee.EmployeeStatus = internalEmployeeStatus.Trim();
                 employee.ExcludeAttendanceCalculation = internalExcludeAttendanceCalculation;
                 break;
             case "training":
                 employee.TrainingHistory = editableTrainingHistory;
+                break;
+            case "work":
+                employee.WorkHistory = editableWorkHistory;
+                break;
+            case "accounting":
+                employee.SocialSecurityNumber = accountingSocialSecurityNumber.Trim();
+                employee.TaxpayerIdentificationNumber = accountingTaxpayerIdentificationNumber.Trim();
+                employee.SalaryAccountNumber = accountingSalaryAccountNumber.Trim();
                 break;
             case "family":
                 employee.FamilyPhone = familyPhone.Trim();
@@ -836,7 +1157,7 @@
         {
             var endpoint = editActiveTab == "internal"
                 ? $"api/employees/{employee.Id}/company?actorEmployeeId={Uri.EscapeDataString(currentUser?.EmployeeId ?? string.Empty)}"
-                : $"api/employees/{employee.Id}/self-service";
+                : $"api/employees/{employee.Id}/direct/{editActiveTab}";
             var response = await Http.PutAsJsonAsync(endpoint, employee);
             if (!response.IsSuccessStatusCode)
             {
@@ -874,21 +1195,32 @@
                 AddChange(changes, "lastName", "นามสกุล", employee.LastName, proposedLastName);
                 AddChange(changes, "thaiFullName", "ชื่อ-นามสกุล (ไทย)", employee.ThaiFullName, proposedThaiFullName);
                 AddChange(changes, "englishFullName", "ชื่อ-นามสกุล (อังกฤษ)", employee.EnglishFullName, proposedEnglishFullName);
-                AddOptionalChange(changes, "personal.nationalId", "เลขบัตรประชาชน", personalNationalId);
-                AddOptionalChange(changes, "personal.birthDate", "วันเกิด", personalBirthDate?.ToString("yyyy-MM-dd") ?? string.Empty);
-                AddOptionalChange(changes, "personal.gender", "เพศ", personalGender);
+                AddChange(changes, "personal.nationalId", "เลขบัตรประชาชน", employee.NationalId, personalNationalId);
+                AddChange(changes, "personal.birthDate", "วันเกิด", DateText(employee.BirthDate), DateText(personalBirthDate));
+                AddChange(changes, "personal.gender", "เพศ", employee.Gender, personalGender);
                 AddChange(changes, "personal.religion", "ศาสนา", employee.Religion, personalReligion);
                 AddChange(changes, "personal.bloodType", "หมู่เลือด", employee.BloodType, personalBloodType);
+                AddChange(changes, "personal.idCardSameAsCurrent", "ที่อยู่ตามบัตรเหมือนที่อยู่ปัจจุบัน", employee.IdCardSameAsCurrent.ToString(), personalIdCardSameAsCurrent.ToString());
+                AddChange(changes, "personal.houseRegistrationSameAsCurrent", "ทะเบียนบ้านเหมือนที่อยู่ปัจจุบัน", employee.HouseRegistrationSameAsCurrent.ToString(), personalHouseRegistrationSameAsCurrent.ToString());
                 AddChange(changes, "personal.residenceProvince", "จังหวัด", employee.ResidenceProvince, personalResidenceProvince);
                 AddChange(changes, "personal.residenceDistrict", "อำเภอ / เขต", employee.ResidenceDistrict, personalResidenceDistrict);
                 AddChange(changes, "personal.residenceSubdistrict", "ตำบล / แขวง", employee.ResidenceSubdistrict, personalResidenceSubdistrict);
                 AddChange(changes, "personal.residencePostalCode", "รหัสไปรษณีย์", employee.ResidencePostalCode, personalResidencePostalCode);
+                AddChange(changes, "personal.currentAddress", "ที่อยู่ปัจจุบัน", employee.CurrentAddress, personalCurrentAddress);
                 AddChange(changes, "personal.idCardAddress", "ที่อยู่ตามบัตรประชาชน", employee.IdCardAddress, personalIdCardAddress);
+                AddChange(changes, "personal.idCardProvince", "จังหวัดตามบัตรประชาชน", employee.IdCardProvince, personalIdCardProvince);
+                AddChange(changes, "personal.idCardDistrict", "อำเภอ/เขตตามบัตรประชาชน", employee.IdCardDistrict, personalIdCardDistrict);
+                AddChange(changes, "personal.idCardSubdistrict", "ตำบล/แขวงตามบัตรประชาชน", employee.IdCardSubdistrict, personalIdCardSubdistrict);
+                AddChange(changes, "personal.idCardPostalCode", "รหัสไปรษณีย์ตามบัตรประชาชน", employee.IdCardPostalCode, personalIdCardPostalCode);
                 AddChange(changes, "personal.houseRegistrationAddress", "ที่อยู่ตามทะเบียนบ้าน", employee.HouseRegistrationAddress, personalHouseRegistrationAddress);
+                AddChange(changes, "personal.houseRegistrationProvince", "จังหวัดตามทะเบียนบ้าน", employee.HouseRegistrationProvince, personalHouseRegistrationProvince);
+                AddChange(changes, "personal.houseRegistrationDistrict", "อำเภอ/เขตตามทะเบียนบ้าน", employee.HouseRegistrationDistrict, personalHouseRegistrationDistrict);
+                AddChange(changes, "personal.houseRegistrationSubdistrict", "ตำบล/แขวงตามทะเบียนบ้าน", employee.HouseRegistrationSubdistrict, personalHouseRegistrationSubdistrict);
+                AddChange(changes, "personal.houseRegistrationPostalCode", "รหัสไปรษณีย์ตามทะเบียนบ้าน", employee.HouseRegistrationPostalCode, personalHouseRegistrationPostalCode);
                 AddChange(changes, "nickname", "ชื่อเล่น", employee.Nickname, proposedNickname);
                 AddChange(changes, "personalMobile", "เบอร์มือถือส่วนตัว", employee.PersonalMobile, proposedPersonalMobile);
                 AddChange(changes, "homePhone", "โทรศัพท์บ้าน", employee.HomePhone, proposedHomePhone);
-                AddChange(changes, "personal.currentAddress", "ที่อยู่ปัจจุบัน", employee.CurrentAddress, personalCurrentAddress);
+                AddChange(changes, "internal.macAddress", "MAC Address", employee.MacAddress, personalMacAddress);
                 AddChange(changes, "personal.emergencyContactName", "บุคคลติดต่อกรณีฉุกเฉิน", employee.EmergencyContactName, personalEmergencyContactName);
                 AddChange(changes, "personal.emergencyContactPhone", "เบอร์ติดต่อฉุกเฉิน", employee.EmergencyContactPhone, personalEmergencyContactPhone);
                 AddChange(changes, "personal.emergencyContactAddress", "ที่อยู่ผู้ติดต่อฉุกเฉิน", employee.EmergencyContactAddress, personalEmergencyContactAddress);
@@ -898,42 +1230,46 @@
                 AddChange(changes, "email", "Email", employee.Email, proposedEmail);
                 AddChange(changes, "internal.company", "บริษัท", employee.Company, internalCompany);
                 AddChange(changes, "internal.businessUnit", "Business Unit", employee.BusinessUnit, internalBusinessUnit);
-                AddChange(changes, "internal.division", "ฝ่าย", employee.Division, internalDivision);
                 AddChange(changes, "internal.department", "แผนก", employee.Department, internalDepartment);
-                AddChange(changes, "internal.section", "ส่วนงาน", employee.Section, internalSection);
                 AddChange(changes, "internal.position", "ตำแหน่ง", employee.Position, internalPosition);
-                AddChange(changes, "internal.jobCode", "รหัสตำแหน่ง", employee.JobCode, internalJobCode);
                 AddChange(changes, "internal.supervisor", "หัวหน้างาน", employee.SupervisorName, internalSupervisorName);
                 AddChange(changes, "internal.supervisorEmployeeId", "รหัสหัวหน้างาน", employee.SupervisorEmployeeId, internalSupervisorEmployeeId);
                 AddChange(changes, "internal.leaveApprover", "Reporting To (Leave Approve)", employee.LeaveApproverName, internalLeaveApproverName);
                 AddChange(changes, "internal.leaveApproverEmployeeId", "รหัสผู้อนุมัติลา", employee.LeaveApproverEmployeeId, internalLeaveApproverEmployeeId);
-                AddChange(changes, "internal.functionalSupervisor", "หัวหน้างาน (Functional Boss)", employee.FunctionalSupervisorName, internalFunctionalSupervisorName);
                 AddChange(changes, "internal.buddy", "Buddy", employee.BuddyName, internalBuddyName);
-                AddChange(changes, "internal.employmentType", "ประเภทการจ้าง", employee.EmploymentType, internalEmploymentType);
                 AddChange(changes, "internal.workSchedule", "ประเภทพนักงานและเวลาทำงาน", employee.WorkSchedule, internalWorkSchedule);
-                AddChange(changes, "internal.workLocation", "สถานที่ทำงาน", employee.WorkLocation, internalWorkLocation);
                 AddChange(changes, "internal.extension", "Ext. ภายใน", employee.InternalExtension, internalExtension);
                 AddChange(changes, "internal.directPhone", "เบอร์โทรสายตรง", employee.DirectPhone, internalDirectPhone);
                 AddChange(changes, "internal.companyMobile", "เบอร์มือถือบริษัท", employee.CompanyMobile, internalCompanyMobile);
-                AddChange(changes, "internal.macAddress", "MAC Address", employee.MacAddress, internalMacAddress);
-                AddChange(changes, "internal.branchCode", "รหัสสาขา", employee.BranchCode, internalBranchCode);
                 AddChange(changes, "internal.branchName", "ชื่อสาขา", employee.BranchName, internalBranchName);
                 AddChange(changes, "internal.responsibilityProvince", "Province of Responsibility (จังหวัดที่ให้ดูแล)", employee.ResponsibilityProvince, JoinProvinceValues(internalResponsibilityProvinces));
                 AddChange(changes, "internal.checklistType", "ประเภท Checklist", employee.ChecklistType, internalChecklistType);
                 AddChange(changes, "internal.productsResponsible", "สินค้าที่ให้ขาย", employee.ProductsResponsible, internalProductsResponsible);
                 AddChange(changes, "internal.startDate", "วันที่เริ่มงาน", DateText(employee.StartDate), DateText(proposedStartDate));
-                AddChange(changes, "internal.appointmentDate", "วันที่บรรจุ", DateText(employee.AppointmentDate), DateText(internalAppointmentDate));
-                AddChange(changes, "internal.providentFundStartDate", "วันที่เปิดกองทุนเงินสะสม", DateText(employee.ProvidentFundStartDate), DateText(internalProvidentFundStartDate));
                 AddChange(changes, "internal.workExperienceType", "ประสบการณ์การทำงาน", employee.WorkExperienceType, internalWorkExperienceType);
                 AddChange(changes, "internal.hasCompanyParking", "บริษัทมีที่จอดรถให้", BooleanText(employee.HasCompanyParking), BooleanText(ParseOptionalBoolean(internalHasCompanyParking)));
+                AddChange(changes, "internal.canTravelUpcountry", "สามารถเดินทางไปต่างจังหวัดได้", BooleanText(employee.CanTravelUpcountry), BooleanText(ParseOptionalBoolean(internalCanTravelUpcountry)));
                 AddChange(changes, "internal.employeeStatus", "สถานะพนักงาน", employee.EmployeeStatus, internalEmployeeStatus);
                 AddChange(changes, "internal.excludeAttendance", "การคำนวณการมาทำงาน", employee.ExcludeAttendanceCalculation.ToString(), internalExcludeAttendanceCalculation.ToString());
+                break;
+            case "accounting":
+                AddChange(changes, "accounting.socialSecurityNumber", "เลขที่บัตรประกันสังคม", employee.SocialSecurityNumber, accountingSocialSecurityNumber);
+                AddChange(changes, "accounting.taxpayerIdentificationNumber", "เลขที่บัตรประจำตัวผู้เสียภาษี", employee.TaxpayerIdentificationNumber, accountingTaxpayerIdentificationNumber);
+                AddChange(changes, "accounting.salaryAccountNumber", "เลขที่บัญชีรับเงินเดือน", employee.SalaryAccountNumber, accountingSalaryAccountNumber);
                 break;
             case "work":
                 AddTableChange(changes, "work.history", "รายการประวัติการทำงาน", employee.WorkHistory, editableWorkHistory);
                 break;
             case "education":
                 AddTableChange(changes, "education.history", "รายการประวัติการศึกษา", employee.EducationHistory, editableEducationHistory);
+                break;
+            case "documents":
+                if (editRequestAttachments.Count > 0)
+                {
+                    changes.Add(new EmployeeFieldChangeDto(
+                        "documents.add", "เพิ่มเอกสารส่วนตัว", string.Empty,
+                        string.Join(", ", editRequestAttachments.Select(item => item.FileName))));
+                }
                 break;
             case "training":
                 AddTableChange(changes, "training.history", "รายการประวัติการอบรมและสัมมนา", employee.TrainingHistory, editableTrainingHistory);
@@ -956,13 +1292,38 @@
         isSubmittingEdit = true;
         try
         {
+            if (editingRequest is not null)
+            {
+                var update = new UpdateEmployeeEditRequest(
+                    changes,
+                    editReason,
+                    editRequestAttachments,
+                    removedEditRequestAttachmentIds.ToArray());
+                var updateResponse = await Http.PutAsJsonAsync(
+                    $"api/employee-edit-requests/{editingRequest.Id}", update);
+                if (!updateResponse.IsSuccessStatusCode)
+                {
+                    var details = await updateResponse.Content.ReadAsStringAsync();
+                    editError = string.IsNullOrWhiteSpace(details)
+                        ? $"บันทึกคำขอไม่สำเร็จ (HTTP {(int)updateResponse.StatusCode})"
+                        : $"บันทึกคำขอไม่สำเร็จ: {details}";
+                    return;
+                }
+
+                var updated = await updateResponse.Content.ReadFromJsonAsync<EmployeeEditRequestDto>();
+                isEditRequestOpen = false;
+                Navigation.NavigateTo($"/employees/my-edit-requests?requestId={updated?.Id ?? editingRequest.Id}");
+                return;
+            }
+
             var request = new CreateEmployeeEditRequest(
                 employee.EmployeeCode,
                 employee.FullName,
                 changes,
                 editReason,
                 currentUser?.EmployeeId ?? employee.EmployeeCode,
-                currentUser?.EmployeeName ?? currentUser?.DisplayName ?? employee.FullName);
+                currentUser?.EmployeeName ?? currentUser?.DisplayName ?? employee.FullName,
+                editRequestAttachments);
             var response = await Http.PostAsJsonAsync("api/employee-edit-requests", request);
             if (!response.IsSuccessStatusCode)
             {
@@ -987,21 +1348,67 @@
         }
     }
 
-    private void SelectInternalSupervisor(string employeeCode)
+    private Task SubmitEditor() => IsDirectEdit ? SaveDirectChanges() : SubmitEditRequest();
+
+    private async Task SelectEditRequestAttachments(InputFileChangeEventArgs eventArgs)
     {
-        internalSupervisorEmployeeId = employeeCode;
-        internalSupervisorName = SelectedEmployeeName(employeeCode);
+        editError = null;
+        var availableSlots = 5 - ExistingAttachments.Count - editRequestAttachments.Count;
+        if (availableSlots <= 0 || eventArgs.FileCount > availableSlots)
+        {
+            editError = "แนบไฟล์ได้ไม่เกิน 5 ไฟล์ต่อคำขอ";
+            editAttachmentInputVersion++;
+            return;
+        }
+
+        foreach (var file in eventArgs.GetMultipleFiles(availableSlots))
+        {
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (extension is not (".pdf" or ".jpg" or ".jpeg" or ".png" or ".webp"))
+            {
+                editError = $"ไฟล์ {file.Name} ไม่รองรับ กรุณาเลือก PDF, JPG, PNG หรือ WEBP";
+                continue;
+            }
+            if (file.Size > 3 * 1024 * 1024)
+            {
+                editError = $"ไฟล์ {file.Name} มีขนาดเกิน 3 MB";
+                continue;
+            }
+
+            await using var stream = file.OpenReadStream(3 * 1024 * 1024);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            editRequestAttachments.Add(new EmployeeEditRequestAttachmentUploadDto(
+                file.Name, file.ContentType, memory.ToArray()));
+        }
+        editAttachmentInputVersion++;
     }
 
-    private void SelectInternalLeaveApprover(string employeeCode)
+    private void RemoveEditRequestAttachment(EmployeeEditRequestAttachmentUploadDto attachment) =>
+        editRequestAttachments.Remove(attachment);
+
+    private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / 1024d / 1024d:0.##} MB"
+        : $"{Math.Max(1, bytes / 1024d):0.##} KB";
+
+    private void SelectInternalSupervisor(Employee? selectedEmployee)
     {
-        internalLeaveApproverEmployeeId = employeeCode;
-        internalLeaveApproverName = SelectedEmployeeName(employeeCode);
+        internalSupervisorEmployeeId = selectedEmployee?.EmployeeCode ?? string.Empty;
+        internalSupervisorName = selectedEmployee?.FullName ?? string.Empty;
     }
 
-    private string SelectedEmployeeName(string employeeCode) => employeeOptions
-        .FirstOrDefault(item => string.Equals(
-            item.EmployeeCode, employeeCode, StringComparison.OrdinalIgnoreCase))?.FullName ?? string.Empty;
+    private void SelectInternalLeaveApprover(Employee? selectedEmployee)
+    {
+        internalLeaveApproverEmployeeId = selectedEmployee?.EmployeeCode ?? string.Empty;
+        internalLeaveApproverName = selectedEmployee?.FullName ?? string.Empty;
+    }
+
+    private static string ManagerDisplayText(string employeeName, string employeeCode) =>
+        string.IsNullOrWhiteSpace(employeeName)
+            ? EmployeeCodeFormat.Display(employeeCode)
+            : string.IsNullOrWhiteSpace(employeeCode)
+                ? employeeName
+                : $"{employeeName} ({EmployeeCodeFormat.Display(employeeCode)})";
 
     private IEnumerable<MasterDataItemDto> MasterOptions(string categoryCode) => masterItems
         .Where(item => item.IsActive && string.Equals(item.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase))
@@ -1014,6 +1421,22 @@
         "SUBDISTRICT", "DISTRICT", personalResidenceDistrict, PersonalResidenceDistrictOptions);
     private IEnumerable<MasterDataItemDto> PersonalResidencePostalCodeOptions => ChildAddressOptions(
         "POSTAL_CODE", "SUBDISTRICT", personalResidenceSubdistrict, PersonalResidenceSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> PersonalIdCardDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", personalIdCardProvince);
+    private IEnumerable<MasterDataItemDto> PersonalIdCardSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", personalIdCardDistrict, PersonalIdCardDistrictOptions);
+    private IEnumerable<MasterDataItemDto> PersonalIdCardPostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", personalIdCardSubdistrict, PersonalIdCardSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> PersonalHouseDistrictOptions => ChildAddressOptions(
+        "DISTRICT", "PROVINCE", personalHouseRegistrationProvince);
+    private IEnumerable<MasterDataItemDto> PersonalHouseSubdistrictOptions => ChildAddressOptions(
+        "SUBDISTRICT", "DISTRICT", personalHouseRegistrationDistrict, PersonalHouseDistrictOptions);
+    private IEnumerable<MasterDataItemDto> PersonalHousePostalCodeOptions => ChildAddressOptions(
+        "POSTAL_CODE", "SUBDISTRICT", personalHouseRegistrationSubdistrict, PersonalHouseSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> InternalDepartmentOptions => ChildAddressOptions(
+        "DEPARTMENT", "BUSINESS_UNIT", internalBusinessUnit);
+    private IEnumerable<MasterDataItemDto> InternalPositionOptions => ChildAddressOptions(
+        "POSITION", "DEPARTMENT", internalDepartment, InternalDepartmentOptions);
 
     private IEnumerable<MasterDataItemDto> ChildAddressOptions(
         string childCategory, string parentCategory, string parentName,
@@ -1024,39 +1447,116 @@
         return parent is null ? [] : MasterOptions(childCategory).Where(item => item.ParentItemId == parent.Id);
     }
 
+    private void InternalBusinessUnitSelected(string value)
+    {
+        internalBusinessUnit = value;
+        if (!InternalDepartmentOptions.Any(item => string.Equals(item.NameTh, internalDepartment, StringComparison.OrdinalIgnoreCase)))
+        {
+            internalDepartment = string.Empty;
+            internalPosition = string.Empty;
+        }
+    }
+
+    private void InternalDepartmentSelected(string value)
+    {
+        internalDepartment = value;
+        if (!InternalPositionOptions.Any(item => string.Equals(item.NameTh, internalPosition, StringComparison.OrdinalIgnoreCase)))
+            internalPosition = string.Empty;
+    }
+
     private void PersonalResidenceProvinceChanged()
     {
         personalResidenceDistrict = string.Empty;
         personalResidenceSubdistrict = string.Empty;
         personalResidencePostalCode = string.Empty;
+        SyncMatchingPersonalAddresses();
     }
 
     private void PersonalResidenceDistrictChanged()
     {
         personalResidenceSubdistrict = string.Empty;
         personalResidencePostalCode = string.Empty;
+        SyncMatchingPersonalAddresses();
     }
 
     private void PersonalResidenceSubdistrictChanged()
     {
         var postalCodes = PersonalResidencePostalCodeOptions.ToList();
         personalResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+        SyncMatchingPersonalAddresses();
     }
 
-    private void ResolveLegacyManagerIds()
+    private void PersonalIdCardProvinceChanged()
     {
-        if (employee is null) return;
-        if (string.IsNullOrWhiteSpace(employee.SupervisorEmployeeId))
-            employee.SupervisorEmployeeId = FindEmployeeCode(employee.SupervisorName);
-        if (string.IsNullOrWhiteSpace(employee.LeaveApproverEmployeeId))
-            employee.LeaveApproverEmployeeId = FindEmployeeCode(employee.LeaveApproverName);
+        personalIdCardDistrict = string.Empty;
+        personalIdCardSubdistrict = string.Empty;
+        personalIdCardPostalCode = string.Empty;
     }
 
-    private string FindEmployeeCode(string name) => employeeOptions.FirstOrDefault(item =>
-        string.Equals(item.EmployeeCode, name, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(item.FullName, name, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(item.ThaiFullName, name, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(item.EnglishFullName, name, StringComparison.OrdinalIgnoreCase))?.EmployeeCode ?? string.Empty;
+    private void PersonalIdCardDistrictChanged()
+    {
+        personalIdCardSubdistrict = string.Empty;
+        personalIdCardPostalCode = string.Empty;
+    }
+
+    private void PersonalIdCardSubdistrictChanged()
+    {
+        var postalCodes = PersonalIdCardPostalCodeOptions.ToList();
+        personalIdCardPostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+    }
+
+    private void PersonalHouseProvinceChanged()
+    {
+        personalHouseRegistrationDistrict = string.Empty;
+        personalHouseRegistrationSubdistrict = string.Empty;
+        personalHouseRegistrationPostalCode = string.Empty;
+    }
+
+    private void PersonalHouseDistrictChanged()
+    {
+        personalHouseRegistrationSubdistrict = string.Empty;
+        personalHouseRegistrationPostalCode = string.Empty;
+    }
+
+    private void PersonalHouseSubdistrictChanged()
+    {
+        var postalCodes = PersonalHousePostalCodeOptions.ToList();
+        personalHouseRegistrationPostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : string.Empty;
+    }
+
+    private void IdCardSameAsCurrentChanged()
+    {
+        if (personalIdCardSameAsCurrent) CopyCurrentToIdCard();
+    }
+
+    private void HouseRegistrationSameAsCurrentChanged()
+    {
+        if (personalHouseRegistrationSameAsCurrent) CopyCurrentToHouseRegistration();
+    }
+
+    private void SyncMatchingPersonalAddresses()
+    {
+        if (personalIdCardSameAsCurrent) CopyCurrentToIdCard();
+        if (personalHouseRegistrationSameAsCurrent) CopyCurrentToHouseRegistration();
+    }
+
+    private void CopyCurrentToIdCard()
+    {
+        personalIdCardAddress = personalCurrentAddress;
+        personalIdCardProvince = personalResidenceProvince;
+        personalIdCardDistrict = personalResidenceDistrict;
+        personalIdCardSubdistrict = personalResidenceSubdistrict;
+        personalIdCardPostalCode = personalResidencePostalCode;
+    }
+
+    private void CopyCurrentToHouseRegistration()
+    {
+        personalHouseRegistrationAddress = personalCurrentAddress;
+        personalHouseRegistrationProvince = personalResidenceProvince;
+        personalHouseRegistrationDistrict = personalResidenceDistrict;
+        personalHouseRegistrationSubdistrict = personalResidenceSubdistrict;
+        personalHouseRegistrationPostalCode = personalResidencePostalCode;
+    }
 
     private static void AddChange(
         ICollection<EmployeeFieldChangeDto> changes,
@@ -1153,8 +1653,19 @@
         value?.ToString() ?? string.Empty;
 
     private bool CanRequestEdit(string tab) =>
-        (tab is "personal" or "internal" or "work" or "education" or "training") &&
+        (tab is "personal" or "education" or "documents") &&
         (IsOwnEmployee || allowedActions.Contains("REQUEST_EDIT"));
+
+    private bool CanDirectEdit(string tab) => tab switch
+    {
+        "internal" => allowedActions.Contains("EDIT_INTERNAL"),
+        "accounting" => allowedActions.Contains("EDIT_ACCOUNTING"),
+        "work" => allowedActions.Contains("EDIT_WORK_HISTORY"),
+        "training" => allowedActions.Contains("EDIT_TRAINING"),
+        _ => false
+    };
+
+    private bool IsDirectEdit => editingRequest is null && CanDirectEdit(editActiveTab);
 
     private static string TabLabel(string tab) =>
         Tabs.FirstOrDefault(item => item.Key == tab).Label ?? "ข้อมูลพนักงาน";
@@ -1163,14 +1674,16 @@
     {
         "basic" => "หน้าสรุปข้อมูลจากข้อมูลส่วนบุคคลและข้อมูลภายในบริษัท",
         "personal" => "การแก้ไขรูป ข้อมูลระบุตัวตน และข้อมูลติดต่อ ต้องส่งคำขออนุมัติ",
-        "internal" => "การแก้ไขอีเมล หัวหน้า และโครงสร้างบริษัท ต้องส่งคำขออนุมัติ",
-        "work" => "การเพิ่ม แก้ไข หรือลบประวัติการทำงานต้องขออนุมัติ",
+        "internal" => "ผู้ที่ได้รับสิทธิ์แก้ไขข้อมูลภายในบริษัทสามารถบันทึกข้อมูลได้โดยตรง",
+        "accounting" => "ข้อมูลทางบัญชีจะแสดงและแก้ไขได้เฉพาะผู้ที่ได้รับสิทธิ์",
+        "work" => "เจ้าของข้อมูลดูได้ และผู้ที่ได้รับสิทธิ์แก้ไขสามารถบันทึกได้โดยตรง",
         "education" => "การเพิ่ม แก้ไข หรือลบประวัติการศึกษาต้องขออนุมัติ",
-        "training" => "การเพิ่ม แก้ไข หรือลบประวัติการอบรมต้องขออนุมัติ",
+        "training" => "เจ้าของข้อมูลดูได้ และผู้ที่ได้รับสิทธิ์แก้ไขสามารถบันทึกได้โดยตรง",
         "family" => IsOwnEmployee
             ? "ข้อมูลส่วนนี้เจ้าของข้อมูลบันทึกได้เองโดยตรงและแยกเก็บตามปีภาษี"
             : "แสดงข้อมูลค่าลดหย่อนตามสิทธิ์ที่ได้รับ โดยผู้ดูข้อมูลไม่สามารถแก้ไขแทนเจ้าของได้",
-        "documents" => "ผู้ที่ได้รับสิทธิ์จากหน้าจัดการสิทธิ์สามารถดูและจัดการเอกสารส่วนตัว รวมถึงลิงก์เอกสาร Recruit ได้",
+        "documents" => "การเพิ่มเอกสารส่วนตัวต้องส่งคำขอและรออนุมัติ",
+        "recruit-documents" => "เอกสาร Recruit แสดงแบบอ่านอย่างเดียวเฉพาะผู้ที่ได้รับสิทธิ์",
         "change-history" => "แสดงคำขอแก้ไข ฟิลด์ที่เปลี่ยน ผู้ดำเนินการ และวันเวลาทั้งหมด",
         _ => string.Empty
     };
@@ -1198,6 +1711,20 @@
     private static string DisplayValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "-" : value;
 
+    private static string FormatCurrentAddress(Employee value)
+    {
+        var parts = new[]
+        {
+            value.CurrentAddress?.Trim(),
+            string.IsNullOrWhiteSpace(value.ResidenceSubdistrict) ? null : $"ตำบล/แขวง {value.ResidenceSubdistrict.Trim()}",
+            string.IsNullOrWhiteSpace(value.ResidenceDistrict) ? null : $"อำเภอ/เขต {value.ResidenceDistrict.Trim()}",
+            string.IsNullOrWhiteSpace(value.ResidenceProvince) ? null : $"จังหวัด {value.ResidenceProvince.Trim()}",
+            value.ResidencePostalCode?.Trim()
+        };
+        var address = string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+        return DisplayValue(address);
+    }
+
     private static string FormatDate(DateOnly date) => date.ToString("dd/MM/yyyy");
 
     private static string FormatDate(DateOnly? date) =>
@@ -1217,10 +1744,17 @@
         null => string.Empty
     };
 
+    private static string BooleanEditValue(bool? value) => value switch
+    {
+        true => "True",
+        false => "False",
+        null => string.Empty
+    };
+
     private static bool? ParseOptionalBoolean(string value) => value switch
     {
-        "มี" => true,
-        "ไม่มี" => false,
+        "มี" or "True" or "true" => true,
+        "ไม่มี" or "False" or "false" => false,
         _ => null
     };
 

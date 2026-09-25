@@ -19,18 +19,13 @@
             <div class="content-card-header">ค้นหาพนักงาน</div>
             <div class="content-card-body movement-criteria-grid">
                 <label>รหัสหรือชื่อพนักงาน
-                    <input type="search" placeholder="ค้นหารหัสหรือชื่อ" @bind="employeeSearch" @bind:event="oninput" @bind:after="ApplyEmployeeFilter" />
+                    <EmployeeSearchSelect Items="@EmployeeSearchOptions" Value="@employeeSearch" ValueChanged="SetEmployeeSearch" Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                 </label>
                 <label>แผนก
-                    <input type="search" placeholder="ค้นหาแผนก" @bind="departmentSearch" @bind:event="oninput" @bind:after="ApplyEmployeeFilter" />
+                    <StringSearchSelect Items="@DepartmentSearchOptions" @bind-Value="departmentSearch" @bind-Value:after="ApplyEmployeeFilter" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" />
                 </label>
                 <label>ปีโควต้า
-                    <select @bind="selectedYear" @bind:after="ReloadEmployees">
-                        @foreach (var year in Years)
-                        {
-                            <option value="@year">@year</option>
-                        }
-                    </select>
+                    <StringSearchSelect Items="@YearSearchOptions" Value="@selectedYear.ToString()" ValueChanged="SetSelectedYear" AllowEmpty="false" Placeholder="-- เลือกหรือพิมพ์ค้นหาปีโควต้า --" />
                 </label>
             </div>
         </section>
@@ -196,6 +191,21 @@
     private DateTime? startDate, endDate;
     private int employeePage = 1, movementPage = 1, pageSize = 10;
     private IEnumerable<int> Years => Enumerable.Range(DateTime.Today.Year - 2, 5).Reverse();
+    private IReadOnlyList<string> YearSearchOptions => Years.Select(year => year.ToString()).ToList();
+    private IReadOnlyList<string> DepartmentSearchOptions => employees
+        .Select(employee => employee.Department)
+        .Where(department => !string.IsNullOrWhiteSpace(department))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(department => department)
+        .ToList();
+    private IReadOnlyList<Employee> EmployeeSearchOptions => employees
+        .Select(employee => new Employee
+        {
+            EmployeeCode = employee.EmployeeId,
+            FirstName = employee.EmployeeName,
+            Department = employee.Department
+        })
+        .ToList();
     private IEnumerable<LeaveQuotaMovementEmployeeSummaryDto> PagedEmployees => filteredEmployees.Skip((employeePage - 1) * pageSize).Take(pageSize);
     private IEnumerable<LeaveQuotaMovementDto> PagedMovements => filteredMovements.Skip((movementPage - 1) * pageSize).Take(pageSize);
     private string EmployeeInitial => string.IsNullOrWhiteSpace(selectedEmployee?.EmployeeName) ? "?" : selectedEmployee.EmployeeName.Trim()[0].ToString();
@@ -240,6 +250,22 @@
             (string.IsNullOrWhiteSpace(employeeSearch) || x.EmployeeId.Contains(employeeSearch, StringComparison.OrdinalIgnoreCase) || x.EmployeeName.Contains(employeeSearch, StringComparison.OrdinalIgnoreCase)) &&
             (string.IsNullOrWhiteSpace(departmentSearch) || x.Department.Contains(departmentSearch, StringComparison.OrdinalIgnoreCase))).ToList();
         employeePage = 1;
+    }
+
+    private Task SetEmployeeSearch(string employeeCode)
+    {
+        employeeSearch = employeeCode;
+        ApplyEmployeeFilter();
+        return Task.CompletedTask;
+    }
+
+    private async Task SetSelectedYear(string value)
+    {
+        if (!int.TryParse(value, out var year) || year == selectedYear)
+            return;
+
+        selectedYear = year;
+        await ReloadEmployees();
     }
 
     private async Task OpenEmployee(LeaveQuotaMovementEmployeeSummaryDto employee)

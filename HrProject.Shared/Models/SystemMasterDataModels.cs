@@ -17,7 +17,11 @@ public sealed record MasterDataItemDto(
     bool IsActive,
     long? ParentItemId,
     string? ParentItemName,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public long? GrandparentItemId { get; init; }
+    public string? GrandparentItemName { get; init; }
+}
 
 public sealed record SaveMasterDataItemRequest(
     string CategoryCode,

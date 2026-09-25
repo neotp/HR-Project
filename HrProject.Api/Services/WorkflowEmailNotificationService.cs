@@ -43,6 +43,42 @@ public sealed class WorkflowEmailNotificationService(
         await mailService.SendAsync(sender.Email, recipients, title, body, cancellationToken);
     }
 
+    public async Task SendToEmployeesAsync(
+        string senderEmployeeId,
+        IReadOnlyCollection<string> recipientEmployeeIds,
+        string title,
+        string details,
+        string routePath,
+        CancellationToken cancellationToken)
+    {
+        var sender = await FindEmployee(senderEmployeeId, cancellationToken);
+        if (sender is null || !IsEmail(sender.Email))
+            throw new InvalidOperationException($"พนักงาน {senderEmployeeId} ยังไม่มี Email สำหรับส่งการแจ้งเตือน");
+
+        var recipientEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var employeeId in recipientEmployeeIds
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(employeeId, senderEmployeeId, StringComparison.OrdinalIgnoreCase)) continue;
+            var recipient = await FindEmployee(employeeId, cancellationToken);
+            if (recipient is not null && IsEmail(recipient.Email)) recipientEmails.Add(recipient.Email);
+        }
+        if (recipientEmails.Count == 0) return;
+
+        var clientBaseUrl = (configuration["Application:ClientBaseUrl"] ?? "http://localhost:5043").TrimEnd('/');
+        var targetUrl = $"{clientBaseUrl}/{routePath.TrimStart('/')}";
+        static string E(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
+        var body = $$"""
+            <div style="font-family:Arial,'Tahoma',sans-serif;color:#1e293b;line-height:1.6">
+              <h2 style="color:#172442">{{E(title)}}</h2>
+              <p style="white-space:pre-wrap">{{E(details)}}</p>
+              <p><a href="{{E(targetUrl)}}" style="display:inline-block;padding:9px 14px;color:#fff;background:#2563eb;border-radius:6px;text-decoration:none">เปิดหน้ารายการ</a></p>
+            </div>
+            """;
+        await mailService.SendAsync(sender.Email, recipientEmails, title, body, cancellationToken);
+    }
+
     public async Task<HashSet<string>> GetRecipientEmailsAsync(
         string pageKey,
         IReadOnlyCollection<string>? recipientScope,

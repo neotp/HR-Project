@@ -1,1 +1,339 @@
-.tax-declaration{display:grid;gap:1rem}.tax-heading{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start}.tax-heading h2{margin:0;color:#10213f}.tax-heading p{margin:.35rem 0 0;color:#68758b}.tax-heading-actions{display:flex;align-items:end;gap:.7rem}.tax-heading-actions label{font-weight:700;color:#263a5c}.tax-heading-actions select,.tax-grid input,.tax-grid select,.tax-note textarea{display:block;width:100%;margin-top:.35rem;border:1px solid #cbd6e6;border-radius:8px;background:#fff;padding:.65rem .75rem;color:#10213f}.tax-heading-actions select{min-width:110px}.tax-status{border-radius:999px;padding:.48rem .75rem;font-weight:700;white-space:nowrap}.tax-status.confirmed{background:#dcfce7;color:#08783f}.tax-status.draft{background:#fff4dc;color:#9b5b00}.tax-loading{min-height:180px;display:flex;align-items:center;justify-content:center;gap:.65rem;color:#60708a}.tax-spinner{width:25px;height:25px;border:3px solid #dbe4f0;border-top-color:#ff6433;border-radius:50%;animation:tax-spin .75s linear infinite}@keyframes tax-spin{to{transform:rotate(360deg)}}.tax-message{padding:.75rem 1rem;border-radius:8px}.tax-message.error{background:#fff0f0;color:#b42318}.tax-message.success{background:#eafbf1;color:#08783f}.tax-declaration fieldset{border:0;padding:0;margin:0;display:grid;gap:1rem}.tax-section{border:1px solid #dfe6ef;border-radius:12px;padding:1rem;background:#fbfcfe}.tax-section h3{margin:0 0 .85rem;color:#1d3155}.tax-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem 1rem}.tax-grid label,.tax-note{font-weight:650;color:#304460}.tax-check-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin-top:1rem}.tax-check-grid label{padding:.7rem;border:1px solid #dbe4ef;border-radius:8px;background:#fff}.tax-check-grid input{accent-color:#ff6433}.tax-note{display:block;margin-top:.85rem}.tax-footer{display:flex;justify-content:space-between;align-items:center;gap:1rem}.tax-timestamp{display:flex;flex-direction:column;color:#718096;font-size:.87rem}.tax-buttons{display:flex;gap:.65rem}.tax-buttons button{border-radius:8px;padding:.7rem 1rem;font-weight:700;cursor:pointer}.tax-secondary{background:#fff;border:1px solid #c7d3e3;color:#243b63}.tax-primary{background:#ff6433;border:1px solid #ff6433;color:#fff}.tax-buttons button:disabled{opacity:.6;cursor:not-allowed}.tax-history{border-top:1px solid #e2e8f0;padding-top:.8rem}.tax-history summary{font-weight:700;color:#23416f;cursor:pointer}.tax-history div{display:grid;grid-template-columns:1fr 1fr auto;gap:1rem;padding:.65rem 0;border-bottom:1px solid #edf1f6;color:#53627a}.tax-history time{white-space:nowrap}@media(max-width:800px){.tax-heading,.tax-footer{flex-direction:column}.tax-grid,.tax-check-grid{grid-template-columns:1fr}.tax-heading-actions{width:100%}.tax-buttons{width:100%}.tax-buttons button{flex:1}.tax-history div{grid-template-columns:1fr}.tax-history time{white-space:normal}}
+.tax-declaration {
+    display: grid;
+    gap: 1rem;
+}
+
+.tax-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.tax-heading h2 {
+    margin: 0;
+    color: #1e293b;
+    font-size: 1.1rem;
+}
+
+.tax-heading p {
+    margin: .35rem 0 0;
+    color: #64748b;
+    font-size: .82rem;
+    line-height: 1.55;
+}
+
+.tax-heading-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: .7rem;
+}
+
+.tax-heading-actions label,
+.tax-grid label,
+.tax-note {
+    display: grid;
+    gap: .4rem;
+    color: #334155;
+    font-size: .84rem;
+    font-weight: 600;
+}
+
+.tax-heading-actions select,
+.tax-grid input,
+.tax-grid select,
+.tax-note textarea {
+    width: 100%;
+    min-height: 2.5rem;
+    margin: 0;
+    padding: .5rem .7rem;
+    color: #1e293b;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: .45rem;
+    outline: none;
+    font: inherit;
+    font-weight: 400;
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+
+.tax-heading-actions select {
+    min-width: 120px;
+}
+
+.tax-heading-actions select:focus,
+.tax-grid input:focus,
+.tax-grid select:focus,
+.tax-note textarea:focus {
+    border-color: #ff6b35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, .14);
+}
+
+.tax-declaration fieldset:disabled input,
+.tax-declaration fieldset:disabled select,
+.tax-declaration fieldset:disabled textarea {
+    color: #64748b;
+    background: #f8fafc;
+    cursor: not-allowed;
+}
+
+.tax-status {
+    padding: .48rem .75rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.tax-status.confirmed {
+    color: #047857;
+    background: #dcfce7;
+}
+
+.tax-status.draft {
+    color: #9a3412;
+    background: #ffedd5;
+}
+
+.tax-loading {
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .65rem;
+    color: #64748b;
+}
+
+.tax-spinner {
+    width: 25px;
+    height: 25px;
+    border: 3px solid #dbe4f0;
+    border-top-color: #ff6b35;
+    border-radius: 50%;
+    animation: tax-spin .75s linear infinite;
+}
+
+@keyframes tax-spin {
+    to { transform: rotate(360deg); }
+}
+
+.tax-message {
+    padding: .75rem 1rem;
+    border-radius: .55rem;
+}
+
+.tax-message.error {
+    color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+}
+
+.tax-message.success {
+    color: #047857;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+}
+
+.tax-declaration fieldset {
+    display: grid;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.tax-section {
+    padding: 1rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: .65rem;
+}
+
+.tax-section h3 {
+    margin: 0 0 .85rem;
+    color: #14213d;
+    font-size: .92rem;
+}
+
+.tax-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .8rem 1rem;
+}
+
+.tax-check-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .65rem;
+    margin-top: 1rem;
+}
+
+.tax-check-grid label {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    min-height: 2.75rem;
+    padding: .65rem .75rem;
+    color: #334155;
+    background: #fff;
+    border: 1px solid #dbe4ef;
+    border-radius: .45rem;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tax-check-grid label:has(input:checked) {
+    color: #9a3412;
+    background: #fff7ed;
+    border-color: #fdba74;
+}
+
+.tax-check-grid input {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+    margin: 0;
+    accent-color: #ff6b35;
+}
+
+.tax-declaration fieldset:disabled .tax-check-grid label {
+    cursor: not-allowed;
+}
+
+.tax-note {
+    margin-top: .85rem;
+}
+
+.tax-note textarea {
+    min-height: 5.5rem;
+    resize: vertical;
+}
+
+.tax-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: .15rem;
+}
+
+.tax-timestamp {
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+    color: #64748b;
+    font-size: .78rem;
+}
+
+.tax-buttons {
+    display: flex;
+    gap: .65rem;
+}
+
+.tax-buttons button {
+    min-height: 2.5rem;
+    padding: .6rem .9rem;
+    border-radius: .45rem;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tax-secondary {
+    color: #475569;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+}
+
+.tax-primary {
+    color: #fff;
+    background: #ff6b35;
+    border: 1px solid #ff6b35;
+}
+
+.tax-primary:hover:not(:disabled) {
+    background: #e85a2a;
+    border-color: #e85a2a;
+}
+
+.tax-buttons button:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.tax-history {
+    padding-top: .8rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.tax-history summary {
+    color: #334155;
+    font-size: .85rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tax-history div {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 1rem;
+    padding: .65rem 0;
+    color: #53627a;
+    border-bottom: 1px solid #edf1f6;
+    font-size: .82rem;
+}
+
+.tax-history time {
+    white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+    .tax-heading,
+    .tax-footer {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tax-heading-actions,
+    .tax-buttons {
+        width: 100%;
+    }
+
+    .tax-heading-actions label {
+        flex: 1;
+    }
+
+    .tax-buttons button {
+        flex: 1;
+    }
+}
+
+@media (max-width: 640px) {
+    .tax-grid,
+    .tax-check-grid,
+    .tax-history div {
+        grid-template-columns: 1fr;
+    }
+
+    .tax-heading-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tax-heading-actions select {
+        min-width: 0;
+    }
+
+    .tax-section {
+        padding: .85rem;
+    }
+
+    .tax-buttons {
+        flex-direction: column-reverse;
+    }
+
+    .tax-history time {
+        white-space: normal;
+    }
+}

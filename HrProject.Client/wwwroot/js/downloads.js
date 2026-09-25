@@ -163,6 +163,17 @@ window.hrDownload = {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+    },
+    downloadBytes: function (fileName, contentType, bytes) {
+        const blob = new Blob([bytes], { type: contentType || "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName || "attachment";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
     }
 };
 

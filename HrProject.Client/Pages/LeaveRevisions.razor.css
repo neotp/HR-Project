@@ -16,6 +16,7 @@
 .comment-toggle:hover { color: #f06432; background: #fff7ed; border-color: #fdba74; }
 .comment-chevron { display: inline-block; font-size: 1.15rem; line-height: 1; transition: transform .15s ease; }
 .comment-toggle[aria-expanded="true"] .comment-chevron { transform: rotate(90deg); }
+.comment-toggle.no-comments .comment-chevron,.comment-toggle.no-comments[aria-expanded="true"] .comment-chevron { transform:none; color:#2563eb; font-weight:700; }
 .comment-row-open td { background: #f8fafc; }
 .comment-detail-row > td { padding: 0 !important; background: #f8fafc !important; }
 .status-pill { display: inline-block; padding: .25rem .55rem; color: #c2410c; background: #ffedd5; border-radius: 999px; font-size: .78rem; font-weight: 600; white-space: nowrap; }

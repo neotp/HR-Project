@@ -9,6 +9,7 @@ public sealed record EmployeeListFilterRequest(
     string Position = "",
     string InternalExtension = "",
     string ResponsibilityProvince = "",
+    string ProductBusinessUnit = "",
     string Brand = "",
     string CommGroup = "");
 
@@ -33,5 +34,6 @@ public sealed record EmployeeListFilterOptions(
     IReadOnlyList<string> Departments,
     IReadOnlyList<string> Positions,
     IReadOnlyList<string> ResponsibilityProvinces,
+    IReadOnlyList<string> ProductBusinessUnits,
     IReadOnlyList<string> Brands,
     IReadOnlyList<string> CommGroups);

@@ -1,0 +1,103 @@
+<div class="string-search-select">
+    <input type="text"
+           value="@searchText"
+           placeholder="@Placeholder"
+           autocomplete="off"
+           disabled="@Disabled"
+           role="combobox"
+           aria-expanded="@isOpen"
+           aria-autocomplete="list"
+           @onfocus="Open"
+           @oninput="Search"
+           @onblur="CloseAfterSelectionAsync" />
+    <span class="chevron" aria-hidden="true">⌄</span>
+
+    @if (isOpen && !Disabled)
+    {
+        <div class="options" role="listbox">
+            @if (AllowEmpty)
+            {
+                <button type="button" class="option all-option"
+                        @onmousedown:preventDefault="true"
+                        @onclick="() => SelectAsync(string.Empty)">@AllText</button>
+            }
+            @if (FilteredItems.Count == 0)
+            {
+                <div class="empty">ไม่พบข้อมูลที่ค้นหา</div>
+            }
+            else
+            {
+                @foreach (var item in FilteredItems)
+                {
+                    <button type="button" class="option"
+                            role="option"
+                            aria-selected="@string.Equals(item, Value, StringComparison.OrdinalIgnoreCase)"
+                            @onmousedown:preventDefault="true"
+                            @onclick="() => SelectAsync(item)">@item</button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<string> Items { get; set; } = [];
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool AllowEmpty { get; set; } = true;
+    [Parameter] public string Placeholder { get; set; } = "-- เลือกหรือพิมพ์ค้นหา --";
+    [Parameter] public string AllText { get; set; } = "ทั้งหมด";
+
+    private string searchText = string.Empty;
+    private string synchronizedValue = string.Empty;
+    private bool isOpen;
+
+    private List<string> FilteredItems => Items
+        .Where(item => !string.IsNullOrWhiteSpace(item))
+        .Where(item => searchText.Trim().Length == 0 ||
+            item.Contains(searchText.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Take(150)
+        .ToList();
+
+    protected override void OnParametersSet()
+    {
+        var nextValue = Value ?? string.Empty;
+        if (string.Equals(nextValue, synchronizedValue, StringComparison.Ordinal))
+            return;
+
+        synchronizedValue = nextValue;
+        searchText = nextValue;
+    }
+
+    private void Open()
+    {
+        searchText = synchronizedValue;
+        isOpen = true;
+    }
+
+    private void Search(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        isOpen = true;
+    }
+
+    private async Task SelectAsync(string value)
+    {
+        synchronizedValue = value;
+        searchText = value;
+        isOpen = false;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    private async Task CloseAfterSelectionAsync()
+    {
+        await Task.Delay(160);
+        if (!isOpen)
+            return;
+
+        isOpen = false;
+        searchText = synchronizedValue;
+    }
+}

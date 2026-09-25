@@ -31,18 +31,18 @@ public sealed class LeaveQuotasController(
         const string sql = """
             SELECT q.id, q.employee_id, q.leave_type_id, t.name_th, q.quota_year,
                    q.quota_hours, usage.used_hours,
-                   q.quota_hours - usage.used_hours,
+                   GREATEST(q.quota_hours - usage.used_hours, 0),
                    q.notes, q.updated_at
             FROM public.leave_quotas q
             JOIN public.leave_types t ON t.id = q.leave_type_id
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(d.leave_hours), 0) AS used_hours
-                FROM public.leave_documents d
-                WHERE d.creator_employee_id = q.employee_id
-                  AND d.leave_type_id = q.leave_type_id
-                  AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(a.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations a
+                WHERE a.employee_id = q.employee_id
+                  AND a.leave_type_id = q.leave_type_id
+                  AND (a.source_quota_year = q.quota_year OR a.leave_year = q.quota_year)
+                  AND a.released_at IS NULL
             ) usage ON TRUE
             WHERE (@year IS NULL OR q.quota_year = @year)
               AND (@employee_id IS NULL OR q.employee_id = @employee_id)
@@ -102,12 +102,12 @@ public sealed class LeaveQuotasController(
             FROM public.leave_quotas q
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(d.leave_hours), 0) AS used_hours
-                FROM public.leave_documents d
-                WHERE d.creator_employee_id = q.employee_id
-                  AND d.leave_type_id = q.leave_type_id
-                  AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(a.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations a
+                WHERE a.employee_id = q.employee_id
+                  AND a.leave_type_id = q.leave_type_id
+                  AND (a.source_quota_year = q.quota_year OR a.leave_year = q.quota_year)
+                  AND a.released_at IS NULL
             ) usage ON TRUE
             WHERE q.employee_id = @employee_id
               AND q.leave_type_id = @leave_type_id
@@ -256,18 +256,18 @@ public sealed class LeaveQuotasController(
         const string sql = """
             SELECT q.id, q.employee_id, q.leave_type_id, t.name_th, q.quota_year,
                    q.quota_hours, usage.used_hours,
-                   q.quota_hours - usage.used_hours,
+                   GREATEST(q.quota_hours - usage.used_hours, 0),
                    q.notes, q.updated_at
             FROM public.leave_quotas q
             JOIN public.leave_types t ON t.id = q.leave_type_id
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(d.leave_hours), 0) AS used_hours
-                FROM public.leave_documents d
-                WHERE d.creator_employee_id = q.employee_id
-                  AND d.leave_type_id = q.leave_type_id
-                  AND EXTRACT(YEAR FROM d.leave_date)::INT = q.quota_year
-                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(a.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations a
+                WHERE a.employee_id = q.employee_id
+                  AND a.leave_type_id = q.leave_type_id
+                  AND (a.source_quota_year = q.quota_year OR a.leave_year = q.quota_year)
+                  AND a.released_at IS NULL
             ) usage ON TRUE
             WHERE q.id = @id
             """;

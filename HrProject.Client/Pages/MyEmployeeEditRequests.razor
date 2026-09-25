@@ -1,0 +1,44 @@
+@page "/employees/my-edit-requests"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>ขอแก้ไขเอกสาร | HR Project</PageTitle>
+<section class="manage-page my-edit-page">
+    <header class="page-header-card"><div class="page-header-content"><div class="page-header-text"><h1>ขอแก้ไขเอกสาร</h1><p>ติดตาม แก้ไข หรือยกเลิกคำขอที่คุณส่งไว้</p></div></div></header>
+    @if (Notice == "unavailable") { <div class="fallback-notice">ไม่สามารถเปิดรายการที่ระบุได้ ระบบจึงแสดงรายการคำขอของคุณแทน</div> }
+    <section class="content-card"><div class="content-card-header">คำขอของฉัน <span>@requests.Count รายการ</span></div><div class="content-card-body">
+        @if (isLoading) { <div class="empty-state">กำลังโหลดข้อมูล...</div> }
+        else if (!string.IsNullOrWhiteSpace(error)) { <div class="error-state">@error</div> }
+        else if (requests.Count == 0) { <div class="empty-state">ยังไม่มีคำขอแก้ไขเอกสาร</div> }
+        else
+        {
+            <div class="table-responsive"><table><thead><tr><th class="expand-column"></th><th>เลขที่คำขอ</th><th>พนักงาน</th><th>วันที่ขอ</th><th>เหตุผล</th><th>สถานะ</th><th></th></tr></thead><tbody>
+            @foreach (var item in requests)
+            {
+                <tr class="@(expandedRequestId == item.Id ? "expanded" : null)">
+                    <td><CommentToggleButton CommentCount="@item.CommentCount" IsExpanded="@(expandedRequestId == item.Id)" AriaLabel="@($"ความคิดเห็นของ {item.RequestNo}")" OnToggle="() => ToggleComments(item.Id)" /></td>
+                    <td><button class="document-link" @onclick="() => OpenEditor(item)">@item.RequestNo</button></td><td>@item.EmployeeName</td><td>@item.RequestedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td><td>@item.RequestReason</td><td><span class="status @item.Status.ToLowerInvariant()">@StatusText(item.Status)</span></td>
+                    <td><div class="row-actions">@if(item.Status=="PENDING"){<button class="edit" @onclick="() => OpenEditor(item)">แก้ไข</button><button class="cancel" disabled="@isSaving" @onclick="() => CancelRequest(item)">ยกเลิก</button>}else{<button class="view" @onclick="() => OpenEditor(item)">ดูรายละเอียด</button>}</div></td>
+                </tr>
+                @if (expandedRequestId == item.Id)
+                {
+                    <tr class="comment-row"><td colspan="7"><LeaveCommentThread EntityId="@item.Id" ApiPath="@($"api/employee-edit-requests/{item.Id}/comments")" DocumentLabel="@item.RequestNo" CurrentEmployeeId="@(user?.EmployeeId ?? string.Empty)" CommentCountChanged="count => UpdateCommentCount(item.Id, count)" /></td></tr>
+                }
+            }
+            </tbody></table></div>
+        }
+    </div></section>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name="requestId")] public long? RequestId { get; set; }
+    [SupplyParameterFromQuery(Name="notice")] public string? Notice { get; set; }
+    private List<EmployeeEditRequestDto> requests=[]; private CurrentMicrosoftUserDto? user; private long? expandedRequestId; private bool isLoading=true,isSaving; private string error="";
+    protected override async Task OnInitializedAsync(){try{user=await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");if(string.IsNullOrWhiteSpace(user?.EmployeeId))throw new InvalidOperationException("ไม่พบบัญชีพนักงาน");await Reload();if(RequestId.HasValue&&requests.Any(x=>x.Id==RequestId.Value))expandedRequestId=RequestId;}catch(Exception ex){error=$"โหลดคำขอไม่สำเร็จ: {ex.Message}";}finally{isLoading=false;}}
+    private async Task Reload()=>requests=await Http.GetFromJsonAsync<List<EmployeeEditRequestDto>>($"api/employee-edit-requests?requestedBy={Uri.EscapeDataString(user!.EmployeeId)}")??[];
+    private void ToggleComments(long id)=>expandedRequestId=expandedRequestId==id?null:id;
+    private void UpdateCommentCount(long id,int count){var index=requests.FindIndex(item=>item.Id==id);if(index>=0)requests[index]=requests[index] with { CommentCount=count };}
+    private async Task OpenEditor(EmployeeEditRequestDto item){try{var employees=await Http.GetFromJsonAsync<List<Employee>>($"api/employees/lookup?search={Uri.EscapeDataString(item.EmployeeId)}")??[];var employee=employees.FirstOrDefault(x=>string.Equals(x.EmployeeCode,item.EmployeeId,StringComparison.OrdinalIgnoreCase));if(employee is null){error="ไม่พบข้อมูลพนักงานของคำขอนี้";return;}Navigation.NavigateTo($"/employees/{employee.Id}?editRequestId={item.Id}&from=my-edit-requests");}catch(Exception ex){error=$"เปิดคำขอไม่สำเร็จ: {ex.Message}";}}
+    private async Task CancelRequest(EmployeeEditRequestDto item){if(isSaving)return;isSaving=true;try{var response=await Http.PutAsync($"api/employee-edit-requests/{item.Id}/cancel",null);if(!response.IsSuccessStatusCode){error=(await response.Content.ReadAsStringAsync()).Trim('"');return;}await Reload();}finally{isSaving=false;}}
+    private static string StatusText(string value)=>value switch{"PENDING"=>"รออนุมัติ","APPROVED"=>"อนุมัติแล้ว","REJECTED"=>"ไม่อนุมัติ","CANCELLED"=>"ยกเลิก",_=>value};
+}

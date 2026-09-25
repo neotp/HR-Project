@@ -23,39 +23,15 @@
             <div class="employee-search-fields">
                 <label>
                     <span>รหัส ชื่อ หรืออีเมล</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="searchText" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหารหัส ชื่อ หรืออีเมล" />
-                        @if (!string.IsNullOrWhiteSpace(searchText))
-                        {
-                            <button type="button" aria-label="ล้างคำค้นหา" @onclick="ClearMainSearch">×</button>
-                        }
-                    </div>
+                    <EmployeeSearchSelect Items="employees" @bind-Value="searchText" @bind-Value:after="ResetPaging" Placeholder="-- เลือกหรือพิมพ์ค้นหาพนักงาน --" />
                 </label>
                 <label>
                     <span>ตำแหน่ง</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="positionSearch" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหาตำแหน่ง" />
-                        @if (!string.IsNullOrWhiteSpace(positionSearch))
-                        {
-                            <button type="button" aria-label="ล้างตำแหน่ง" @onclick="ClearPositionSearch">×</button>
-                        }
-                    </div>
+                    <StringSearchSelect Items="@PositionSearchOptions" @bind-Value="positionSearch" @bind-Value:after="ResetPaging" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำแหน่ง --" />
                 </label>
                 <label>
                     <span>แผนก</span>
-                    <div class="employee-search-input">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                        <input @bind="departmentSearch" @bind:event="oninput" @bind:after="ResetPaging"
-                               placeholder="ค้นหาแผนก" />
-                        @if (!string.IsNullOrWhiteSpace(departmentSearch))
-                        {
-                            <button type="button" aria-label="ล้างแผนก" @onclick="ClearDepartmentSearch">×</button>
-                        }
-                    </div>
+                    <StringSearchSelect Items="@DepartmentSearchOptions" @bind-Value="departmentSearch" @bind-Value:after="ResetPaging" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" />
                 </label>
             </div>
         </div>
@@ -122,6 +98,18 @@
     private string searchText = string.Empty;
     private string positionSearch = string.Empty;
     private string departmentSearch = string.Empty;
+    private IReadOnlyList<string> PositionSearchOptions => employees
+        .Select(employee => employee.Position)
+        .Where(position => !string.IsNullOrWhiteSpace(position))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(position => position)
+        .ToList();
+    private IReadOnlyList<string> DepartmentSearchOptions => employees
+        .Select(employee => employee.Department)
+        .Where(department => !string.IsNullOrWhiteSpace(department))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(department => department)
+        .ToList();
     private string? loadError;
     private int currentPage = 1;
     private int pageSize = 10;

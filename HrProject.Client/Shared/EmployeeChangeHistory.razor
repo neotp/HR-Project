@@ -125,8 +125,7 @@
         {
             try
             {
-                using var json = System.Text.Json.JsonDocument.Parse(value ?? "[]");
-                return $"{json.RootElement.GetArrayLength()} รายการ";
+                return FormatHistory(fieldKey, value);
             }
             catch { return "ข้อมูลรายการถูกเปลี่ยนแปลง"; }
         }
@@ -147,8 +146,51 @@
         "CREATE_REQUEST" => "ส่งคำขอแก้ไข", "APPROVE" => "อนุมัติ",
         "REJECT" => "ไม่อนุมัติ", "CANCEL" => "ยกเลิกคำขอ",
         "PERSONAL_DOCUMENT_ADDED" => "เพิ่มเอกสารส่วนตัว",
-        "PERSONAL_DOCUMENT_DELETED" => "ลบเอกสารส่วนตัว", _ => action
+        "PERSONAL_DOCUMENT_DELETED" => "ลบเอกสารส่วนตัว",
+        "RECRUIT_DOCUMENT_LINK_ADDED" => "เพิ่มลิงก์เอกสาร Recruit",
+        "RECRUIT_DOCUMENT_LINK_DELETED" => "ลบลิงก์เอกสาร Recruit",
+        "EMPLOYEE_INTERNAL_UPDATED" => "แก้ไขข้อมูลภายในบริษัท",
+        "EMPLOYEE_ACCOUNTING_UPDATED" => "แก้ไขข้อมูลทางบัญชี",
+        "EMPLOYEE_WORK_UPDATED" => "แก้ไขประวัติการทำงาน",
+        "EMPLOYEE_TRAINING_UPDATED" => "แก้ไขประวัติการอบรม & สัมมนา",
+        _ => action
     };
     private static string ActionClass(string action) => action.ToLowerInvariant().Replace('_', '-');
     private static string FormatDateTime(DateTimeOffset value) => value.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+
+    private static string FormatHistory(string fieldKey, string? value)
+    {
+        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        if (fieldKey.Equals("work.history", StringComparison.OrdinalIgnoreCase))
+        {
+            var rows = System.Text.Json.JsonSerializer.Deserialize<List<EmployeeWorkHistoryItem>>(value ?? "[]", options) ?? [];
+            if (rows.Count == 0) return "ไม่มีรายการ";
+            return string.Join("\n", rows.Select((row, index) =>
+                $"{index + 1}. {Part("ระยะเวลา", row.Period)}, {Part("BU", row.BusinessUnit)}, " +
+                $"{Part("แผนก", row.Department)}, {Part("ตำแหน่ง", row.Position)}, " +
+                $"{Part("Brand", row.Brand)}, {Part("Comm.Group", row.CommGroup)}"));
+        }
+        if (fieldKey.Equals("training.history", StringComparison.OrdinalIgnoreCase))
+        {
+            var rows = System.Text.Json.JsonSerializer.Deserialize<List<EmployeeTrainingItem>>(value ?? "[]", options) ?? [];
+            if (rows.Count == 0) return "ไม่มีรายการ";
+            return string.Join("\n", rows.Select((row, index) =>
+                $"{index + 1}. {Part("หลักสูตร", row.CourseName)}, {Part("ช่วงเวลา", row.TrainingPeriod)}, " +
+                $"{Part("สถานที่", row.Location)}"));
+        }
+        if (fieldKey.Equals("education.history", StringComparison.OrdinalIgnoreCase))
+        {
+            var rows = System.Text.Json.JsonSerializer.Deserialize<List<EmployeeEducationItem>>(value ?? "[]", options) ?? [];
+            if (rows.Count == 0) return "ไม่มีรายการ";
+            return string.Join("\n", rows.Select((row, index) =>
+                $"{index + 1}. {Part("ระดับ", row.Level)}, {Part("สถานศึกษา", row.Institution)}, " +
+                $"{Part("สาขา", row.Major)}, {Part("ปีที่จบ", row.GraduationYear)}"));
+        }
+
+        using var json = System.Text.Json.JsonDocument.Parse(value ?? "[]");
+        return $"{json.RootElement.GetArrayLength()} รายการ";
+    }
+
+    private static string Part(string label, string? value) =>
+        $"{label}: {(string.IsNullOrWhiteSpace(value) ? "-" : value.Trim())}";
 }

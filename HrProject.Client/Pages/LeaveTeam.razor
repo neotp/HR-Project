@@ -105,13 +105,13 @@
                     }
 
                     <label class="full-width"><span class="field-label">ประเภทการลา<span class="required">*</span></span>
-                        <select @bind="leaveTypeId">
+                        <SearchableSelect><select @bind="leaveTypeId">
                             <option value="0">-- เลือกประเภทการลา --</option>
                             @foreach (var leaveType in leaveTypes)
                             {
                                 <option value="@leaveType.Id">@leaveType.NameTh</option>
                             }
-                        </select>
+                        </select></SearchableSelect>
                     </label>
                     <label class="full-width"><span class="field-label">วันที่ขอลา<span class="required">*</span></span>
                         <input value="@leaveDate.ToString("dd/MM/yyyy")" disabled />

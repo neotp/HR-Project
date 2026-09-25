@@ -276,7 +276,7 @@ public sealed class EmployeeTaxDeductionsController(
         if (string.IsNullOrWhiteSpace(actor)) return false;
         var owner = await GetEmployeeCode(employeeId, token);
         if (string.Equals(actor, owner, StringComparison.OrdinalIgnoreCase)) return true;
-        return await actionPermissionService.HasPermission(actor, "EMPLOYEES", "VIEW_PERSONAL", token)
+        return await actionPermissionService.HasPermission(actor, "EMPLOYEES", "VIEW_TAX_DEDUCTION", token)
             || await pageAccessService.HasAccess(actor, "EMPLOYEE_TAX_DEDUCTION_REPORT", token);
     }
 

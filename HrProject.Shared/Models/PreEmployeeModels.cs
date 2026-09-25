@@ -11,7 +11,8 @@ public sealed record PreEmployeeSummaryDto(
     string Department,
     string Position,
     string Status,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool DidNotStartWork);
 
 public sealed record PreEmployeeDto(
     long Id,
@@ -51,7 +52,9 @@ public sealed record PreEmployeeDto(
     string? ConvertedBy,
     string? ConvertedByName,
     DateTimeOffset? ConvertedAt,
-    Employee EmployeeData);
+    Employee EmployeeData,
+    bool DidNotStartWork,
+    string? Url);
 
 public sealed record SavePreEmployeeRequest(
     string? SourceSystem,
@@ -74,6 +77,7 @@ public sealed record SavePreEmployeeRequest(
     string? LeaveApproverName,
     string? EmploymentType,
     string? WorkLocation,
-    Employee? EmployeeData = null);
+    Employee? EmployeeData = null,
+    string? Url = null);
 
 public sealed record ConvertPreEmployeeResult(long PreEmployeeId, long EmployeeId, string EmployeeCode);

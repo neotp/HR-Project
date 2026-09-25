@@ -12,6 +12,7 @@
 .comment-toggle:hover { color:#f06432; background:#fff7ed; border-color:#fdba74; }
 .comment-chevron { display:inline-block; font-size:1.35rem; line-height:1; transition:transform .16s ease; }
 .comment-toggle[aria-expanded="true"] .comment-chevron { transform:rotate(90deg); }
+.comment-toggle.no-comments .comment-chevron,.comment-toggle.no-comments[aria-expanded="true"] .comment-chevron{transform:none;color:#2563eb;font-weight:700}
 .comment-row-open td { background:#fffaf7; }
 .comment-detail-row>td { display:table-cell!important; padding:0!important; background:#f8fafc!important; white-space:normal!important; }
 .result-tag,.review-tag,.response-tag { display:inline-flex; padding:.24rem .55rem; border-radius:999px; font-size:.75rem; font-weight:700; white-space:nowrap; }.result-late { color:#9a5800; background:#fff2c7; }.result-absent { color:#b91c1c; background:#fee2e2; }.result-present { color:#047857; background:#d1fae5; }.review-tag { color:#7c3aed; background:#ede9fe; }.response-submitted { color:#1d4ed8; background:#dbeafe; }.response-approved { color:#047857; background:#d1fae5; }.response-rejected { color:#b91c1c; background:#fee2e2; }.response-none { color:#64748b; background:#f1f5f9; }.review-tags { display:flex; flex-wrap:wrap; gap:.3rem; }

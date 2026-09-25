@@ -101,14 +101,13 @@
                                     <tr class="@(expandedCommentRequestId == request.Id ? "comment-row-open" : null)">
                                         @if (CanApproveQuotaRequest || CanRejectQuotaRequest)
                                         {
-                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(request.Status != "PENDING")" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
+                                            <td class="select-column"><input type="checkbox" aria-label="เลือก @request.RequestNo" disabled="@(!CanReviewRequest(request))" checked="@selectedIds.Contains(request.Id)" @onchange="eventArgs => ToggleItem(request.Id, (bool?)eventArgs.Value == true)" /></td>
                                         }
                                         <td>
-                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @request.RequestNo"
-                                                    aria-expanded="@(expandedCommentRequestId == request.Id)"
-                                                    @onclick="() => ToggleComments(request.Id)">
-                                                <span class="comment-chevron">›</span>
-                                            </button>
+                                            <CommentToggleButton CommentCount="@request.CommentCount"
+                                                                 IsExpanded="@(expandedCommentRequestId == request.Id)"
+                                                                 AriaLabel="@($"ความคิดเห็นของ {request.RequestNo}")"
+                                                                 OnToggle="() => ToggleComments(request.Id)" />
                                             <LeaveQuotaRequestHoverPreview Request="@request" EmployeeName="@EmployeeName(request.EmployeeId)" EmployeeDepartment="@EmployeeDepartment(request.EmployeeId)"><button class="request-number" type="button" @onclick="() => OpenRequest(request)">@request.RequestNo</button></LeaveQuotaRequestHoverPreview>
                                         </td>
                                         <td>@EmployeeName(request.EmployeeId)</td>
@@ -137,8 +136,12 @@
                                     {
                                         <tr class="comment-detail-row">
                                             <td colspan="@(CanApproveQuotaRequest || CanRejectQuotaRequest ? 10 : 9)">
-                                                <LeaveQuotaRequestCommentThread LeaveQuotaRequestId="@request.Id"
-                                                                                CanComment="@CanComment(request)" />
+                                                <LeaveCommentThread EntityId="@request.Id"
+                                                                    ApiPath="@($"api/leave-quota-requests/{request.Id}/comments")"
+                                                                    DocumentLabel="@request.RequestNo"
+                                                                    CurrentEmployeeId="@CurrentEmployeeId"
+                                                                    CanComment="@CanComment(request)"
+                                                                    CommentCountChanged="count => UpdateCommentCount(request.Id,count)" />
                                             </td>
                                         </tr>
                                     }
@@ -168,12 +171,12 @@
                 <div class="form-grid readonly-grid">
                     <label>
                         ปีโควต้า
-                        <select @bind="createQuotaYear">
+                        <SearchableSelect><select @bind="createQuotaYear">
                             @foreach (var year in QuotaYearOptions)
                             {
                                 <option value="@year">@year</option>
                             }
-                        </select>
+                        </select></SearchableSelect>
                     </label>
                     <div class="add-row-action full-width">
                         <button class="btn btn-add-employee" type="button" @onclick="AddEmployee">
@@ -222,13 +225,13 @@
                                                 </td>
                                                 <td>@EmployeeDepartment(row.EmployeeId)</td>
                                                 <td>
-                                                    <select @bind="row.LeaveTypeId">
+                                                    <SearchableSelect><select @bind="row.LeaveTypeId">
                                                         <option value="0">-- เลือกประเภท --</option>
                                                         @foreach (var type in leaveTypes)
                                                         {
                                                             <option value="@type.Id">@type.NameTh</option>
                                                         }
-                                                    </select>
+                                                    </select></SearchableSelect>
                                                 </td>
                                                 <td>
                                                     <input type="number" min="0.5" step="0.5"
@@ -308,13 +311,13 @@
             </div>
             <footer class="request-modal-footer">
                 <button class="btn btn-reset" type="button" @onclick="CloseRequest">ปิด</button>
-                @if (selectedRequest.Status == "PENDING" && CanRejectQuotaRequest)
+                @if (CanRejectRequest(selectedRequest))
                 {
                     <button class="btn btn-reject" type="button" disabled="@isReviewing" @onclick="RejectRequest">
                         @(isReviewing ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
                     </button>
                 }
-                @if (selectedRequest.Status == "PENDING" && CanApproveQuotaRequest)
+                @if (CanApproveRequest(selectedRequest))
                 {
                     <button class="btn btn-approve" type="button" disabled="@isReviewing" @onclick="ApproveRequest">
                         @(isReviewing ? "กำลังดำเนินการ..." : "อนุมัติ")
@@ -366,7 +369,7 @@
     private string CurrentEmployeeName => currentUser?.EmployeeName ?? currentUser?.DisplayName ?? string.Empty;
     private bool CanApproveQuotaRequest => allowedActions.Contains("APPROVE") || allowedActions.Contains("VIEW_ALL");
     private bool CanRejectQuotaRequest => allowedActions.Contains("REJECT") || allowedActions.Contains("VIEW_ALL");
-    private List<LeaveQuotaRequestDto> PageSelectableRequests => PagedRequests.Where(item => item.Status == "PENDING").ToList();
+    private List<LeaveQuotaRequestDto> PageSelectableRequests => PagedRequests.Where(CanReviewRequest).ToList();
     private bool AreAllPageItemsSelected => PageSelectableRequests.Count > 0 && PageSelectableRequests.All(item => selectedIds.Contains(item.Id));
 
     protected override async Task OnInitializedAsync()
@@ -426,9 +429,22 @@
     private Task SetStatusFilters(IReadOnlyCollection<string> values) { selectedStatuses.Clear(); selectedStatuses.UnionWith(values); Filter(); return Task.CompletedTask; }
     private void ToggleComments(long requestId) =>
         expandedCommentRequestId = expandedCommentRequestId == requestId ? null : requestId;
+    private void UpdateCommentCount(long requestId,int count)
+    {
+        requests=requests.Select(item=>item.Id==requestId?item with{CommentCount=count}:item).ToList();
+        filteredRequests=filteredRequests.Select(item=>item.Id==requestId?item with{CommentCount=count}:item).ToList();
+    }
     private bool CanComment(LeaveQuotaRequestDto request) =>
         string.Equals(CurrentEmployeeId, request.RequestedBy, StringComparison.OrdinalIgnoreCase) ||
         allowedActions.Contains("APPROVE") || allowedActions.Contains("REJECT");
+    private bool IsOwnRequest(LeaveQuotaRequestDto request) =>
+        string.Equals(CurrentEmployeeId, request.RequestedBy, StringComparison.OrdinalIgnoreCase);
+    private bool CanReviewRequest(LeaveQuotaRequestDto request) =>
+        request.Status == "PENDING" && !IsOwnRequest(request);
+    private bool CanApproveRequest(LeaveQuotaRequestDto request) =>
+        CanApproveQuotaRequest && CanReviewRequest(request);
+    private bool CanRejectRequest(LeaveQuotaRequestDto request) =>
+        CanRejectQuotaRequest && CanReviewRequest(request);
 
     private void OpenCreate()
     {
@@ -545,7 +561,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && CanApproveRequest(item)).ToList())
         {
             try
             {
@@ -571,7 +587,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && item.Status == "PENDING").ToList())
+        foreach (var request in requests.Where(item => selectedIds.Contains(item.Id) && CanRejectRequest(item)).ToList())
         {
             try
             {
@@ -591,7 +607,7 @@
 
     private async Task ReviewRequest(string action, string actionText)
     {
-        if (selectedRequest is null || isReviewing)
+        if (selectedRequest is null || isReviewing || !CanReviewRequest(selectedRequest))
             return;
 
         reviewError = null;

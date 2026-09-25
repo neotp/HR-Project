@@ -49,6 +49,7 @@
 .comment-toggle:hover { color:#f06432; background:#fff7ed; border-color:#fdba74; }
 .comment-chevron { display:inline-block; font-size:1.35rem; line-height:1; transition:transform .16s ease; }
 .comment-toggle[aria-expanded="true"] .comment-chevron { transform:rotate(90deg); }
+.comment-toggle.no-comments .comment-chevron,.comment-toggle.no-comments[aria-expanded="true"] .comment-chevron{transform:none;color:#2563eb;font-weight:700}
 .comment-row-open td { background:#fffaf7; }
 .comment-detail-row>td { padding:0!important; background:#f8fafc!important; }
 .history-button { min-width:145px; padding:.48rem .7rem; color:#6d28d9; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:.45rem; font-weight:700; cursor:pointer; white-space:nowrap; }.history-button:hover { color:#fff; background:#7c3aed; border-color:#7c3aed; }

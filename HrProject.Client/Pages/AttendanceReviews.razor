@@ -38,9 +38,9 @@
                     </div>
                 </details>
             </div>
-            <label>ปี<select @bind="selectedYear" @bind:after="ChangeYear">
+            <label>ปี<SearchableSelect><select @bind="selectedYear" @bind:after="ChangeYear">
                 @foreach (var year in AvailableYears) { <option value="@year">@year</option> }
-            </select></label>
+            </select></SearchableSelect></label>
             <div class="quarter-filter" role="group" aria-label="เลือกไตรมาส">
                 @for (var quarter = 1; quarter <= 4; quarter++)
                 {
@@ -69,8 +69,8 @@
                         <td>@item.StartTime.ToString("HH:mm")–@item.EndTime.ToString("HH:mm")</td>
                         <td><strong>@(string.IsNullOrWhiteSpace(item.Title) ? item.EventTypeName : item.Title)</strong><small>@(string.IsNullOrWhiteSpace(item.Details) ? "-" : item.Details)</small></td>
                         <td><div class="event-review-actions">
-                            @if (canReject) { <button type="button" class="reject-button" @onclick='() => ConfirmEventDecision(item, "REJECT")'>ไม่อนุมัติ</button> }
-                            @if (canApprove) { <button type="button" class="approve-button" @onclick='() => ConfirmEventDecision(item, "APPROVE")'>อนุมัติ</button> }
+                            @if (canReject && !IsOwnEvent(item)) { <button type="button" class="reject-button" @onclick='() => ConfirmEventDecision(item, "REJECT")'>ไม่อนุมัติ</button> }
+                            @if (canApprove && !IsOwnEvent(item)) { <button type="button" class="approve-button" @onclick='() => ConfirmEventDecision(item, "APPROVE")'>อนุมัติ</button> }
                         </div></td>
                     </tr>
                 }
@@ -93,12 +93,10 @@
                 {
                     <tr class="@(expandedCommentDailyId == item.AttendanceDailyId ? "comment-row-open" : null)">
                         <td>
-                            <button class="comment-toggle" type="button"
-                                    aria-label="ความคิดเห็นของ @item.EmployeeName วันที่ @item.WorkDate.ToString("dd/MM/yyyy")"
-                                    aria-expanded="@(expandedCommentDailyId == item.AttendanceDailyId)"
-                                    @onclick="() => ToggleComments(item.AttendanceDailyId)">
-                                <span class="comment-chevron">›</span>
-                            </button>
+                            <CommentToggleButton CommentCount="@item.CommentCount"
+                                                 IsExpanded="@(expandedCommentDailyId == item.AttendanceDailyId)"
+                                                 AriaLabel="@($"ความคิดเห็นของ {item.EmployeeName} วันที่ {item.WorkDate:dd/MM/yyyy}")"
+                                                 OnToggle="() => ToggleComments(item.AttendanceDailyId)" />
                             @item.WorkDate.ToString("dd/MM/yyyy")
                         </td>
                         <td><strong>@item.EmployeeName</strong><small>@EmployeeCodeFormat.Display(item.EmployeeId)</small></td>
@@ -112,7 +110,7 @@
                     {
                         <tr class="comment-detail-row">
                             <td colspan="7">
-                                <AttendanceCommentThread AttendanceDailyId="@item.AttendanceDailyId" />
+                                <LeaveCommentThread EntityId="@item.AttendanceDailyId" ApiPath="@($"api/attendance/{item.AttendanceDailyId}/comments")" DocumentLabel="@($"รายการการมาทำงาน {item.WorkDate:dd/MM/yyyy}")" CurrentEmployeeId="@currentEmployeeId" CommentCountChanged="count => UpdateCommentCount(item.AttendanceDailyId,count)" />
                             </td>
                         </tr>
                     }
@@ -174,8 +172,8 @@
             <footer><button type="button" class="close-button" disabled="@isSaving" @onclick="CloseDetail">ปิด</button>
                 @if (selectedItem.LatestResponse?.Status == "SUBMITTED")
                 {
-                    @if (canReject) { <button type="button" class="reject-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmReject">ไม่อนุมัติรายการที่เลือก</button> }
-                    @if (canApprove) { <button type="button" class="approve-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmApprove">อนุมัติรายการที่เลือก</button> }
+                    @if (canReject && !IsOwnResponse(selectedItem)) { <button type="button" class="reject-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmReject">ไม่อนุมัติรายการที่เลือก</button> }
+                    @if (canApprove && !IsOwnResponse(selectedItem)) { <button type="button" class="approve-button" disabled="@(isSaving || selectedReviewIssueTypes.Count == 0)" @onclick="ConfirmApprove">อนุมัติรายการที่เลือก</button> }
                 }
             </footer>
         </section>
@@ -195,6 +193,8 @@
 <ConfirmActionDialog IsOpen="@eventConfirmOpen" Title="@eventConfirmTitle" Message="@eventConfirmMessage" ConfirmText="@eventConfirmText" Tone="@eventConfirmTone" IsBusy="@isSaving" BusyText="กำลังบันทึก..." OnConfirm="ExecuteEventDecision" OnCancel="CloseEventConfirmation" />
 
 @code {
+    [SupplyParameterFromQuery(Name = "dailyId")] public long? TargetDailyId { get; set; }
+    [SupplyParameterFromQuery(Name = "workDate")] public string? TargetWorkDate { get; set; }
     private List<AttendanceReviewItemDto> items = [];
     private List<AttendanceReviewItemDto> filteredItems = [];
     private List<AttendanceCalendarEventReviewDto> eventReviews = [];
@@ -224,6 +224,7 @@
     private readonly HashSet<string> selectedReviewIssueTypes = new(StringComparer.OrdinalIgnoreCase);
     private bool canApprove;
     private bool canReject;
+    private string currentEmployeeId = string.Empty;
     private bool isSaving;
     private string? actionError;
     private bool confirmOpen;
@@ -264,7 +265,25 @@
     }
     private IEnumerable<int> AvailableYears => Enumerable.Range(DateTime.Today.Year - 4, 5).Reverse();
 
-    protected override async Task OnInitializedAsync() => await Reload();
+    protected override async Task OnInitializedAsync()
+    {
+        if (DateOnly.TryParse(TargetWorkDate, out var targetDate))
+        {
+            selectedYear = targetDate.Year;
+            selectedQuarter = ((targetDate.Month - 1) / 3) + 1;
+        }
+        await Reload();
+        if (TargetDailyId.HasValue)
+        {
+            var target = filteredItems.FirstOrDefault(item => item.AttendanceDailyId == TargetDailyId.Value);
+            if (target is not null)
+            {
+                expandedCommentDailyId = target.AttendanceDailyId;
+                var index = filteredItems.FindIndex(item => item.AttendanceDailyId == target.AttendanceDailyId);
+                if (index >= 0) currentPage = (index / pageSize) + 1;
+            }
+        }
+    }
 
     private async Task Reload()
     {
@@ -273,6 +292,7 @@
         {
             var user = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
             if (string.IsNullOrWhiteSpace(user?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
+            currentEmployeeId = user.EmployeeId;
             var permissions = await Http.GetFromJsonAsync<CurrentPageActionPermissionsDto>($"api/page-permissions/current-actions?employeeId={Uri.EscapeDataString(user.EmployeeId)}&pageKey=ATTENDANCE_REVIEWS");
             canApprove = permissions?.AllowedActions.Contains("APPROVE") == true;
             canReject = permissions?.AllowedActions.Contains("REJECT") == true;
@@ -308,6 +328,11 @@
     private void ClearStatusSelection() { selectedStatuses.Clear(); ApplyFilter(); }
     private void ToggleComments(long attendanceDailyId) =>
         expandedCommentDailyId = expandedCommentDailyId == attendanceDailyId ? null : attendanceDailyId;
+    private void UpdateCommentCount(long id,int count)
+    {
+        items=items.Select(item=>item.AttendanceDailyId==id?item with{CommentCount=count}:item).ToList();
+        filteredItems=filteredItems.Select(item=>item.AttendanceDailyId==id?item with{CommentCount=count}:item).ToList();
+    }
     private bool MatchesStatusFilter(AttendanceReviewItemDto item) => selectedStatuses.Count == 0 ||
         (selectedStatuses.Contains("LATE") && item.CalculatedLateMinutes > 0) ||
         (selectedStatuses.Contains("ABSENT") && item.CalculatedMissingMinutes > 0) ||
@@ -326,6 +351,7 @@
 
     private void ConfirmEventDecision(AttendanceCalendarEventReviewDto item, string decision)
     {
+        if (IsOwnEvent(item)) return;
         selectedEventReview = item;
         eventPendingDecision = decision;
         eventConfirmTitle = decision == "APPROVE" ? "ยืนยันการอนุมัติ Event ย้อนหลัง" : "ยืนยันการไม่อนุมัติ Event ย้อนหลัง";
@@ -338,7 +364,7 @@
 
     private async Task ExecuteEventDecision()
     {
-        if (selectedEventReview is null || isSaving) return;
+        if (selectedEventReview is null || isSaving || IsOwnEvent(selectedEventReview)) return;
         isSaving = true; loadError = null;
         try
         {
@@ -352,7 +378,7 @@
 
     private async Task ExecuteDecision()
     {
-        if (selectedItem?.LatestResponse is null || isSaving) return;
+        if (selectedItem?.LatestResponse is null || isSaving || IsOwnResponse(selectedItem)) return;
         isSaving = true; actionError = null;
         try
         {
@@ -363,6 +389,11 @@
         catch (Exception exception) { actionError = $"บันทึกผลตรวจสอบไม่สำเร็จ: {exception.Message}"; }
         finally { isSaving = false; }
     }
+
+    private bool IsOwnResponse(AttendanceReviewItemDto item) =>
+        string.Equals(item.LatestResponse?.SubmittedBy, currentEmployeeId, StringComparison.OrdinalIgnoreCase);
+    private bool IsOwnEvent(AttendanceCalendarEventReviewDto item) =>
+        string.Equals(item.CreatedBy, currentEmployeeId, StringComparison.OrdinalIgnoreCase);
 
     private async Task PreviewAttachment(AttendanceResponseAttachmentDto file)
     {

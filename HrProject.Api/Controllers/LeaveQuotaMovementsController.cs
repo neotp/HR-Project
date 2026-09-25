@@ -42,7 +42,7 @@ public sealed class LeaveQuotaMovementsController(
                      WHERE type_key.employee_id = key.employee_id AND type_key.quota_year = key.quota_year),
                    COALESCE(quota.total_hours, 0),
                    COALESCE(usage.used_hours, 0),
-                   COALESCE(balance.remaining_hours, 0),
+                   GREATEST(COALESCE(quota.total_hours, 0) - COALESCE(usage.used_hours, 0), 0),
                    last_movement.last_movement_at
             FROM employee_years key
             LEFT JOIN public.employees e ON e.employee_code = key.employee_id
@@ -56,11 +56,11 @@ public sealed class LeaveQuotaMovementsController(
             ) quota ON TRUE
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(d.leave_hours), 0) AS used_hours
-                FROM public.leave_documents d
-                WHERE d.creator_employee_id = key.employee_id
-                  AND EXTRACT(YEAR FROM d.leave_date)::INT = key.quota_year
-                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(a.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations a
+                WHERE a.employee_id = key.employee_id
+                  AND (a.source_quota_year = key.quota_year OR a.leave_year = key.quota_year)
+                  AND a.released_at IS NULL
             ) usage ON TRUE
             LEFT JOIN LATERAL
             (
@@ -120,19 +120,20 @@ public sealed class LeaveQuotaMovementsController(
                  WHERE employee_id = @employee_id AND quota_year = @year
             )
             SELECT key.leave_type_id, t.name_th, COALESCE(q.quota_hours, 0),
-                   COALESCE(usage.used_hours, 0), COALESCE(balance.remaining_hours, 0)
+                   COALESCE(usage.used_hours, 0),
+                   GREATEST(COALESCE(q.quota_hours, 0) - COALESCE(usage.used_hours, 0), 0)
             FROM type_keys key
             JOIN public.leave_types t ON t.id = key.leave_type_id
             LEFT JOIN public.leave_quotas q ON q.employee_id = @employee_id
                  AND q.quota_year = @year AND q.leave_type_id = key.leave_type_id
             LEFT JOIN LATERAL
             (
-                SELECT COALESCE(SUM(d.leave_hours), 0) AS used_hours
-                FROM public.leave_documents d
-                WHERE d.creator_employee_id = @employee_id
-                  AND d.leave_type_id = key.leave_type_id
-                  AND EXTRACT(YEAR FROM d.leave_date)::INT = @year
-                  AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                SELECT COALESCE(SUM(a.allocated_hours), 0) AS used_hours
+                FROM public.leave_document_quota_allocations a
+                WHERE a.employee_id = @employee_id
+                  AND a.leave_type_id = key.leave_type_id
+                  AND (a.source_quota_year = @year OR a.leave_year = @year)
+                  AND a.released_at IS NULL
             ) usage ON TRUE
             LEFT JOIN LATERAL
             (

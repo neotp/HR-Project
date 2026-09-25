@@ -14,6 +14,11 @@
         </div>
     </header>
 
+    @if (Notice == "unavailable")
+    {
+        <div class="attendance-link-notice">ไม่สามารถเปิดรายการที่ระบุได้ ระบบจึงแสดงปฏิทินการมาทำงานของคุณแทน</div>
+    }
+
     <section class="attendance-summary" aria-label="สรุปการมาทำงาน">
         <article class="summary-card summary-workdays">
             <span class="summary-label">วันทำงานในเดือน</span>
@@ -211,7 +216,7 @@
                         </div>
                         <div class="detail-item">
                             <span>เวลาเข้างาน</span>
-                            <strong>@DisplayTime(SelectedDay.Record.ClockIn)</strong>
+                            <strong>@DisplayTime(SelectedDay.Record.ClockIn)@if (SelectedDay.Record.ClockInSource == "WIFI") { <small class="ms-1">Wi-Fi</small> }</strong>
                         </div>
                         <div class="detail-item">
                             <span>เวลาออกงาน</span>
@@ -313,12 +318,12 @@
                 }
                 <div class="event-form-grid">
                     <label class="event-form-field"><span>ประเภท Event <i>*</i></span>
-                        <select @bind="EventType" disabled="@IsSavingEvent">
+                        <SearchableSelect><select @bind="EventType" disabled="@IsSavingEvent">
                             @foreach (var eventType in SelectableEventTypes)
                             {
                                 <option value="@eventType.Code">@eventType.NameTh</option>
                             }
-                        </select>
+                        </select></SearchableSelect>
                     </label>
                     <label class="event-form-field"><span>วันที่ <i>*</i></span><DateOnlyPicker @bind-Value="EventDate" Disabled="@IsSavingEvent" /></label>
                     <label class="event-form-field"><span>เวลาเริ่มต้น <i>*</i></span><TimeMinutePicker @bind-Value="EventStartTime" Disabled="@IsSavingEvent" /></label>
@@ -351,6 +356,7 @@
                      OnCancel="CancelDeleteEvent" />
 
 @code {
+    [SupplyParameterFromQuery(Name = "notice")] public string? Notice { get; set; }
     private static readonly string[] WeekdayNames = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
     private static readonly string[] ThaiMonthNames =
     [
@@ -625,7 +631,8 @@
             daily.FirstScanAt?.ToString("HH:mm"), daily.LastScanAt?.ToString("HH:mm"),
             daily.OverrideReason ?? AttendanceStatusNote(daily),
             null, calendarDay, daily.LateMinutes, daily.MissingMinutes,
-            daily.RequiresReview || daily.FinalStatus == "REVIEW_REQUIRED");
+            daily.RequiresReview || daily.FinalStatus == "REVIEW_REQUIRED",
+            daily.FirstScanSource);
 
     private static AttendanceStatus ParseAttendanceStatus(AttendanceDailyDto daily)
     {
@@ -1086,7 +1093,8 @@
         WorkCalendarDayDto? WorkCalendarDay,
         int LateMinutes = 0,
         int MissingMinutes = 0,
-        bool RequiresReview = false);
+        bool RequiresReview = false,
+        string? ClockInSource = null);
 
     private enum AttendanceStatus
     {

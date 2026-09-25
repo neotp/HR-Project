@@ -1,0 +1,29 @@
+.comment-toggle-button {
+    width: 2rem;
+    height: 2rem;
+    display: inline-grid;
+    place-items: center;
+    margin-right: .35rem;
+    padding: 0;
+    color: #475569;
+    background: #f8fafc;
+    border: 1px solid #dbe3ee;
+    border-radius: .4rem;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.comment-toggle-button:hover {
+    color: #f06432;
+    background: #fff7ed;
+    border-color: #fdba74;
+}
+.comment-toggle-button span {
+    display: inline-block;
+    font-size: 1.35rem;
+    line-height: 1;
+    transition: transform .16s ease;
+}
+.comment-toggle-button.has-comments[aria-expanded="true"] span { transform: rotate(90deg); }
+.comment-toggle-button.empty span { color: #2563eb; font-weight: 700; transform: none; }
+.comment-toggle-button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }

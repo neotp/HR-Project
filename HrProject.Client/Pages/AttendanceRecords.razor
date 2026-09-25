@@ -55,15 +55,14 @@
                 {
                     <tr class="@(expandedCommentDailyId == record.Id ? "comment-row-open" : null)">
                         <td>
-                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นวันที่ @record.WorkDate.ToString("dd/MM/yyyy")"
-                                    aria-expanded="@(expandedCommentDailyId == record.Id)"
-                                    @onclick="() => ToggleComments(record.Id)">
-                                <span class="comment-chevron">›</span>
-                            </button>
+                            <CommentToggleButton CommentCount="@record.CommentCount"
+                                                 IsExpanded="@(expandedCommentDailyId == record.Id)"
+                                                 AriaLabel="@($"ความคิดเห็นวันที่ {record.WorkDate:dd/MM/yyyy}")"
+                                                 OnToggle="() => ToggleComments(record.Id)" />
                             @record.WorkDate.ToString("dd/MM/yyyy")
                         </td>
                         <td><div class="attendance-result-tags"><span class="issue-status @StatusClass(record)">@StatusText(record)</span>@if (record.IsWorkDayInProgress && record.FinalStatus != "IN_PROGRESS") { <span class="issue-status status-inprogress">อยู่ระหว่างวันทำงาน</span> }@if (record.RequiresReview) { <span class="issue-status status-reviewrequired">รอตรวจสอบ</span> }</div></td>
-                        <td>@DisplayTime(record.FirstScanAt)</td><td>@DisplayTime(record.LastScanAt)</td>
+                        <td>@DisplayTime(record.FirstScanAt)@if (record.FirstScanSource == "WIFI") { <small class="ms-1">Wi-Fi</small> }</td><td>@DisplayTime(record.LastScanAt)</td>
                         <td>@(record.LateMinutes > 0 ? $"{record.LateMinutes} นาที" : "-")</td>
                         <td>@(record.OverrideReason ?? record.ReviewReason ?? "-")</td>
                         <td>
@@ -87,7 +86,7 @@
                     {
                         <tr class="comment-detail-row">
                             <td colspan="7">
-                                <AttendanceCommentThread AttendanceDailyId="@record.Id" />
+                                <LeaveCommentThread EntityId="@record.Id" ApiPath="@($"api/attendance/{record.Id}/comments")" DocumentLabel="@($"รายการการมาทำงาน {record.WorkDate:dd/MM/yyyy}")" CurrentEmployeeId="@currentEmployeeId" CommentCountChanged="count => UpdateCommentCount(record.Id,count)" />
                             </td>
                         </tr>
                     }
@@ -106,7 +105,7 @@
             <header class="response-modal-header"><div><h2 id="response-title">Response/ข้อโต้แย้ง</h2><p>วันที่ @selectedRecord.WorkDate.ToString("dd/MM/yyyy") · @StatusText(selectedRecord)@(selectedRecord.RequiresReview ? " · รอตรวจสอบ" : "")</p></div><button type="button" aria-label="ปิด" disabled="@isSubmitting" @onclick="CloseResponse">×</button></header>
             <div class="response-modal-body">
                 <section class="response-record-summary">
-                    <div><span>เวลาเข้า</span><strong>@DisplayTime(selectedRecord.FirstScanAt)</strong></div>
+                    <div><span>เวลาเข้า</span><strong>@DisplayTime(selectedRecord.FirstScanAt)@if (selectedRecord.FirstScanSource == "WIFI") { <small class="ms-1">Wi-Fi</small> }</strong></div>
                     <div><span>เวลาออก</span><strong>@DisplayTime(selectedRecord.LastScanAt)</strong></div>
                     <div><span>สถานะ</span><strong>@StatusText(selectedRecord)@(selectedRecord.RequiresReview ? " · รอตรวจสอบ" : "")</strong></div>
                 </section>
@@ -200,6 +199,8 @@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "dailyId")] public long? TargetDailyId { get; set; }
+    [SupplyParameterFromQuery(Name = "workDate")] public string? TargetWorkDate { get; set; }
     private List<AttendanceDailyDto> records = [];
     private List<AttendanceDailyDto> filteredRecords = [];
     private readonly HashSet<string> selectedStatuses = new(StringComparer.OrdinalIgnoreCase);
@@ -230,6 +231,7 @@
     private bool isLoading = true;
     private string? loadError;
     private long? expandedCommentDailyId;
+    private string currentEmployeeId = string.Empty;
     private AttendanceDailyDto? selectedRecord;
     private string responseText = string.Empty;
     private readonly HashSet<string> selectedResponseIssueTypes = new(StringComparer.OrdinalIgnoreCase);
@@ -253,14 +255,24 @@
         {
             var currentUser = await Http.GetFromJsonAsync<CurrentMicrosoftUserDto>("api/auth/me");
             if (string.IsNullOrWhiteSpace(currentUser?.EmployeeId)) throw new InvalidOperationException("ไม่พบบัญชีพนักงานที่เชื่อมกับ Microsoft");
-            var start = new DateOnly(DateTime.Today.Year, 1, 1);
-            var end = DateOnly.FromDateTime(DateTime.Today);
+            currentEmployeeId = currentUser.EmployeeId;
+            var targetDate = DateOnly.TryParse(TargetWorkDate, out var parsedTargetDate)
+                ? parsedTargetDate
+                : DateOnly.FromDateTime(DateTime.Today);
+            var start = new DateOnly(targetDate.Year, 1, 1);
+            var end = new DateOnly(targetDate.Year, 12, 31);
             var recordsTask = Http.GetFromJsonAsync<List<AttendanceDailyDto>>($"api/attendance?employeeId={Uri.EscapeDataString(currentUser.EmployeeId)}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
             var historyTask = Http.GetFromJsonAsync<List<AttendanceResponseHistoryItemDto>>("api/attendance/responses/history");
             await Task.WhenAll(recordsTask, historyTask);
             records = recordsTask.Result ?? [];
             responseHistory = historyTask.Result ?? [];
             ApplyFilter();
+            if (TargetDailyId.HasValue && records.Any(item => item.Id == TargetDailyId.Value))
+            {
+                expandedCommentDailyId = TargetDailyId.Value;
+                var index = filteredRecords.FindIndex(item => item.Id == TargetDailyId.Value);
+                if (index >= 0) currentPage = (index / pageSize) + 1;
+            }
         }
         catch (Exception exception) { loadError = $"โหลดข้อมูลการมาทำงานไม่สำเร็จ: {exception.Message}"; }
         finally { isLoading = false; }
@@ -279,6 +291,11 @@
 
     private void ToggleComments(long attendanceDailyId) =>
         expandedCommentDailyId = expandedCommentDailyId == attendanceDailyId ? null : attendanceDailyId;
+    private void UpdateCommentCount(long id,int count)
+    {
+        records=records.Select(item=>item.Id==id?item with{CommentCount=count}:item).ToList();
+        filteredRecords=filteredRecords.Select(item=>item.Id==id?item with{CommentCount=count}:item).ToList();
+    }
 
     private async Task OpenResponse(AttendanceDailyDto record)
     {

@@ -17,6 +17,9 @@ public sealed class SystemMasterDataController(
     [
         new("BUSINESS_UNIT", "Business Unit", 10),
         new("DEPARTMENT", "แผนก", 20),
+        new("PRODUCT_BUSINESS_UNIT", "Product BU", 25),
+        new("BRAND", "Brand", 26),
+        new("COMM_GROUP", "Comm.Group", 27),
         new("LEAVE_TYPE", "ประเภทการลา", 30, true),
         new("LEAVE_KIND", "ชนิดการลา", 40),
         new("POSITION", "ตำแหน่ง", 50),
@@ -51,9 +54,11 @@ public sealed class SystemMasterDataController(
         var sql = """
             SELECT item.id, item.category_code, item.item_code, item.name_th, item.name_en,
                    item.display_order, item.is_active, item.parent_item_id,
-                   parent.name_th, item.updated_at
+                   parent.name_th, item.updated_at,
+                   grandparent.id, grandparent.name_th
             FROM public.system_master_items item
             LEFT JOIN public.system_master_items parent ON parent.id = item.parent_item_id
+            LEFT JOIN public.system_master_items grandparent ON grandparent.id = parent.parent_item_id
             WHERE item.category_code = @category
               AND (@include_inactive OR item.is_active = TRUE)
             """;
@@ -75,7 +80,11 @@ public sealed class SystemMasterDataController(
                 reader.GetInt32(5), reader.GetBoolean(6),
                 reader.IsDBNull(7) ? null : reader.GetInt64(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),
-                reader.GetFieldValue<DateTimeOffset>(9)));
+                reader.GetFieldValue<DateTimeOffset>(9))
+            {
+                GrandparentItemId = reader.IsDBNull(10) ? null : reader.GetInt64(10),
+                GrandparentItemName = reader.IsDBNull(11) ? null : reader.GetString(11)
+            });
         }
         return Ok(result);
     }
@@ -97,9 +106,11 @@ public sealed class SystemMasterDataController(
         var sql = """
             SELECT item.id, item.category_code, item.item_code, item.name_th, item.name_en,
                    item.display_order, item.is_active, item.parent_item_id,
-                   parent.name_th, item.updated_at
+                   parent.name_th, item.updated_at,
+                   grandparent.id, grandparent.name_th
             FROM public.system_master_items item
             LEFT JOIN public.system_master_items parent ON parent.id = item.parent_item_id
+            LEFT JOIN public.system_master_items grandparent ON grandparent.id = parent.parent_item_id
             WHERE (@include_inactive OR item.is_active = TRUE)
             """;
         if (requestedCategories.Length > 0)
@@ -119,7 +130,11 @@ public sealed class SystemMasterDataController(
                 reader.GetInt32(5), reader.GetBoolean(6),
                 reader.IsDBNull(7) ? null : reader.GetInt64(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),
-                reader.GetFieldValue<DateTimeOffset>(9)));
+                reader.GetFieldValue<DateTimeOffset>(9))
+            {
+                GrandparentItemId = reader.IsDBNull(10) ? null : reader.GetInt64(10),
+                GrandparentItemName = reader.IsDBNull(11) ? null : reader.GetString(11)
+            });
         }
         return Ok(result);
     }
@@ -134,6 +149,90 @@ public sealed class SystemMasterDataController(
         long id,
         SaveMasterDataItemRequest request,
         CancellationToken cancellationToken) => SaveItem(id, request, cancellationToken);
+
+    [HttpGet("product-items")]
+    public async Task<ActionResult<IReadOnlyList<MasterDataItemDto>>> GetProductItems(
+        [FromQuery] string category, [FromQuery] bool includeInactive = true,
+        CancellationToken cancellationToken = default)
+    {
+        var config = ProductMasterColumns(category);
+        if (config is null) return BadRequest("ไม่พบหมวดข้อมูล Product ที่ระบุ");
+        var (table, codeColumn, nameColumn) = config.Value;
+        var result = new List<MasterDataItemDto>();
+        await using var command = dataSource.CreateCommand($"""
+            SELECT id,{codeColumn},{nameColumn},display_order,is_active,updated_at
+            FROM public.{table}
+            WHERE (@include_inactive OR is_active=TRUE)
+            ORDER BY display_order,{nameColumn},id
+            """);
+        command.Parameters.AddWithValue("include_inactive", includeInactive);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(new MasterDataItemDto(reader.GetInt64(0), category.ToUpperInvariant(),
+                reader.GetString(1), reader.GetString(2), null, reader.GetInt32(3),
+                reader.GetBoolean(4), null, null, reader.GetFieldValue<DateTimeOffset>(5)));
+        return Ok(result);
+    }
+
+    [HttpPost("product-items")]
+    public Task<ActionResult<MasterDataItemDto>> CreateProductItem(
+        SaveMasterDataItemRequest request, CancellationToken cancellationToken) =>
+        SaveProductItem(null, request, cancellationToken);
+
+    [HttpPut("product-items/{id:long}")]
+    public Task<ActionResult<MasterDataItemDto>> UpdateProductItem(
+        long id, SaveMasterDataItemRequest request, CancellationToken cancellationToken) =>
+        SaveProductItem(id, request, cancellationToken);
+
+    private async Task<ActionResult<MasterDataItemDto>> SaveProductItem(
+        long? id, SaveMasterDataItemRequest request, CancellationToken cancellationToken)
+    {
+        if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
+        var config = ProductMasterColumns(request.CategoryCode);
+        var code = request.ItemCode?.Trim() ?? string.Empty;
+        var name = request.NameTh?.Trim() ?? string.Empty;
+        if (config is null || code.Length is < 1 or > 50 || name.Length is < 1 or > 200 ||
+            request.DisplayOrder < 0)
+            return BadRequest("กรุณากรอกรหัส ชื่อ และลำดับให้ถูกต้อง");
+        var (table, codeColumn, nameColumn) = config.Value;
+        var sql = id.HasValue
+            ? $"""
+              UPDATE public.{table} SET {codeColumn}=@code,{nameColumn}=@name,
+                  display_order=@display_order,is_active=@is_active
+              WHERE id=@id RETURNING id
+              """
+            : $"""
+              INSERT INTO public.{table}({codeColumn},{nameColumn},display_order,is_active)
+              VALUES(@code,@name,@display_order,@is_active) RETURNING id
+              """;
+        try
+        {
+            await using var command = dataSource.CreateCommand(sql);
+            if (id.HasValue) command.Parameters.AddWithValue("id", id.Value);
+            command.Parameters.AddWithValue("code", code);
+            command.Parameters.AddWithValue("name", name);
+            command.Parameters.AddWithValue("display_order", request.DisplayOrder);
+            command.Parameters.AddWithValue("is_active", request.IsActive);
+            var savedId = (long?)await command.ExecuteScalarAsync(cancellationToken);
+            if (!savedId.HasValue) return NotFound();
+            return Ok(new MasterDataItemDto(savedId.Value, request.CategoryCode.ToUpperInvariant(),
+                code, name, null, request.DisplayOrder, request.IsActive, null, null,
+                DateTimeOffset.UtcNow));
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Conflict("รหัสหรือชื่อนี้มีอยู่แล้วใน Master");
+        }
+    }
+
+    private static (string Table, string Code, string Name)? ProductMasterColumns(string? category) =>
+        category?.Trim().ToUpperInvariant() switch
+        {
+            "PRODUCT_BUSINESS_UNIT" => ("product_business_units", "product_business_unit_code", "product_business_unit_name"),
+            "BRAND" => ("brands", "brand_code", "brand_name"),
+            "COMM_GROUP" => ("comm_groups", "comm_group_code", "comm_group_name"),
+            _ => null
+        };
 
     [HttpGet("leave-types")]
     public async Task<ActionResult<IReadOnlyList<LeaveTypeMasterDto>>> GetLeaveTypes(
@@ -220,6 +319,9 @@ public sealed class SystemMasterDataController(
             (!parentItemId.HasValue ||
              !await IsActiveParent(parentItemId.Value, parentCategory, cancellationToken)))
             return BadRequest($"กรุณาเลือกข้อมูลแม่ประเภท {parentCategory}");
+        if (category == "POSITION" && parentItemId.HasValue &&
+            !await IsDepartmentLinkedToActiveBusinessUnit(parentItemId.Value, cancellationToken))
+            return BadRequest("แผนกที่เลือกยังไม่ได้ผูกกับ Business Unit ที่เปิดใช้งาน");
 
         const string insertSql = """
             INSERT INTO public.system_master_items
@@ -364,9 +466,11 @@ public sealed class SystemMasterDataController(
         const string sql = """
             SELECT item.id, item.category_code, item.item_code, item.name_th, item.name_en,
                    item.display_order, item.is_active, item.parent_item_id,
-                   parent.name_th, item.updated_at
+                   parent.name_th, item.updated_at,
+                   grandparent.id, grandparent.name_th
             FROM public.system_master_items item
             LEFT JOIN public.system_master_items parent ON parent.id = item.parent_item_id
+            LEFT JOIN public.system_master_items grandparent ON grandparent.id = parent.parent_item_id
             WHERE item.id = @id
             """;
         await using var command = dataSource.CreateCommand(sql);
@@ -379,7 +483,11 @@ public sealed class SystemMasterDataController(
             reader.GetInt32(5), reader.GetBoolean(6),
             reader.IsDBNull(7) ? null : reader.GetInt64(7),
             reader.IsDBNull(8) ? null : reader.GetString(8),
-            reader.GetFieldValue<DateTimeOffset>(9));
+            reader.GetFieldValue<DateTimeOffset>(9))
+        {
+            GrandparentItemId = reader.IsDBNull(10) ? null : reader.GetInt64(10),
+            GrandparentItemName = reader.IsDBNull(11) ? null : reader.GetString(11)
+        };
     }
 
     private async Task<LeaveTypeMasterDto?> FindLeaveType(long id, CancellationToken cancellationToken)
@@ -422,16 +530,41 @@ public sealed class SystemMasterDataController(
 
     private static bool IsGenericCategory(string? category) =>
         Categories.Any(item => !item.IsLeaveType && !item.IsAttendanceEventType &&
+            ProductMasterColumns(item.Code) is null &&
             string.Equals(item.Code, category?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private static string? ParentCategory(string category) => category switch
     {
         "DEPARTMENT" => "BUSINESS_UNIT",
+        "POSITION" => "DEPARTMENT",
         "DISTRICT" => "PROVINCE",
         "SUBDISTRICT" => "DISTRICT",
         "POSTAL_CODE" => "SUBDISTRICT",
         _ => null
     };
+
+    private async Task<bool> IsDepartmentLinkedToActiveBusinessUnit(
+        long departmentId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT EXISTS
+            (
+                SELECT 1
+                FROM public.system_master_items department
+                JOIN public.system_master_items business_unit
+                  ON business_unit.id = department.parent_item_id
+                 AND business_unit.category_code = 'BUSINESS_UNIT'
+                 AND business_unit.is_active = TRUE
+                WHERE department.id = @department_id
+                  AND department.category_code = 'DEPARTMENT'
+                  AND department.is_active = TRUE
+            )
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("department_id", departmentId);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+    }
 
     private async Task<bool> IsActiveParent(long id, string category, CancellationToken cancellationToken)
     {

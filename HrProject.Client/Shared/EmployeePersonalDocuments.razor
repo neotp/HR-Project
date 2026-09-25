@@ -6,13 +6,18 @@
     <div class="employee-document-toolbar">
         <div>
             <strong>รายการเอกสาร</strong>
-            <small>รองรับ PDF, JPG และ PNG สูงสุด 10 ไฟล์ และไฟล์ละไม่เกิน 10 MB</small>
+            <small>@(CanManage
+                ? "รองรับ PDF, JPG และ PNG สูงสุด 10 ไฟล์ และไฟล์ละไม่เกิน 10 MB"
+                : "ดูเอกสารส่วนตัวของคุณและกดรายการเพื่อเปิดตัวอย่าง")</small>
         </div>
-        <label class="employee-document-picker @(isUploading ? "disabled" : null)">
-            <span>+ เลือกเอกสาร</span>
-            <InputFile @key="inputVersion" OnChange="SelectFiles" multiple
-                       accept=".pdf,.jpg,.jpeg,.png" disabled="@isUploading" />
-        </label>
+        @if (CanManage)
+        {
+            <label class="employee-document-picker @(isUploading ? "disabled" : null)">
+                <span>+ เลือกเอกสาร</span>
+                <InputFile @key="inputVersion" OnChange="SelectFiles" multiple
+                           accept=".pdf,.jpg,.jpeg,.png" disabled="@isUploading" />
+            </label>
+        }
     </div>
 
     @if (!string.IsNullOrWhiteSpace(message))
@@ -51,7 +56,7 @@
         <div class="employee-document-state empty">
             <span class="empty-icon" aria-hidden="true">▤</span>
             <strong>ยังไม่มีเอกสารส่วนตัว</strong>
-            <small>กด “เลือกเอกสาร” เพื่อเพิ่มเอกสารของพนักงาน</small>
+            <small>@(CanManage ? "กด “เลือกเอกสาร” เพื่อเพิ่มเอกสารของพนักงาน" : "ยังไม่มีเอกสารที่แสดงได้")</small>
         </div>
     }
     else
@@ -69,10 +74,13 @@
                         <span class="document-card-date">@document.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
                         <span class="document-preview-action">ดูตัวอย่าง</span>
                     </button>
-                    <button class="employee-document-delete-button" type="button"
-                            disabled="@isDeleting" @onclick="() => AskDelete(document)">
-                        ลบ
-                    </button>
+                    @if (CanManage)
+                    {
+                        <button class="employee-document-delete-button" type="button"
+                                disabled="@isDeleting" @onclick="() => AskDelete(document)">
+                            ลบ
+                        </button>
+                    }
                 </article>
             }
         </div>
@@ -135,6 +143,7 @@
 
 @code {
     [Parameter, EditorRequired] public int EmployeeId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
 
     private const long MaxFileSize = 10 * 1024 * 1024;
     private readonly List<EmployeePersonalDocumentDto> documents = [];

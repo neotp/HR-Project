@@ -2,8 +2,18 @@
     <details>
         <summary><span>@Summary</span><span class="chevron" aria-hidden="true">⌄</span></summary>
         <div class="menu">
+            <input class="criteria-search"
+                   type="text"
+                   value="@searchText"
+                   placeholder="พิมพ์เพื่อค้นหา..."
+                   autocomplete="off"
+                   @oninput="Search" />
             <button class="clear" type="button" @onclick="Clear">@AllText</button>
-            @foreach (var option in Options)
+            @if (FilteredOptions.Count == 0)
+            {
+                <div class="empty">ไม่พบข้อมูลที่ค้นหา</div>
+            }
+            @foreach (var option in FilteredOptions)
             {
                 <label class="option">
                     <input type="checkbox" checked="@Values.Contains(option.Value, StringComparer.OrdinalIgnoreCase)"
@@ -21,6 +31,14 @@
     [Parameter] public EventCallback<IReadOnlyCollection<string>> ValuesChanged { get; set; }
     [Parameter] public string AllText { get; set; } = "ทั้งหมด";
 
+    private string searchText = string.Empty;
+
+    private List<CriteriaFilterOption> FilteredOptions => Options
+        .Where(option => searchText.Trim().Length == 0 ||
+            option.Label.Contains(searchText.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            option.Value.Contains(searchText.Trim(), StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
     private string Summary => Values.Count switch
     {
         0 => AllText,
@@ -36,4 +54,6 @@
     }
 
     private Task Clear() => ValuesChanged.InvokeAsync(Array.Empty<string>());
+
+    private void Search(ChangeEventArgs args) => searchText = args.Value?.ToString() ?? string.Empty;
 }

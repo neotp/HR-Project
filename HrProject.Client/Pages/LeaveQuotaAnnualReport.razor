@@ -30,8 +30,8 @@
             <div class="content-card-header">ค้นหารายงาน</div>
             <div class="content-card-body annual-criteria-grid">
                 <label>คำค้นหา<input type="search" placeholder="รหัส ชื่อพนักงาน หรือแผนก" @bind="searchText" @bind:event="oninput" @bind:after="ApplyFilters" /></label>
-                <label>ประเภทการลา<select @bind="selectedLeaveTypeId" @bind:after="ApplyFilters"><option value="">ทั้งหมด</option>@foreach (var leaveType in LeaveTypeOptions) { <option value="@leaveType.Id">@leaveType.Name</option> }</select></label>
-                <label>ปีโควต้า<select @bind="selectedYear" @bind:after="LoadReport">@foreach (var year in Years) { <option value="@year">@year</option> }</select></label>
+                <label>ประเภทการลา<SearchableSelect><select @bind="selectedLeaveTypeId" @bind:after="ApplyFilters"><option value="">ทั้งหมด</option>@foreach (var leaveType in LeaveTypeOptions) { <option value="@leaveType.Id">@leaveType.Name</option> }</select></SearchableSelect></label>
+                <label>ปีโควต้า<SearchableSelect><select @bind="selectedYear" @bind:after="LoadReport">@foreach (var year in Years) { <option value="@year">@year</option> }</select></SearchableSelect></label>
                 <label class="annual-check"><input type="checkbox" @bind="showExcessOnly" @bind:after="ApplyFilters" />แสดงเฉพาะรายการที่มีส่วนเกิน</label>
                 <button class="btn btn-reset" type="button" @onclick="ResetFilters">ล้างข้อมูล</button>
             </div>

@@ -1,0 +1,5 @@
+@page "/open/attendance/{Id:long}"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+<div class="route-resolver">กำลังเปิดรายการการมาทำงาน...</div>
+@code { [Parameter] public long Id { get; set; } protected override async Task OnInitializedAsync(){try{var destination=await Http.GetFromJsonAsync<AttendanceLinkDestinationDto>($"api/attendance/{Id}/link-destination");Navigation.NavigateTo(destination?.Url??"/attendance?notice=unavailable",replace:true);}catch{Navigation.NavigateTo("/attendance?notice=unavailable",replace:true);}} }

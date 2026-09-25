@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.employee_activity_history
     employee_id     BIGINT NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
     action_key      VARCHAR(80) NOT NULL,
     details_text    TEXT NOT NULL,
+    changes_json    JSONB NOT NULL DEFAULT '[]'::jsonb,
     entity_type     VARCHAR(80),
     entity_id       BIGINT,
     action_by       VARCHAR(50) NOT NULL,

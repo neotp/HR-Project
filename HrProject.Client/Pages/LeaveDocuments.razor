@@ -42,19 +42,22 @@
                     {
                         <article class="my-quota-item">
                             <h2>@quota.LeaveTypeName</h2>
-                            <div class="quota-values">
+                            <div class="quota-values @(!ShowsRemainingQuota(quota) ? "used-only" : null)">
                                 <div>
                                     <span>ใช้ไปแล้ว</span>
                                     <strong class="used-value">@quota.UsedHours.ToString("0.##")</strong>
                                     <small>ชั่วโมง</small>
                                     <small class="day-equivalent">(@HoursToDays(quota.UsedHours) วัน)</small>
                                 </div>
-                                <div>
-                                    <span>คงเหลือ</span>
-                                    <strong class="remaining-value">@quota.RemainingHours.ToString("0.##")</strong>
-                                    <small>ชั่วโมง</small>
-                                    <small class="day-equivalent">(@HoursToDays(quota.RemainingHours) วัน)</small>
-                                </div>
+                                @if (ShowsRemainingQuota(quota))
+                                {
+                                    <div>
+                                        <span>คงเหลือ</span>
+                                        <strong class="remaining-value">@quota.RemainingHours.ToString("0.##")</strong>
+                                        <small>ชั่วโมง</small>
+                                        <small class="day-equivalent">(@HoursToDays(quota.RemainingHours) วัน)</small>
+                                    </div>
+                                }
                             </div>
                         </article>
                     }
@@ -131,11 +134,10 @@
                             {
                                 <tr class="@(expandedCommentDocumentId == document.Id ? "comment-row-open" : null)">
                                     <td>
-                                        <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
-                                                aria-expanded="@(expandedCommentDocumentId == document.Id)"
-                                                @onclick="() => ToggleComments(document.Id)">
-                                            <span class="comment-chevron">›</span>
-                                        </button>
+                                        <CommentToggleButton CommentCount="@document.CommentCount"
+                                                             IsExpanded="@(expandedCommentDocumentId == document.Id)"
+                                                             AriaLabel="@($"ความคิดเห็นของ {document.DocumentNo}")"
+                                                             OnToggle="() => ToggleComments(document.Id)" />
                                         <LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
                                     </td>
                                     <td>@document.LeaveTypeName</td>
@@ -195,10 +197,10 @@
                 <h3>รายละเอียดการลา</h3>
                 <div class="form-grid">
                     <label><span class="field-label">ชนิดการลา<span class="required">*</span></span>
-                        <select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option>@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select>
+                        <SearchableSelect><select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option>@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></SearchableSelect>
                     </label>
                     <label><span class="field-label">ประเภทการลา<span class="required">*</span></span>
-                        <select @bind="newLeaveType" @bind:after="HandleLeaveTypeChanged"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select>
+                        <SearchableSelect><select @bind="newLeaveType" @bind:after="HandleLeaveTypeChanged"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect>
                     </label>
                     @if (IsSickLeave)
                     {
@@ -327,8 +329,8 @@
                 </div>
                 <h3>รายละเอียดการลา</h3>
                 <div class="form-grid">
-                    <label>ชนิดการลา<select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly">@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></label>
-                    <label>ประเภทการลา<select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
+                    <label>ชนิดการลา<SearchableSelect><select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly">@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></SearchableSelect></label>
+                    <label>ประเภทการลา<SearchableSelect><select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
                     <label>วันที่ลา<DateTimePicker Value="@detailLeaveDate" ValueChanged="value => detailLeaveDate = value ?? detailLeaveDate" Disabled="@IsDocumentReadOnly" AriaLabel="วันที่ลา" /></label>
                     <label>เวลาเริ่มต้น (24 ชั่วโมง)
                         <TimeMinutePicker @bind-Value="detailLeaveStartTime" Disabled="@IsDocumentReadOnly" AriaLabel="เวลาเริ่มต้นการลา" />
@@ -462,7 +464,7 @@
         </header>
         <div class="edit-request-body">
             <div class="form-grid single-column">
-                <label>ประเภทการลา<select @bind="requestLeaveType">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></label>
+                <label>ประเภทการลา<SearchableSelect><select @bind="requestLeaveType">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
                 @if (IsRequestSickLeave)
                 {
                     <fieldset class="medical-certificate-field full-width edit-medical-certificate-field">
@@ -676,10 +678,27 @@
     private List<LeaveTypeDto> leaveTypes = [];
     private List<MasterDataItemDto> leaveKinds = [];
     private List<LeaveQuotaDto> myLeaveQuotas = [];
-    private List<LeaveQuotaDto> DisplayedLeaveQuotas => myLeaveQuotas
-        .Where(quota => quota.LeaveTypeName is "ลาพักร้อน" or "ลาป่วย")
-        .OrderBy(quota => quota.LeaveTypeName == "ลาพักร้อน" ? 0 : 1)
-        .ToList();
+    private List<LeaveQuotaDto> DisplayedLeaveQuotas => string.IsNullOrWhiteSpace(CurrentEmployeeId)
+        ? []
+        : leaveTypes
+            .Select(type =>
+            {
+                var configuredQuota = myLeaveQuotas.FirstOrDefault(quota => quota.LeaveTypeId == type.Id);
+                if (configuredQuota is not null)
+                    return configuredQuota;
+
+                var usedHours = documents
+                    .Where(document => document.LeaveTypeId == type.Id &&
+                        document.LeaveDate.Year == DateTime.Today.Year &&
+                        document.Status is "PENDING_APPROVAL" or "APPROVED" or "EDIT_REQUESTED")
+                    .Sum(document => document.LeaveHours);
+                return new LeaveQuotaDto(
+                    0, CurrentEmployeeId, type.Id, type.NameTh, DateTime.Today.Year,
+                    0, usedHours, 0, null, DateTimeOffset.MinValue);
+            })
+            .OrderBy(quota => LeaveQuotaDisplayOrder(quota.LeaveTypeName))
+            .ThenBy(quota => quota.LeaveTypeName)
+            .ToList();
     private List<LeaveDocumentDto> documents = [];
     private bool hasOpenedRequestedDocument;
     private CurrentMicrosoftUserDto? currentUser;
@@ -774,6 +793,9 @@
         "ลาบวช" => 50,
         _ => 100
     };
+
+    private static bool ShowsRemainingQuota(LeaveQuotaDto quota) =>
+        quota.LeaveTypeName is "ลาพักร้อน" or "ลาป่วย";
 
     private void Reset()
     {

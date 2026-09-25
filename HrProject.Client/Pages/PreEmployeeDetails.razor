@@ -1,6 +1,18 @@
 @page "/recruitment/pre-employees/{Id:long}"
 @inject HttpClient Http
 @inject NavigationManager Navigation
+
+<style>
+    .pre-address-section { grid-column: 1/-1; padding: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .65rem; }
+    .pre-address-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .85rem; }
+    .pre-address-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .8rem; }
+    .pre-address-heading h3 { margin: 0; color: #14213d; font-size: .9rem; }
+    .pre-same-address { display: flex; align-items: center; gap: .4rem; padding: .35rem .55rem; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: .4rem; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+    .pre-same-address input { width: 1rem !important; min-height: 1rem !important; margin: 0; padding: 0; accent-color: #059669; }
+    .pre-message.no-show { color: #991b1b; background: #fff1f2; border-color: #fecdd3; }
+    .status-no_show { color: #b91c1c; background: #fee2e2; }
+    @@media(max-width:760px) { .pre-address-grid { grid-template-columns: 1fr; } .pre-address-heading { align-items: flex-start; flex-direction: column; } }
+</style>
 @inject HrProject.Client.Services.LoadingState LoadingState
 @inject HrProject.Client.Services.MasterDataLookupService MasterDataLookup
 
@@ -33,7 +45,7 @@
                     <img class="pre-avatar pre-photo" src="@employee.ProfileImageDataUrl" alt="รูปโปรไฟล์" />
                 }
                 <div>
-                    <div class="pre-profile-meta"><span>@EmployeeCodeFormat.Display(employee.EmployeeCode)</span><span class="status-tag @StatusClass(item.Status)">@StatusText(item.Status)</span></div>
+                    <div class="pre-profile-meta"><span>@EmployeeCodeFormat.Display(employee.EmployeeCode)</span><span class="status-tag @StatusClass(item.DidNotStartWork ? "NO_SHOW" : item.Status)">@StatusText(item.DidNotStartWork ? "NO_SHOW" : item.Status)</span></div>
                     <h1>@Display(employee.ThaiFullName.Length > 0 ? employee.ThaiFullName : employee.FullName)</h1>
                     <p>@Display(employee.Position) · @Display(employee.Department)</p>
                 </div>
@@ -47,6 +59,10 @@
         @if (!string.IsNullOrWhiteSpace(successMessage))
         {
             <div class="pre-message success">@successMessage</div>
+        }
+        @if (item.DidNotStartWork)
+        {
+            <div class="pre-message no-show">รายการนี้ถูกระบุว่าไม่มาทำงาน จึงถูกนำออกจากคิว Pre-Employee และไม่สามารถสร้างเป็นพนักงานได้</div>
         }
 
         <section class="content-card pre-detail-card">
@@ -82,14 +98,29 @@
                             <Field Label="วันเกิด"><DateOnlyPicker @bind-Value="employee.BirthDate" Disabled="@IsReadOnly" /></Field>
                             <Field Label="ศาสนา"><MasterDataSearchSelect Items="@(MasterOptions("RELIGION").ToList())" Value="@employee.Religion" ValueChanged="value => employee.Religion = value" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาศาสนา --" /></Field>
                             <Field Label="หมู่เลือด"><MasterDataSearchSelect Items="@(MasterOptions("BLOOD_TYPE").ToList())" Value="@employee.BloodType" ValueChanged="value => employee.BloodType = value" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาหมู่เลือด --" /></Field>
-                            <Field Label="ที่อยู่" Full="true"><textarea @bind="employee.CurrentAddress" disabled="@IsReadOnly" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></Field>
-                            <Field Label="จังหวัด"><MasterDataSearchSelect Items="@(MasterOptions("PROVINCE").ToList())" Value="@employee.ResidenceProvince" ValueChanged="ResidenceProvinceSelected" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาจังหวัด --" /></Field>
-                            <Field Label="อำเภอ / เขต"><MasterDataSearchSelect Items="@(ResidenceDistrictOptions.ToList())" Value="@employee.ResidenceDistrict" ValueChanged="ResidenceDistrictSelected" OnOpen="LoadResidenceDistrictOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceProvince))" Placeholder="-- เลือกหรือพิมพ์ค้นหาอำเภอ / เขต --" /></Field>
-                            <Field Label="ตำบล / แขวง"><MasterDataSearchSelect Items="@(ResidenceSubdistrictOptions.ToList())" Value="@employee.ResidenceSubdistrict" ValueChanged="ResidenceSubdistrictSelected" OnOpen="LoadResidenceSubdistrictOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceDistrict))" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำบล / แขวง --" /></Field>
-                            <Field Label="รหัสไปรษณีย์"><MasterDataSearchSelect Items="@(ResidencePostalCodeOptions.ToList())" Value="@employee.ResidencePostalCode" ValueChanged="ResidencePostalCodeSelected" OnOpen="LoadResidencePostalCodeOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceSubdistrict))" ShowDetails="false" Placeholder="-- เลือกหรือพิมพ์ค้นหารหัสไปรษณีย์ --" /></Field>
                             <Field Label="โทรศัพท์บ้าน"><input @bind="employee.HomePhone" disabled="@IsReadOnly" /></Field>
-                            <Field Label="ที่อยู่ตามบัตรประชาชน" Full="true"><textarea @bind="employee.IdCardAddress" disabled="@IsReadOnly"></textarea></Field>
-                            <Field Label="ที่อยู่ตามทะเบียนบ้าน" Full="true"><textarea @bind="employee.HouseRegistrationAddress" disabled="@IsReadOnly"></textarea></Field>
+                            <Field Label="MAC Address"><input @bind="employee.MacAddress" disabled="@IsReadOnly" /></Field>
+                            <div class="pre-address-section"><div class="pre-address-heading"><h3>ที่อยู่ปัจจุบัน</h3></div><div class="pre-address-grid">
+                                <Field Label="ที่อยู่" Full="true"><textarea @bind="employee.CurrentAddress" @bind:event="oninput" @bind:after="SyncAddresses" disabled="@IsReadOnly" placeholder="บ้านเลขที่ หมู่ ถนน ซอย"></textarea></Field>
+                                <Field Label="จังหวัด"><MasterDataSearchSelect Items="@(MasterOptions("PROVINCE").ToList())" Value="@employee.ResidenceProvince" ValueChanged="ResidenceProvinceSelected" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาจังหวัด --" /></Field>
+                                <Field Label="อำเภอ / เขต"><MasterDataSearchSelect Items="@(ResidenceDistrictOptions.ToList())" Value="@employee.ResidenceDistrict" ValueChanged="ResidenceDistrictSelected" OnOpen="LoadResidenceDistrictOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceProvince))" Placeholder="-- เลือกหรือพิมพ์ค้นหาอำเภอ / เขต --" /></Field>
+                                <Field Label="ตำบล / แขวง"><MasterDataSearchSelect Items="@(ResidenceSubdistrictOptions.ToList())" Value="@employee.ResidenceSubdistrict" ValueChanged="ResidenceSubdistrictSelected" OnOpen="LoadResidenceSubdistrictOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceDistrict))" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำบล / แขวง --" /></Field>
+                                <Field Label="รหัสไปรษณีย์"><MasterDataSearchSelect Items="@(ResidencePostalCodeOptions.ToList())" Value="@employee.ResidencePostalCode" ValueChanged="ResidencePostalCodeSelected" OnOpen="LoadResidencePostalCodeOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.ResidenceSubdistrict))" ShowDetails="false" Placeholder="-- เลือกหรือพิมพ์ค้นหารหัสไปรษณีย์ --" /></Field>
+                            </div></div>
+                            <div class="pre-address-section"><div class="pre-address-heading"><h3>ที่อยู่ตามบัตรประชาชน</h3><label class="pre-same-address"><input type="checkbox" @bind="employee.IdCardSameAsCurrent" @bind:after="IdCardSameChanged" disabled="@IsReadOnly" /> เหมือนที่อยู่ปัจจุบัน</label></div><div class="pre-address-grid">
+                                <Field Label="ที่อยู่" Full="true"><textarea @bind="employee.IdCardAddress" disabled="@(IsReadOnly || employee.IdCardSameAsCurrent)"></textarea></Field>
+                                <Field Label="จังหวัด"><MasterDataSearchSelect Items="@(MasterOptions("PROVINCE").ToList())" Value="@employee.IdCardProvince" ValueChanged="IdCardProvinceSelected" Disabled="@(IsReadOnly || employee.IdCardSameAsCurrent)" Placeholder="-- เลือกจังหวัด --" /></Field>
+                                <Field Label="อำเภอ / เขต"><MasterDataSearchSelect Items="@(IdCardDistrictOptions.ToList())" Value="@employee.IdCardDistrict" ValueChanged="IdCardDistrictSelected" OnOpen="LoadIdCardDistrictOptions" Disabled="@(IsReadOnly || employee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(employee.IdCardProvince))" Placeholder="-- เลือกอำเภอ / เขต --" /></Field>
+                                <Field Label="ตำบล / แขวง"><MasterDataSearchSelect Items="@(IdCardSubdistrictOptions.ToList())" Value="@employee.IdCardSubdistrict" ValueChanged="IdCardSubdistrictSelected" OnOpen="LoadIdCardSubdistrictOptions" Disabled="@(IsReadOnly || employee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(employee.IdCardDistrict))" Placeholder="-- เลือกตำบล / แขวง --" /></Field>
+                                <Field Label="รหัสไปรษณีย์"><MasterDataSearchSelect Items="@(IdCardPostalCodeOptions.ToList())" Value="@employee.IdCardPostalCode" ValueChanged="value => employee.IdCardPostalCode = value" OnOpen="LoadIdCardPostalCodeOptions" Disabled="@(IsReadOnly || employee.IdCardSameAsCurrent || string.IsNullOrWhiteSpace(employee.IdCardSubdistrict))" ShowDetails="false" Placeholder="-- เลือกรหัสไปรษณีย์ --" /></Field>
+                            </div></div>
+                            <div class="pre-address-section"><div class="pre-address-heading"><h3>ที่อยู่ตามทะเบียนบ้าน</h3><label class="pre-same-address"><input type="checkbox" @bind="employee.HouseRegistrationSameAsCurrent" @bind:after="HouseSameChanged" disabled="@IsReadOnly" /> เหมือนที่อยู่ปัจจุบัน</label></div><div class="pre-address-grid">
+                                <Field Label="ที่อยู่" Full="true"><textarea @bind="employee.HouseRegistrationAddress" disabled="@(IsReadOnly || employee.HouseRegistrationSameAsCurrent)"></textarea></Field>
+                                <Field Label="จังหวัด"><MasterDataSearchSelect Items="@(MasterOptions("PROVINCE").ToList())" Value="@employee.HouseRegistrationProvince" ValueChanged="HouseProvinceSelected" Disabled="@(IsReadOnly || employee.HouseRegistrationSameAsCurrent)" Placeholder="-- เลือกจังหวัด --" /></Field>
+                                <Field Label="อำเภอ / เขต"><MasterDataSearchSelect Items="@(HouseDistrictOptions.ToList())" Value="@employee.HouseRegistrationDistrict" ValueChanged="HouseDistrictSelected" OnOpen="LoadHouseDistrictOptions" Disabled="@(IsReadOnly || employee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(employee.HouseRegistrationProvince))" Placeholder="-- เลือกอำเภอ / เขต --" /></Field>
+                                <Field Label="ตำบล / แขวง"><MasterDataSearchSelect Items="@(HouseSubdistrictOptions.ToList())" Value="@employee.HouseRegistrationSubdistrict" ValueChanged="HouseSubdistrictSelected" OnOpen="LoadHouseSubdistrictOptions" Disabled="@(IsReadOnly || employee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(employee.HouseRegistrationDistrict))" Placeholder="-- เลือกตำบล / แขวง --" /></Field>
+                                <Field Label="รหัสไปรษณีย์"><MasterDataSearchSelect Items="@(HousePostalCodeOptions.ToList())" Value="@employee.HouseRegistrationPostalCode" ValueChanged="value => employee.HouseRegistrationPostalCode = value" OnOpen="LoadHousePostalCodeOptions" Disabled="@(IsReadOnly || employee.HouseRegistrationSameAsCurrent || string.IsNullOrWhiteSpace(employee.HouseRegistrationSubdistrict))" ShowDetails="false" Placeholder="-- เลือกรหัสไปรษณีย์ --" /></Field>
+                            </div></div>
                             <Field Label="บุคคลติดต่อฉุกเฉิน"><input @bind="employee.EmergencyContactName" disabled="@IsReadOnly" /></Field>
                             <Field Label="เบอร์ติดต่อฉุกเฉิน"><input @bind="employee.EmergencyContactPhone" disabled="@IsReadOnly" /></Field>
                             <Field Label="ที่อยู่ผู้ติดต่อฉุกเฉิน" Full="true"><textarea @bind="employee.EmergencyContactAddress" disabled="@IsReadOnly"></textarea></Field>
@@ -102,8 +133,8 @@
                             <Field Label="Email" Required="true"><input type="email" @bind="employee.Email" disabled="@IsReadOnly" /></Field>
                             <Field Label="บริษัท"><MasterDataSearchSelect Items="@(MasterOptions("COMPANY").ToList())" Value="@employee.Company" ValueChanged="value => employee.Company = value" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาบริษัท --" /></Field>
                             <Field Label="Business Unit"><MasterDataSearchSelect Items="@(MasterOptions("BUSINESS_UNIT").ToList())" Value="@employee.BusinessUnit" ValueChanged="BusinessUnitSelected" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหา Business Unit --" /></Field>
-                            <Field Label="แผนก" Required="true"><MasterDataSearchSelect Items="@(DepartmentOptions.ToList())" Value="@employee.Department" ValueChanged="value => employee.Department = value" OnOpen="LoadDepartmentOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.BusinessUnit))" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" /></Field>
-                            <Field Label="ตำแหน่ง" Required="true"><MasterDataSearchSelect Items="@(MasterOptions("POSITION").ToList())" Value="@employee.Position" ValueChanged="value => employee.Position = value" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำแหน่ง --" /></Field>
+                            <Field Label="แผนก" Required="true"><MasterDataSearchSelect Items="@(DepartmentOptions.ToList())" Value="@employee.Department" ValueChanged="DepartmentSelected" OnOpen="LoadDepartmentOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.BusinessUnit))" Placeholder="-- เลือกหรือพิมพ์ค้นหาแผนก --" /></Field>
+                            <Field Label="ตำแหน่ง" Required="true"><MasterDataSearchSelect Items="@(PositionOptions.ToList())" Value="@employee.Position" ValueChanged="value => employee.Position = value" OnOpen="LoadPositionOptions" Disabled="@(IsReadOnly || string.IsNullOrWhiteSpace(employee.Department))" Placeholder="-- เลือกหรือพิมพ์ค้นหาตำแหน่ง --" /></Field>
                             <Field Label="หัวหน้างาน"><EmployeeSearchSelect Items="employeeOptions" Value="@employee.SupervisorEmployeeId" ValueChanged="SelectSupervisor" ExcludeEmployeeCode="@employee.EmployeeCode" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาหัวหน้างาน --" /></Field>
                             <Field Label="Reporting To (Leave Approve)"><EmployeeSearchSelect Items="employeeOptions" Value="@employee.LeaveApproverEmployeeId" ValueChanged="SelectLeaveApprover" ExcludeEmployeeCode="@employee.EmployeeCode" Disabled="@IsReadOnly" Placeholder="-- เลือกหรือพิมพ์ค้นหาผู้อนุมัติลา --" /></Field>
                             <Field Label="Branch"><input @bind="employee.BranchName" disabled="@IsReadOnly" /></Field>
@@ -122,16 +153,15 @@
                             <Field Label="ประสบการณ์การทำงาน"><input @bind="employee.WorkExperienceType" disabled="@IsReadOnly" /></Field>
                             <label class="check-field"><input type="checkbox" @bind="employee.HasCompanyParking" disabled="@IsReadOnly" /> บริษัทมีที่จอดรถให้</label>
                             <label class="check-field"><input type="checkbox" @bind="employee.CanTravelUpcountry" disabled="@IsReadOnly" /> สามารถเดินทางไปต่างจังหวัดได้</label>
-                            <Field Label="MAC Address"><input @bind="employee.MacAddress" disabled="@IsReadOnly" /></Field>
-                            <Field Label="สถานะพนักงาน"><select @bind="employee.EmployeeStatus" disabled="@IsReadOnly"><option value="พนักงาน">พนักงาน</option><option value="ลาออก">ลาออก</option></select></Field>
+                            <Field Label="สถานะพนักงาน"><SearchableSelect><select @bind="employee.EmployeeStatus" disabled="@IsReadOnly"><option value="พนักงาน">พนักงาน</option><option value="ลาออก">ลาออก</option></select></SearchableSelect></Field>
                             <label class="check-field"><input type="checkbox" @bind="employee.ExcludeAttendanceCalculation" disabled="@IsReadOnly" /> ไม่ต้องคำนวณการมาทำงาน</label>
                         </div></section>
                         break;
                     case "work":
                         <HistorySection Title="ประวัติการทำงาน" IsReadOnly="@IsReadOnly" OnAdd="AddWorkHistory">
-                            <table><thead><tr><th>ระยะเวลา</th><th>ตำแหน่ง/หน้าที่</th><th>บริษัท</th><th></th></tr></thead><tbody>
-                            @if(employee.WorkHistory.Count==0){<tr><td colspan="4" class="empty-row">ยังไม่มีประวัติการทำงาน</td></tr>}
-                            @foreach(var row in employee.WorkHistory){<tr><td><input @bind="row.Period" disabled="@IsReadOnly" /></td><td><input @bind="row.Position" disabled="@IsReadOnly" /></td><td><input @bind="row.Company" disabled="@IsReadOnly" /></td><td>@if(!IsReadOnly){<button type="button" @onclick="() => employee.WorkHistory.Remove(row)">×</button>}</td></tr>}
+                            <table><thead><tr><th>ระยะเวลา</th><th>BU</th><th>แผนก</th><th>ตำแหน่ง</th><th>Brand</th><th>Comm.Group</th><th></th></tr></thead><tbody>
+                            @if(employee.WorkHistory.Count==0){<tr><td colspan="7" class="empty-row">ยังไม่มีประวัติการทำงาน</td></tr>}
+                            @foreach(var row in employee.WorkHistory){<tr><td><input @bind="row.Period" disabled="@IsReadOnly" /></td><td><input @bind="row.BusinessUnit" disabled="@IsReadOnly" /></td><td><input @bind="row.Department" disabled="@IsReadOnly" /></td><td><input @bind="row.Position" disabled="@IsReadOnly" /></td><td><input @bind="row.Brand" disabled="@IsReadOnly" /></td><td><input @bind="row.CommGroup" disabled="@IsReadOnly" /></td><td>@if(!IsReadOnly){<button type="button" @onclick="() => employee.WorkHistory.Remove(row)">×</button>}</td></tr>}
                             </tbody></table>
                         </HistorySection>
                         break;
@@ -178,6 +208,7 @@
                         <section><h2>ข้อมูลอ้างอิงจากต้นทาง</h2><div class="pre-form-grid">
                             <Field Label="Source System"><input @bind="sourceSystem" disabled="@IsReadOnly" /></Field>
                             <Field Label="Source Reference ID"><input @bind="sourceReferenceId" disabled="@IsReadOnly" /></Field>
+                            <Field Label="URL เอกสาร Recruit" Full="true"><input type="url" @bind="recruitUrl" disabled="@IsReadOnly" placeholder="https://..." /></Field>
                         </div></section>
                         break;
                 }
@@ -200,7 +231,7 @@
     [Parameter] public long Id { get; set; }
     private PreEmployeeDto? item;
     private Employee employee = new();
-    private string sourceSystem = "MANUAL", sourceReferenceId = "", activeTab = "personal", profileFileName = "";
+    private string sourceSystem = "MANUAL", sourceReferenceId = "", recruitUrl = "", activeTab = "personal", profileFileName = "";
     private string? loadError, formError, successMessage;
     private bool isLoading = true, isSaving, canEdit, canConvert, confirmConvertOpen, convertPromptAfterSave;
     private string ConvertDialogTitle => convertPromptAfterSave
@@ -216,7 +247,7 @@
         "TITLE", "RELIGION", "BLOOD_TYPE", "COMPANY", "BUSINESS_UNIT", "POSITION",
         "EMPLOYMENT_TYPE", "WORK_SCHEDULE", "WORK_LOCATION", "PROVINCE"
     ];
-    private bool IsReadOnly => item?.Status is "CONVERTED" or "CANCELLED";
+    private bool IsReadOnly => item?.DidNotStartWork == true || item?.Status is "CONVERTED" or "CANCELLED";
     private static readonly TabInfo[] Tabs = [
         new("personal","ข้อมูลส่วนบุคคล"), new("internal","ข้อมูลภายในบริษัท"),
         new("work","ประวัติการทำงาน"), new("education","ประวัติการศึกษา"), new("training","ประวัติการอบรม & สัมมนา"),
@@ -249,6 +280,7 @@
             employee.TrainingHistory ??= [];
             sourceSystem = item.SourceSystem ?? "MANUAL";
             sourceReferenceId = item.SourceReferenceId ?? "";
+            recruitUrl = item.Url ?? "";
         }
         catch (Exception ex) { item = null; loadError = ex.Message; }
         finally { isLoading = false; }
@@ -258,7 +290,7 @@
         employee.FirstName, employee.LastName, employee.EnglishFullName, employee.Nickname, employee.Email,
         employee.LotusNotesEmail, employee.PersonalMobile, employee.Company, employee.BusinessUnit, employee.Department,
         employee.Position, employee.StartDate, employee.SupervisorName, employee.LeaveApproverName,
-        employee.EmploymentType, employee.WorkLocation, employee);
+        employee.EmploymentType, employee.WorkLocation, employee, recruitUrl);
 
     private async Task Save()
     {
@@ -354,33 +386,68 @@
     private IEnumerable<MasterDataItemDto> ResidenceDistrictOptions => ChildAddressOptions("DISTRICT", "PROVINCE", employee.ResidenceProvince);
     private IEnumerable<MasterDataItemDto> ResidenceSubdistrictOptions => ChildAddressOptions("SUBDISTRICT", "DISTRICT", employee.ResidenceDistrict, ResidenceDistrictOptions);
     private IEnumerable<MasterDataItemDto> ResidencePostalCodeOptions => ChildAddressOptions("POSTAL_CODE", "SUBDISTRICT", employee.ResidenceSubdistrict, ResidenceSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> IdCardDistrictOptions => ChildAddressOptions("DISTRICT", "PROVINCE", employee.IdCardProvince);
+    private IEnumerable<MasterDataItemDto> IdCardSubdistrictOptions => ChildAddressOptions("SUBDISTRICT", "DISTRICT", employee.IdCardDistrict, IdCardDistrictOptions);
+    private IEnumerable<MasterDataItemDto> IdCardPostalCodeOptions => ChildAddressOptions("POSTAL_CODE", "SUBDISTRICT", employee.IdCardSubdistrict, IdCardSubdistrictOptions);
+    private IEnumerable<MasterDataItemDto> HouseDistrictOptions => ChildAddressOptions("DISTRICT", "PROVINCE", employee.HouseRegistrationProvince);
+    private IEnumerable<MasterDataItemDto> HouseSubdistrictOptions => ChildAddressOptions("SUBDISTRICT", "DISTRICT", employee.HouseRegistrationDistrict, HouseDistrictOptions);
+    private IEnumerable<MasterDataItemDto> HousePostalCodeOptions => ChildAddressOptions("POSTAL_CODE", "SUBDISTRICT", employee.HouseRegistrationSubdistrict, HouseSubdistrictOptions);
     private IEnumerable<MasterDataItemDto> DepartmentOptions => ChildAddressOptions("DEPARTMENT", "BUSINESS_UNIT", employee.BusinessUnit);
+    private IEnumerable<MasterDataItemDto> PositionOptions => ChildAddressOptions("POSITION", "DEPARTMENT", employee.Department, DepartmentOptions);
     private IEnumerable<MasterDataItemDto> ChildAddressOptions(string childCategory, string parentCategory, string parentName, IEnumerable<MasterDataItemDto>? parents = null)
     {
         var parent = (parents ?? MasterOptions(parentCategory)).FirstOrDefault(item => string.Equals(item.NameTh, parentName, StringComparison.OrdinalIgnoreCase));
         return parent is null ? [] : MasterOptions(childCategory).Where(item => item.ParentItemId == parent.Id);
     }
-    private void ResidenceProvinceChanged() { employee.ResidenceDistrict = ""; employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; }
-    private void ResidenceDistrictChanged() { employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; }
+    private void ResidenceProvinceChanged() { employee.ResidenceDistrict = ""; employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; SyncAddresses(); }
+    private void ResidenceDistrictChanged() { employee.ResidenceSubdistrict = ""; employee.ResidencePostalCode = ""; SyncAddresses(); }
     private void ResidenceSubdistrictChanged()
     {
         var postalCodes = ResidencePostalCodeOptions.ToList();
         employee.ResidencePostalCode = postalCodes.Count == 1 ? postalCodes[0].NameTh : "";
+        SyncAddresses();
     }
     private void ResidenceProvinceSelected(string value) { employee.ResidenceProvince = value; ResidenceProvinceChanged(); }
     private void ResidenceDistrictSelected(string value) { employee.ResidenceDistrict = value; ResidenceDistrictChanged(); }
     private void ResidenceSubdistrictSelected(string value) { employee.ResidenceSubdistrict = value; ResidenceSubdistrictChanged(); }
-    private void ResidencePostalCodeSelected(string value) => employee.ResidencePostalCode = value;
+    private void ResidencePostalCodeSelected(string value) { employee.ResidencePostalCode = value; SyncAddresses(); }
+    private void IdCardSameChanged() { if (employee.IdCardSameAsCurrent) CopyCurrentToIdCard(); }
+    private void HouseSameChanged() { if (employee.HouseRegistrationSameAsCurrent) CopyCurrentToHouse(); }
+    private void IdCardProvinceSelected(string value) { employee.IdCardProvince = value; employee.IdCardDistrict = ""; employee.IdCardSubdistrict = ""; employee.IdCardPostalCode = ""; }
+    private void IdCardDistrictSelected(string value) { employee.IdCardDistrict = value; employee.IdCardSubdistrict = ""; employee.IdCardPostalCode = ""; }
+    private void IdCardSubdistrictSelected(string value) { employee.IdCardSubdistrict = value; var values = IdCardPostalCodeOptions.ToList(); employee.IdCardPostalCode = values.Count == 1 ? values[0].NameTh : ""; }
+    private void HouseProvinceSelected(string value) { employee.HouseRegistrationProvince = value; employee.HouseRegistrationDistrict = ""; employee.HouseRegistrationSubdistrict = ""; employee.HouseRegistrationPostalCode = ""; }
+    private void HouseDistrictSelected(string value) { employee.HouseRegistrationDistrict = value; employee.HouseRegistrationSubdistrict = ""; employee.HouseRegistrationPostalCode = ""; }
+    private void HouseSubdistrictSelected(string value) { employee.HouseRegistrationSubdistrict = value; var values = HousePostalCodeOptions.ToList(); employee.HouseRegistrationPostalCode = values.Count == 1 ? values[0].NameTh : ""; }
+    private void SyncAddresses() { if (employee.IdCardSameAsCurrent) CopyCurrentToIdCard(); if (employee.HouseRegistrationSameAsCurrent) CopyCurrentToHouse(); }
+    private void CopyCurrentToIdCard() { employee.IdCardAddress = employee.CurrentAddress; employee.IdCardProvince = employee.ResidenceProvince; employee.IdCardDistrict = employee.ResidenceDistrict; employee.IdCardSubdistrict = employee.ResidenceSubdistrict; employee.IdCardPostalCode = employee.ResidencePostalCode; }
+    private void CopyCurrentToHouse() { employee.HouseRegistrationAddress = employee.CurrentAddress; employee.HouseRegistrationProvince = employee.ResidenceProvince; employee.HouseRegistrationDistrict = employee.ResidenceDistrict; employee.HouseRegistrationSubdistrict = employee.ResidenceSubdistrict; employee.HouseRegistrationPostalCode = employee.ResidencePostalCode; }
     private void BusinessUnitSelected(string value)
     {
         employee.BusinessUnit = value;
         if (!DepartmentOptions.Any(item => string.Equals(item.NameTh, employee.Department, StringComparison.OrdinalIgnoreCase)))
+        {
             employee.Department = "";
+            employee.Position = "";
+        }
+    }
+    private void DepartmentSelected(string value)
+    {
+        employee.Department = value;
+        if (!PositionOptions.Any(item => string.Equals(item.NameTh, employee.Position, StringComparison.OrdinalIgnoreCase)))
+            employee.Position = "";
     }
     private Task LoadDepartmentOptions() => LoadChildOptions("DEPARTMENT", "BUSINESS_UNIT", employee.BusinessUnit);
+    private Task LoadPositionOptions() => LoadChildOptions("POSITION", "DEPARTMENT", employee.Department, DepartmentOptions);
     private Task LoadResidenceDistrictOptions() => LoadChildOptions("DISTRICT", "PROVINCE", employee.ResidenceProvince);
     private Task LoadResidenceSubdistrictOptions() => LoadChildOptions("SUBDISTRICT", "DISTRICT", employee.ResidenceDistrict, ResidenceDistrictOptions);
     private Task LoadResidencePostalCodeOptions() => LoadChildOptions("POSTAL_CODE", "SUBDISTRICT", employee.ResidenceSubdistrict, ResidenceSubdistrictOptions);
+    private Task LoadIdCardDistrictOptions() => LoadChildOptions("DISTRICT", "PROVINCE", employee.IdCardProvince);
+    private Task LoadIdCardSubdistrictOptions() => LoadChildOptions("SUBDISTRICT", "DISTRICT", employee.IdCardDistrict, IdCardDistrictOptions);
+    private Task LoadIdCardPostalCodeOptions() => LoadChildOptions("POSTAL_CODE", "SUBDISTRICT", employee.IdCardSubdistrict, IdCardSubdistrictOptions);
+    private Task LoadHouseDistrictOptions() => LoadChildOptions("DISTRICT", "PROVINCE", employee.HouseRegistrationProvince);
+    private Task LoadHouseSubdistrictOptions() => LoadChildOptions("SUBDISTRICT", "DISTRICT", employee.HouseRegistrationDistrict, HouseDistrictOptions);
+    private Task LoadHousePostalCodeOptions() => LoadChildOptions("POSTAL_CODE", "SUBDISTRICT", employee.HouseRegistrationSubdistrict, HouseSubdistrictOptions);
     private async Task LoadChildOptions(string childCategory, string parentCategory, string parentName, IEnumerable<MasterDataItemDto>? parents = null)
     {
         if (string.IsNullOrWhiteSpace(parentName)) return;
@@ -409,7 +476,7 @@
     private void OpenCreatedEmployee() { if (item?.CreatedEmployeeId is long id) Navigation.NavigateTo($"/employees/{id}"); }
     private string Initials() => string.Concat(new[] { employee.FirstName, employee.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()[0])).ToUpperInvariant() is var value && value.Length > 0 ? value : "P";
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
-    private static string StatusText(string value) => value switch { "READY" => "พร้อมสร้าง", "CONVERTED" => "สร้างพนักงานแล้ว", "CANCELLED" => "ยกเลิก", "DRAFT" => "Draft", _ => "ข้อมูลไม่ครบ" };
+    private static string StatusText(string value) => value switch { "READY" => "พร้อมสร้าง", "CONVERTED" => "สร้างพนักงานแล้ว", "CANCELLED" => "ยกเลิก", "NO_SHOW" => "ไม่มาทำงาน", "DRAFT" => "Draft", _ => "ข้อมูลไม่ครบ" };
     private static string StatusClass(string value) => $"status-{value.ToLowerInvariant()}";
     private sealed record TabInfo(string Key, string Label);
 }

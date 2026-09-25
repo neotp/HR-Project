@@ -5,12 +5,12 @@
             แสดง @StartItem-@EndItem จาก @TotalItems รายการ
             <label>
                 ต่อหน้า
-                <select value="@PageSize" @onchange="ChangePageSize">
+                <SearchableSelect><select value="@PageSize" @onchange="ChangePageSize">
                     @foreach (var size in PageSizeOptions)
                     {
                         <option value="@size">@size</option>
                     }
-                </select>
+                </select></SearchableSelect>
             </label>
         </div>
         <div class="paging-buttons">

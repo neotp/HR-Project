@@ -210,6 +210,24 @@ public sealed class AttendanceCalendarEventsController(
             !await actionPermissionService.HasPermission(actor.Value.EmployeeId, "ATTENDANCE_REVIEWS", decision, cancellationToken))
             return Forbid();
 
+        const string ownerSql = "SELECT created_by, status FROM public.attendance_calendar_events WHERE id = @id";
+        string createdBy;
+        string currentStatus;
+        await using (var command = dataSource.CreateCommand(ownerSql))
+        {
+            command.Parameters.AddWithValue("id", id);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return NotFound();
+            createdBy = reader.GetString(0);
+            currentStatus = reader.GetString(1);
+        }
+        if (string.Equals(actor.Value.EmployeeId, createdBy, StringComparison.OrdinalIgnoreCase))
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                "ไม่สามารถอนุมัติหรือไม่อนุมัติ Event ที่ตนเองเป็นผู้สร้างได้");
+        if (currentStatus != "PENDING_REVIEW")
+            return Conflict("Event is no longer pending review");
+
         const string sql = """
             UPDATE public.attendance_calendar_events
             SET status = @status, reviewed_by = @reviewed_by, reviewed_by_name = @reviewed_by_name,

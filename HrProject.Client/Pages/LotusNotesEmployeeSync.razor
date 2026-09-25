@@ -25,7 +25,7 @@
         <div class="content-card-header">ค้นหารายการ</div>
         <div class="content-card-body lotus-criteria">
             <label>คำค้นหา<input type="search" placeholder="รหัสหรือชื่อพนักงาน" @bind="search" @bind:event="oninput" @bind:after="ResetPage" /></label>
-            <label>สถานะ<select @bind="status" @bind:after="ResetPage"><option value="">ทั้งหมด</option><option value="PENDING">Pending</option><option value="PROCESSING">กำลังส่ง</option><option value="SUCCESS">Success</option><option value="FAILED">Failed</option></select></label>
+            <label>สถานะ<SearchableSelect><select @bind="status" @bind:after="ResetPage"><option value="">ทั้งหมด</option><option value="PENDING">Pending</option><option value="PROCESSING">กำลังส่ง</option><option value="SUCCESS">Success</option><option value="FAILED">Failed</option></select></SearchableSelect></label>
             <button type="button" class="lotus-clear" @onclick="Clear">ล้างข้อมูล</button>
         </div>
     </section>

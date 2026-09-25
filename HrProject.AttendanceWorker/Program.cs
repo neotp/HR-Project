@@ -8,8 +8,10 @@ var settings = new NpgsqlConnectionStringBuilder(hrConnectionString);
 if (settings.KeepAlive == 0) settings.KeepAlive = 30;
 
 builder.Services.Configure<AttendanceWorkerOptions>(builder.Configuration.GetSection("AttendanceWorker"));
+builder.Services.Configure<WifiAttendanceOptions>(builder.Configuration.GetSection("WifiAttendance"));
 builder.Services.AddSingleton(NpgsqlDataSource.Create(settings.ConnectionString));
 builder.Services.AddSingleton<AttendanceProcessor>();
+builder.Services.AddSingleton<WifiAttendanceImporter>();
 builder.Services.AddHostedService<HikvisionAttendanceWorker>();
 
 await builder.Build().RunAsync();

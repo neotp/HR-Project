@@ -111,11 +111,10 @@
                                                    @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" />
                                         </td>
                                         <td>
-                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
-                                                    aria-expanded="@(expandedCommentDocumentId == document.Id)"
-                                                    @onclick="() => ToggleComments(document.Id)">
-                                                <span class="comment-chevron">›</span>
-                                            </button>
+                                            <CommentToggleButton CommentCount="@document.CommentCount"
+                                                                 IsExpanded="@(expandedCommentDocumentId == document.Id)"
+                                                                 AriaLabel="@($"ความคิดเห็นของ {document.DocumentNo}")"
+                                                                 OnToggle="() => ToggleComments(document.Id)" />
                                             <LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
                                         </td>
                                         <td>@document.CreatorName</td>
@@ -588,10 +587,12 @@
 
     private bool CanApprove(LeaveDocumentDto document) =>
         document.Status == "PENDING_APPROVAL" &&
+        !string.Equals(document.CreatorEmployeeId, currentUser?.EmployeeId, StringComparison.OrdinalIgnoreCase) &&
         (document.CanCurrentUserReview || allowedActions.Contains("APPROVE"));
 
     private bool CanReject(LeaveDocumentDto document) =>
         document.Status == "PENDING_APPROVAL" &&
+        !string.Equals(document.CreatorEmployeeId, currentUser?.EmployeeId, StringComparison.OrdinalIgnoreCase) &&
         (document.CanCurrentUserReview || allowedActions.Contains("REJECT"));
 
     private static string ProcessedStatusTitle(string status) => status switch

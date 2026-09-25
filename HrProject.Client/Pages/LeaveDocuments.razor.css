@@ -7,6 +7,7 @@
 .my-quota-item { padding: 1rem; background: linear-gradient(145deg, #f8fafc, #fff); border: 1px solid #e2e8f0; border-radius: .65rem; }
 .my-quota-item h2 { margin: 0 0 .85rem; color: #1e293b; font-size: .95rem; }
 .quota-values { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
+.quota-values.used-only { grid-template-columns: 1fr; }
 .quota-values > div { display: grid; gap: .15rem; padding: .65rem; border-radius: .5rem; }
 .quota-values > div:first-child { background: #fff7ed; }.quota-values > div:last-child { background: #ecfdf5; }
 .quota-values span { color: #64748b; font-size: .75rem; }.quota-values strong { font-size: 1.45rem; line-height: 1.1; }
@@ -43,6 +44,7 @@
 .comment-toggle:hover { color: #f06432; background: #fff7ed; border-color: #fdba74; }
 .comment-chevron { display: inline-block; font-size: 1.35rem; line-height: 1; transition: transform .16s ease; }
 .comment-toggle[aria-expanded="true"] .comment-chevron { transform: rotate(90deg); }
+.comment-toggle.no-comments .comment-chevron,.comment-toggle.no-comments[aria-expanded="true"] .comment-chevron { transform:none; color:#2563eb; font-weight:700; }
 .comment-toggle small { min-width: .9rem; height: .9rem; display: grid; place-items: center; padding: 0 .18rem; color: #fff; background: #f06432; border-radius: 999px; font-size: .58rem; }
 .comment-row-open td { background: #fffaf7; }
 .comment-detail-row > td { padding: 0 !important; background: #f8fafc !important; }

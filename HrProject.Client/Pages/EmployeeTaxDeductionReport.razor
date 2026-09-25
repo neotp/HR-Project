@@ -24,8 +24,8 @@
 
     <section class="content-card report-filter">
         <label>ค้นหา<input placeholder="รหัส ชื่อพนักงาน หรือแผนก" @bind="search" @bind:event="oninput" /></label>
-        <label>สถานะ<select @bind="status"><option value="ALL">ทั้งหมด</option><option value="CONFIRMED">ยืนยันแล้ว</option><option value="DRAFT">แบบร่าง</option></select></label>
-        <label>ปีภาษี<select @bind="selectedYear" @bind:after="Load"><option>@(DateTime.Today.Year + 1)</option><option>@DateTime.Today.Year</option>@for (var y=DateTime.Today.Year-1;y>=DateTime.Today.Year-5;y--){<option>@y</option>}</select></label>
+        <label>สถานะ<SearchableSelect><select @bind="status"><option value="ALL">ทั้งหมด</option><option value="CONFIRMED">ยืนยันแล้ว</option><option value="DRAFT">แบบร่าง</option></select></SearchableSelect></label>
+        <label>ปีภาษี<SearchableSelect><select @bind="selectedYear" @bind:after="Load"><option>@(DateTime.Today.Year + 1)</option><option>@DateTime.Today.Year</option>@for (var y=DateTime.Today.Year-1;y>=DateTime.Today.Year-5;y--){<option>@y</option>}</select></SearchableSelect></label>
     </section>
 
     <section class="content-card report-table-card">

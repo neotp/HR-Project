@@ -1,17 +1,17 @@
 <div class="time-minute-picker" aria-label="@AriaLabel">
-    <select value="@Value.Hour" @onchange="ChangeHour" disabled="@Disabled" aria-label="ชั่วโมง">
+    <SearchableSelect><select value="@Value.Hour" @onchange="ChangeHour" disabled="@Disabled" aria-label="ชั่วโมง">
         @for (var hour = 0; hour < 24; hour++)
         {
             <option value="@hour">@hour.ToString("00")</option>
         }
-    </select>
+    </select></SearchableSelect>
     <span aria-hidden="true">:</span>
-    <select value="@Value.Minute" @onchange="ChangeMinute" disabled="@Disabled" aria-label="นาที">
+    <SearchableSelect><select value="@Value.Minute" @onchange="ChangeMinute" disabled="@Disabled" aria-label="นาที">
         @for (var minute = 0; minute < 60; minute++)
         {
             <option value="@minute">@minute.ToString("00")</option>
         }
-    </select>
+    </select></SearchableSelect>
 </div>
 
 @code {

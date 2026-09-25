@@ -100,11 +100,10 @@
                                 {
                                     <tr class="@(expandedCommentDocumentId == document.Id ? "comment-row-open" : null)">
                                         <td>
-                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
-                                                    aria-expanded="@(expandedCommentDocumentId == document.Id)"
-                                                    @onclick="() => ToggleComments(document.Id)">
-                                                <span class="comment-chevron">›</span>
-                                            </button>
+                                            <CommentToggleButton CommentCount="@document.CommentCount"
+                                                                 IsExpanded="@(expandedCommentDocumentId == document.Id)"
+                                                                 AriaLabel="@($"ความคิดเห็นของ {document.DocumentNo}")"
+                                                                 OnToggle="() => ToggleComments(document.Id)" />
                                             <LeaveDocumentHoverPreview Document="@document"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
                                         </td>
                                         <td>@document.CreatorName</td>

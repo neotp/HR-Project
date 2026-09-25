@@ -30,6 +30,7 @@ public sealed class Employee
     public string HomePhone { get; set; } = string.Empty;
     public string NationalId { get; set; } = string.Empty;
     public DateOnly? BirthDate { get; set; }
+    public string Gender { get; set; } = string.Empty;
     public string Religion { get; set; } = string.Empty;
     public string BloodType { get; set; } = string.Empty;
     public string CurrentAddress { get; set; } = string.Empty;
@@ -39,6 +40,16 @@ public sealed class Employee
     public string ResidenceDistrict { get; set; } = string.Empty;
     public string ResidenceSubdistrict { get; set; } = string.Empty;
     public string ResidencePostalCode { get; set; } = string.Empty;
+    public bool IdCardSameAsCurrent { get; set; }
+    public string IdCardProvince { get; set; } = string.Empty;
+    public string IdCardDistrict { get; set; } = string.Empty;
+    public string IdCardSubdistrict { get; set; } = string.Empty;
+    public string IdCardPostalCode { get; set; } = string.Empty;
+    public bool HouseRegistrationSameAsCurrent { get; set; }
+    public string HouseRegistrationProvince { get; set; } = string.Empty;
+    public string HouseRegistrationDistrict { get; set; } = string.Empty;
+    public string HouseRegistrationSubdistrict { get; set; } = string.Empty;
+    public string HouseRegistrationPostalCode { get; set; } = string.Empty;
     public string EmergencyContactName { get; set; } = string.Empty;
     public string EmergencyContactPhone { get; set; } = string.Empty;
     public string EmergencyContactAddress { get; set; } = string.Empty;
@@ -102,6 +113,15 @@ public sealed class Employee
     public decimal ParentSupportDeductionAmount { get; set; }
     public decimal SpouseParentSupportDeductionAmount { get; set; }
     public string CurrentAddressMapUrl { get; set; } = string.Empty;
+    public string BankName { get; set; } = string.Empty;
+    public string BankBranch { get; set; } = string.Empty;
+    public string BankAccountName { get; set; } = string.Empty;
+    public string BankAccountNumber { get; set; } = string.Empty;
+    public string BankAccountType { get; set; } = string.Empty;
+    public string PromptPayId { get; set; } = string.Empty;
+    public string SocialSecurityNumber { get; set; } = string.Empty;
+    public string TaxpayerIdentificationNumber { get; set; } = string.Empty;
+    public string SalaryAccountNumber { get; set; } = string.Empty;
 
     public string FullName => $"{FirstName} {LastName}";
 }
@@ -109,7 +129,12 @@ public sealed class Employee
 public sealed class EmployeeWorkHistoryItem
 {
     public string Period { get; set; } = string.Empty;
+    public string BusinessUnit { get; set; } = string.Empty;
+    public string Department { get; set; } = string.Empty;
     public string Position { get; set; } = string.Empty;
+    public string Brand { get; set; } = string.Empty;
+    public string CommGroup { get; set; } = string.Empty;
+    // Kept for backward compatibility with existing records and Lotus Notes payloads.
     public string Company { get; set; } = string.Empty;
 }
 

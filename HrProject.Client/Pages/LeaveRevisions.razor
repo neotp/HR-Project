@@ -89,13 +89,12 @@
                                 @foreach (var document in PagedDocuments)
                                 {
                                     <tr class="@(expandedCommentDocumentId == document.Id ? "comment-row-open" : null)">
-                                        <td class="select-column"><input type="checkbox" aria-label="เลือก @document.DocumentNo" checked="@selectedIds.Contains(document.Id)" @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" /></td>
+                                        <td class="select-column"><input type="checkbox" aria-label="เลือก @document.DocumentNo" disabled="@(IsOwnRequest(document))" checked="@selectedIds.Contains(document.Id)" @onchange="eventArgs => ToggleItem(document.Id, (bool?)eventArgs.Value == true)" /></td>
                                         <td>
-                                            <button class="comment-toggle" type="button" aria-label="ความคิดเห็นของ @document.DocumentNo"
-                                                    aria-expanded="@(expandedCommentDocumentId == document.Id)"
-                                                    @onclick="() => ToggleComments(document.Id)">
-                                                <span class="comment-chevron">›</span>
-                                            </button>
+                                            <CommentToggleButton CommentCount="@document.CommentCount"
+                                                                 IsExpanded="@(expandedCommentDocumentId == document.Id)"
+                                                                 AriaLabel="@($"ความคิดเห็นของ {document.DocumentNo}")"
+                                                                 OnToggle="() => ToggleComments(document.Id)" />
                                             <LeaveDocumentHoverPreview Document="@document" ShowEditRequestDetails="true"><button class="document-number" type="button" @onclick="() => OpenDocument(document)">@document.DocumentNo</button></LeaveDocumentHoverPreview>
                                         </td>
                                         <td>@document.CreatorName</td>
@@ -228,12 +227,15 @@
                     <span class="action-error" role="alert">@actionError</span>
                 }
                 <button class="btn btn-reset" type="button" @onclick="CloseDocument">ปิด</button>
-                <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="ConfirmRejectRequest">
-                    @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
-                </button>
-                <button class="btn btn-approve" type="button" disabled="@(isSaving || !HasPendingRequest(selectedDocument))" @onclick="ConfirmApproveRequest">
-                    @(isSaving ? "กำลังดำเนินการ..." : (IsCancelRequest(selectedDocument) ? "อนุมัติขอยกเลิก" : "อนุมัติขอแก้ไข"))
-                </button>
+                @if (!IsOwnRequest(selectedDocument))
+                {
+                    <button class="btn btn-reject" type="button" disabled="@isSaving" @onclick="ConfirmRejectRequest">
+                        @(isSaving ? "กำลังดำเนินการ..." : "ไม่อนุมัติ")
+                    </button>
+                    <button class="btn btn-approve" type="button" disabled="@(isSaving || !HasPendingRequest(selectedDocument))" @onclick="ConfirmApproveRequest">
+                        @(isSaving ? "กำลังดำเนินการ..." : (IsCancelRequest(selectedDocument) ? "อนุมัติขอยกเลิก" : "อนุมัติขอแก้ไข"))
+                    </button>
+                }
             </footer>
         </section>
     </div>
@@ -291,7 +293,8 @@
     private CurrentMicrosoftUserDto? currentUser;
     private long? expandedCommentDocumentId;
     private List<LeaveDocumentDto> PageDocuments => PagedDocuments.ToList();
-    private bool AreAllPageItemsSelected => PageDocuments.Count > 0 && PageDocuments.All(item => selectedIds.Contains(item.Id));
+    private List<LeaveDocumentDto> PageSelectableDocuments => PageDocuments.Where(item => !IsOwnRequest(item)).ToList();
+    private bool AreAllPageItemsSelected => PageSelectableDocuments.Count > 0 && PageSelectableDocuments.All(item => selectedIds.Contains(item.Id));
 
     private void ToggleComments(long documentId) =>
         expandedCommentDocumentId=expandedCommentDocumentId==documentId?null:documentId;
@@ -470,7 +473,7 @@
 
     private async Task ReviewRequest(string action, string actionText)
     {
-        if (selectedDocument is null || !HasPendingRequest(selectedDocument) || isSaving)
+        if (selectedDocument is null || !HasPendingRequest(selectedDocument) || IsOwnRequest(selectedDocument) || isSaving)
             return;
 
         actionError = null;
@@ -518,7 +521,7 @@
     private void ToggleCurrentPage(ChangeEventArgs eventArgs)
     {
         var selected = (bool?)eventArgs.Value == true;
-        foreach (var item in PageDocuments)
+        foreach (var item in PageSelectableDocuments)
         {
             if (selected) selectedIds.Add(item.Id); else selectedIds.Remove(item.Id);
         }
@@ -532,7 +535,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id)).ToList())
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id) && !IsOwnRequest(item)).ToList())
         {
             try
             {
@@ -561,7 +564,7 @@
         bulkMessage = null;
         var succeeded = new List<long>();
         var failed = new List<string>();
-        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id)).ToList())
+        foreach (var document in documents.Where(item => selectedIds.Contains(item.Id) && !IsOwnRequest(item)).ToList())
         {
             try
             {
@@ -593,6 +596,14 @@
 
     private static bool HasPendingRequest(LeaveDocumentDto document) =>
         document.PendingEditRequest is not null || document.PendingCancelRequest is not null;
+
+    private bool IsOwnRequest(LeaveDocumentDto document)
+    {
+        var requestedBy = document.PendingCancelRequest?.RequestedBy ??
+            document.PendingEditRequest?.RequestedBy;
+        return string.Equals(document.CreatorEmployeeId, currentUser?.EmployeeId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(requestedBy, currentUser?.EmployeeId, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string RequestTypeText(LeaveDocumentDto document) =>
         IsCancelRequest(document) ? "ขอยกเลิก" : "ขอแก้ไข";

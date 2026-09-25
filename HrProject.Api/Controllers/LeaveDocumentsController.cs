@@ -1405,7 +1405,24 @@ public sealed class LeaveDocumentsController(
         const string sql = """
             SELECT reporting_approver.employee_code,
                    upper_reporting_approver.employee_code,
-                   document.approver_employee_id
+                   document.approver_employee_id,
+                   document.creator_employee_id,
+                   EXISTS
+                   (
+                       SELECT 1
+                       FROM public.leave_edit_requests edit_request
+                       WHERE edit_request.leave_document_id = document.id
+                         AND edit_request.status = 'PENDING'
+                         AND UPPER(BTRIM(edit_request.requested_by)) = UPPER(BTRIM(@actor_employee_id))
+                   ),
+                   EXISTS
+                   (
+                       SELECT 1
+                       FROM public.leave_cancel_requests cancel_request
+                       WHERE cancel_request.leave_document_id = document.id
+                         AND cancel_request.status = 'PENDING'
+                         AND UPPER(BTRIM(cancel_request.requested_by)) = UPPER(BTRIM(@actor_employee_id))
+                   )
             FROM public.leave_documents document
             LEFT JOIN public.employees creator_employee
                    ON creator_employee.employee_code = document.creator_employee_id
@@ -1449,12 +1466,23 @@ public sealed class LeaveDocumentsController(
             """;
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("id", documentId);
+        command.Parameters.AddWithValue("actor_employee_id", actorEmployeeId.Trim());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
             return NotFound("ไม่พบเอกสารการลา");
         var reportingApprover = reader.IsDBNull(0) ? null : reader.GetString(0);
         var upperReportingApprover = reader.IsDBNull(1) ? null : reader.GetString(1);
         var storedApprover = reader.IsDBNull(2) ? null : reader.GetString(2);
+        var creatorEmployeeId = reader.GetString(3);
+        var requestedOwnEdit = reader.GetBoolean(4);
+        var requestedOwnCancel = reader.GetBoolean(5);
+        if (string.Equals(creatorEmployeeId, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            requestedOwnEdit || requestedOwnCancel)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                "ไม่สามารถอนุมัติหรือไม่อนุมัติเอกสารหรือคำขอที่ตนเองเป็นผู้ยื่นได้");
+        }
         if (string.Equals(reportingApprover, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase) ||
             string.Equals(upperReportingApprover, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase) ||
             string.Equals(storedApprover, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -2125,49 +2153,139 @@ public sealed class LeaveDocumentsController(
         long? excludedDocumentId,
         CancellationToken cancellationToken)
     {
-        const string quotaSql = """
-            SELECT quota_hours
-            FROM public.leave_quotas
-            WHERE employee_id = @employee_id
-              AND leave_type_id = @leave_type_id
-              AND quota_year = @quota_year
-            FOR UPDATE
-            """;
+        var currentYear = BangkokNow().Year;
+        if (quotaYear > currentYear + 1)
+            return $"สามารถทำรายการลาล่วงหน้าได้ไม่เกินปี {currentYear + 1}";
 
-        decimal? quotaHours;
-        await using (var command = new NpgsqlCommand(quotaSql, connection, transaction))
+        const string typeSql = "SELECT code FROM public.leave_types WHERE id = @leave_type_id";
+        string? leaveTypeCode;
+        await using (var command = new NpgsqlCommand(typeSql, connection, transaction))
         {
-            command.Parameters.AddWithValue("employee_id", employeeId.Trim());
             command.Parameters.AddWithValue("leave_type_id", leaveTypeId);
-            command.Parameters.AddWithValue("quota_year", quotaYear);
+            leaveTypeCode = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        }
+
+        decimal remainingHours;
+        if (string.Equals(leaveTypeCode, "VACATION", StringComparison.OrdinalIgnoreCase) &&
+            quotaYear == currentYear + 1)
+        {
+            await using (var ensureCommand = new NpgsqlCommand(
+                "SELECT public.ensure_projected_vacation_quota(@employee_id, @leave_type_id, @quota_year)",
+                connection, transaction))
+            {
+                ensureCommand.Parameters.AddWithValue("employee_id", employeeId.Trim());
+                ensureCommand.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                ensureCommand.Parameters.AddWithValue("quota_year", quotaYear);
+                await ensureCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var lockCommand = new NpgsqlCommand("""
+                SELECT id FROM public.leave_quotas
+                WHERE employee_id=@employee_id AND leave_type_id=@leave_type_id
+                  AND quota_year IN (@current_year,@quota_year)
+                ORDER BY quota_year
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                lockCommand.Parameters.AddWithValue("employee_id", employeeId.Trim());
+                lockCommand.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                lockCommand.Parameters.AddWithValue("current_year", currentYear);
+                lockCommand.Parameters.AddWithValue("quota_year", quotaYear);
+                await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            const string futureSql = """
+                WITH values_for_booking AS
+                (
+                    SELECT future_quota.new_entitlement_hours,
+                           COALESCE(current_quota.quota_hours, 0) AS current_quota_hours,
+                           COALESCE((
+                               SELECT SUM(a.allocated_hours)
+                               FROM public.leave_document_quota_allocations a
+                               WHERE a.employee_id = @employee_id
+                                 AND a.leave_type_id = @leave_type_id
+                                 AND a.source_quota_year = @current_year
+                                 AND a.released_at IS NULL
+                                 AND (@excluded_document_id IS NULL OR a.leave_document_id <> @excluded_document_id)
+                           ), 0) AS current_source_used,
+                           COALESCE((
+                               SELECT SUM(a.allocated_hours)
+                               FROM public.leave_document_quota_allocations a
+                               WHERE a.employee_id = @employee_id
+                                 AND a.leave_type_id = @leave_type_id
+                                 AND a.leave_year = @quota_year
+                                 AND a.source_quota_year = @current_year
+                                 AND a.released_at IS NULL
+                                 AND (@excluded_document_id IS NULL OR a.leave_document_id <> @excluded_document_id)
+                           ), 0) AS existing_carry_allocations,
+                           COALESCE((
+                               SELECT SUM(d.leave_hours)
+                               FROM public.leave_documents d
+                               WHERE d.creator_employee_id = @employee_id
+                                 AND d.leave_type_id = @leave_type_id
+                                 AND EXTRACT(YEAR FROM d.leave_date)::INT = @quota_year
+                                 AND d.status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
+                                 AND (@excluded_document_id IS NULL OR d.id <> @excluded_document_id)
+                           ), 0) AS existing_future_usage
+                    FROM public.leave_quotas future_quota
+                    LEFT JOIN public.leave_quotas current_quota
+                      ON current_quota.employee_id = future_quota.employee_id
+                     AND current_quota.leave_type_id = future_quota.leave_type_id
+                     AND current_quota.quota_year = @current_year
+                    WHERE future_quota.employee_id = @employee_id
+                      AND future_quota.leave_type_id = @leave_type_id
+                      AND future_quota.quota_year = @quota_year
+                )
+                SELECT GREATEST(
+                    LEAST(96,
+                        new_entitlement_hours
+                        + GREATEST(current_quota_hours - current_source_used, 0)
+                        + existing_carry_allocations)
+                    - existing_future_usage,
+                    0)
+                FROM values_for_booking
+                """;
+            await using var command = new NpgsqlCommand(futureSql, connection, transaction);
+            AddQuotaValidationParameters(command, employeeId, leaveTypeId, quotaYear, excludedDocumentId);
+            command.Parameters.AddWithValue("current_year", currentYear);
             var value = await command.ExecuteScalarAsync(cancellationToken);
-            quotaHours = value is null or DBNull ? null : Convert.ToDecimal(value);
+            remainingHours = value is null or DBNull ? 0 : Convert.ToDecimal(value);
         }
-
-        if (!quotaHours.HasValue)
-            return $"โควต้าวันลาไม่พอ เนื่องจากยังไม่ได้กำหนดโควต้าประเภทนี้สำหรับปี {quotaYear}";
-
-        const string usedSql = """
-            SELECT COALESCE(SUM(leave_hours), 0)
-            FROM public.leave_documents
-            WHERE creator_employee_id = @employee_id
-              AND leave_type_id = @leave_type_id
-              AND EXTRACT(YEAR FROM leave_date)::INT = @quota_year
-              AND status IN ('PENDING_APPROVAL', 'APPROVED', 'EDIT_REQUESTED')
-              AND (@excluded_document_id IS NULL OR id <> @excluded_document_id)
-            """;
-
-        decimal usedHours;
-        await using (var command = new NpgsqlCommand(usedSql, connection, transaction))
+        else
         {
-            command.Parameters.AddWithValue("employee_id", employeeId.Trim());
-            command.Parameters.AddWithValue("leave_type_id", leaveTypeId);
-            command.Parameters.AddWithValue("quota_year", quotaYear);
-            command.Parameters.Add(new NpgsqlParameter<long?>("excluded_document_id", excludedDocumentId));
-            usedHours = Convert.ToDecimal(await command.ExecuteScalarAsync(cancellationToken));
+            await using (var lockCommand = new NpgsqlCommand("""
+                SELECT id FROM public.leave_quotas
+                WHERE employee_id=@employee_id AND leave_type_id=@leave_type_id
+                  AND quota_year=@quota_year
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                lockCommand.Parameters.AddWithValue("employee_id", employeeId.Trim());
+                lockCommand.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+                lockCommand.Parameters.AddWithValue("quota_year", quotaYear);
+                if (await lockCommand.ExecuteScalarAsync(cancellationToken) is null)
+                    return $"ยังไม่ได้กำหนดโควต้าประเภทนี้สำหรับปี {quotaYear}";
+            }
+            const string remainingSql = """
+                SELECT q.quota_hours - COALESCE(SUM(a.allocated_hours), 0)
+                FROM public.leave_quotas q
+                LEFT JOIN public.leave_document_quota_allocations a
+                  ON a.employee_id = q.employee_id AND a.leave_type_id = q.leave_type_id
+                 AND (a.source_quota_year = q.quota_year OR a.leave_year = q.quota_year)
+                 AND a.released_at IS NULL
+                 AND (@excluded_document_id IS NULL OR a.leave_document_id <> @excluded_document_id)
+                WHERE q.employee_id = @employee_id
+                  AND q.leave_type_id = @leave_type_id
+                  AND q.quota_year = @quota_year
+                GROUP BY q.id, q.quota_hours
+                """;
+            await using var command = new NpgsqlCommand(remainingSql, connection, transaction);
+            AddQuotaValidationParameters(command, employeeId, leaveTypeId, quotaYear, excludedDocumentId);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is null or DBNull)
+                return $"ยังไม่ได้กำหนดโควต้าประเภทนี้สำหรับปี {quotaYear}";
+            remainingHours = Convert.ToDecimal(value);
         }
 
-        var remainingHours = quotaHours.Value - usedHours;
         if (requestedHours > remainingHours)
         {
             return $"โควต้าวันลาไม่พอ คงเหลือ {Math.Max(remainingHours, 0):0.##} ชั่วโมง " +
@@ -2175,6 +2293,19 @@ public sealed class LeaveDocumentsController(
         }
 
         return null;
+    }
+
+    private static void AddQuotaValidationParameters(
+        NpgsqlCommand command,
+        string employeeId,
+        long leaveTypeId,
+        int quotaYear,
+        long? excludedDocumentId)
+    {
+        command.Parameters.AddWithValue("employee_id", employeeId.Trim());
+        command.Parameters.AddWithValue("leave_type_id", leaveTypeId);
+        command.Parameters.AddWithValue("quota_year", quotaYear);
+        command.Parameters.Add(new NpgsqlParameter<long?>("excluded_document_id", excludedDocumentId));
     }
 
     private static string? ValidateMedicalCertificate(

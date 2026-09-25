@@ -17,7 +17,7 @@
     else
     {
         <header class="comment-header">
-            <div><h3>ความคิดเห็นและการตอบกลับ</h3><p>@Document.DocumentNo · @comments.Count ข้อความ</p></div>
+            <div><h3>ความคิดเห็นและการตอบกลับ</h3><p>@EffectiveLabel · @comments.Count ข้อความ</p></div>
         </header>
 
         <div class="comment-timeline" id="@CommentTimelineId">
@@ -67,8 +67,8 @@
         @if (canComment)
         {
             <div class="comment-composer">
-                <label class="comment-label" for="comment-@Document.Id">Comment / Response <span>*</span></label>
-                <textarea id="comment-@Document.Id" rows="3" maxlength="4000" @bind="commentText"
+                <label class="comment-label" for="comment-@EffectiveId">Comment / Response <span>*</span></label>
+                <textarea id="comment-@EffectiveId" rows="3" maxlength="4000" @bind="commentText"
                           placeholder="พิมพ์ความคิดเห็นหรือข้อความตอบกลับ..."></textarea>
 
                 <div class="comment-attachment-tools">
@@ -100,7 +100,7 @@
                 }
                 <div class="comment-actions">
                     <span>@commentText.Length / 4,000</span>
-                    <button type="button" disabled="@(isSaving || string.IsNullOrWhiteSpace(commentText))" @onclick="OpenRecipientDialog">
+                    <button type="button" disabled="@(isSaving || string.IsNullOrWhiteSpace(commentText))" @onclick="PrepareSubmit">
                         ส่งความคิดเห็น
                     </button>
                 </div>
@@ -118,7 +118,7 @@
     <div class="recipient-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="recipient-dialog-title">
         <section class="recipient-dialog">
             <header>
-                <div><h3 id="recipient-dialog-title">ตรวจสอบผู้รับ Email</h3><p>@Document.DocumentNo</p></div>
+                <div><h3 id="recipient-dialog-title">ตรวจสอบผู้รับ Email</h3><p>@EffectiveLabel</p></div>
                 <button type="button" aria-label="ปิด" disabled="@isSaving" @onclick="CloseRecipientDialog">×</button>
             </header>
             <div class="recipient-dialog-body">
@@ -221,9 +221,18 @@
 }
 
 @code {
-    [Parameter, EditorRequired] public LeaveDocumentDto Document { get; set; } = default!;
+    [Parameter] public LeaveDocumentDto? Document { get; set; }
+    [Parameter] public long EntityId { get; set; }
+    [Parameter] public string ApiPath { get; set; } = string.Empty;
+    [Parameter] public string DocumentLabel { get; set; } = string.Empty;
+    [Parameter] public bool CanComment { get; set; } = true;
     [Parameter] public string CurrentEmployeeId { get; set; } = string.Empty;
     [Parameter] public EventCallback<int> CommentCountChanged { get; set; }
+
+    private bool IsLeaveMode => Document is not null;
+    private long EffectiveId => Document?.Id ?? EntityId;
+    private string EffectiveApiPath => IsLeaveMode ? $"api/leave-documents/{Document!.Id}/comments" : ApiPath;
+    private string EffectiveLabel => IsLeaveMode ? Document!.DocumentNo : DocumentLabel;
 
     private List<LeaveDocumentCommentDto> comments=[];
     private List<LeaveCommentRecipientDto> mandatoryRecipients=[];
@@ -284,7 +293,7 @@
         if(!pasteRegistered&&canComment)
         {
             pasteReference=DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("hrCommentPaste.register",$"comment-{Document.Id}",pasteReference);
+            await JS.InvokeVoidAsync("hrCommentPaste.register",$"comment-{EffectiveId}",pasteReference);
             pasteRegistered=true;
         }
         if(shouldScrollToLatest)
@@ -309,7 +318,7 @@
             try
             {
                 var bytes=await Http.GetByteArrayAsync(
-                    $"api/leave-documents/{Document.Id}/comments/{item.comment.Id}/attachments/{item.attachment.Id}/preview");
+                    AttachmentPreviewPath(item.comment.Id,item.attachment.Id));
                 thumbnailUrls[item.attachment.Id]=await JS.InvokeAsync<string>(
                     "hrPreview.createObjectUrl",item.attachment.ContentType,bytes);
             }
@@ -327,16 +336,27 @@
         isLoading=true;loadError=null;
         try
         {
-            var context=await Http.GetFromJsonAsync<LeaveCommentContextDto>($"api/leave-documents/{Document.Id}/comments");
-            comments=context?.Comments.ToList()??[];
+            if(IsLeaveMode)
+            {
+                var context=await Http.GetFromJsonAsync<LeaveCommentContextDto>(EffectiveApiPath);
+                comments=context?.Comments.ToList()??[];
+                mandatoryRecipients=context?.DefaultRecipients.Where(value=>value.IsDefault).ToList()??[];
+                persistentRecipients.Clear();
+                persistentRecipients.AddRange(context?.DefaultRecipients.Where(value=>!value.IsDefault)??[]);
+                canComment=context?.CanComment??false;
+                employees=canComment ? await Http.GetFromJsonAsync<List<Employee>>("api/employees")??[] : [];
+            }
+            else
+            {
+                var values=await Http.GetFromJsonAsync<List<GenericCommentDto>>(EffectiveApiPath)??[];
+                comments=values.Select(value=>new LeaveDocumentCommentDto(
+                    value.Id,EffectiveId,value.CommentedBy,value.CommentedByName,null,value.CommentText,
+                    value.CommentedAt,[],value.Attachments??[])).ToList();
+                canComment=CanComment;
+                mandatoryRecipients=[];persistentRecipients.Clear();employees=[];
+            }
             shouldScrollToLatest=comments.Count>0;
-            mandatoryRecipients=context?.DefaultRecipients.Where(value=>value.IsDefault).ToList()??[];
-            persistentRecipients.Clear();
-            persistentRecipients.AddRange(context?.DefaultRecipients.Where(value=>!value.IsDefault)??[]);
-            canComment=context?.CanComment??false;
-            employees=canComment
-                ? await Http.GetFromJsonAsync<List<Employee>>("api/employees")??[]
-                : [];
+            await CommentCountChanged.InvokeAsync(comments.Count);
         }
         catch(Exception exception){loadError=$"โหลดการสนทนาไม่สำเร็จ: {exception.Message}";}
         finally{isLoading=false;}
@@ -419,6 +439,12 @@
         isRecipientDropdownOpen=false;isRecipientDialogOpen=true;
     }
 
+    private async Task PrepareSubmit()
+    {
+        if(IsLeaveMode) OpenRecipientDialog();
+        else await Submit();
+    }
+
     private void CloseRecipientDialog()
     {
         if(isSaving)return;
@@ -431,15 +457,26 @@
         isSaving=true;saveError=null;
         try
         {
-            var response=await Http.PostAsJsonAsync($"api/leave-documents/{Document.Id}/comments",
-                new CreateLeaveCommentRequest(text,dialogRecipients.Select(value=>value.EmployeeId!).ToList(),commentAttachments));
+            var response=IsLeaveMode
+                ? await Http.PostAsJsonAsync(EffectiveApiPath,
+                    new CreateLeaveCommentRequest(text,dialogRecipients.Select(value=>value.EmployeeId!).ToList(),commentAttachments))
+                : await Http.PostAsJsonAsync(EffectiveApiPath,
+                    new GenericCommentRequest(text,commentAttachments));
             if(!response.IsSuccessStatusCode)
             {
                 saveError=await response.Content.ReadAsStringAsync();return;
             }
-            var created=await response.Content.ReadFromJsonAsync<LeaveDocumentCommentDto>();
+            LeaveDocumentCommentDto? created;
+            if(IsLeaveMode) created=await response.Content.ReadFromJsonAsync<LeaveDocumentCommentDto>();
+            else
+            {
+                var value=await response.Content.ReadFromJsonAsync<GenericCommentDto>();
+                created=value is null?null:new LeaveDocumentCommentDto(
+                    value.Id,EffectiveId,value.CommentedBy,value.CommentedByName,null,value.CommentText,
+                    value.CommentedAt,[],value.Attachments??[]);
+            }
             if(created is not null){comments.Add(created);shouldScrollToLatest=true;}
-            persistentRecipients.Clear();persistentRecipients.AddRange(dialogRecipients);
+            if(IsLeaveMode){persistentRecipients.Clear();persistentRecipients.AddRange(dialogRecipients);}
             commentText=string.Empty;commentAttachments.Clear();attachmentInputVersion++;
             recipientSearchText=string.Empty;isRecipientDropdownOpen=false;isRecipientDialogOpen=false;
             await CommentCountChanged.InvokeAsync(comments.Count);
@@ -449,7 +486,7 @@
     }
 
     private static string Initials(string name)=>string.Concat(name.Split(' ',StringSplitOptions.RemoveEmptyEntries).Take(2).Select(value=>value[0]));
-    private string CommentTimelineId=>$"comment-timeline-{Document.Id}";
+    private string CommentTimelineId=>$"comment-timeline-{EffectiveId}";
     private async Task OpenImage(LeaveDocumentCommentDto comment,LeaveCommentAttachmentDto attachment)
     {
         if(isPreviewInitialized)await JS.InvokeVoidAsync("hrImageViewer.destroy",PreviewViewportId);
@@ -457,15 +494,15 @@
         await RevokePreview();previewAttachment=attachment;previewError=null;isPreviewLoading=true;
         try
         {
-            var bytes=await Http.GetByteArrayAsync($"api/leave-documents/{Document.Id}/comments/{comment.Id}/attachments/{attachment.Id}/preview");
+            var bytes=await Http.GetByteArrayAsync(AttachmentPreviewPath(comment.Id,attachment.Id));
             previewUrl=await JS.InvokeAsync<string>("hrPreview.createObjectUrl",attachment.ContentType,bytes);
         }
         catch(Exception exception){previewError=$"เปิดรูปไม่สำเร็จ: {exception.Message}";}
         finally{isPreviewLoading=false;}
     }
-    private string PreviewViewportId=>$"comment-image-viewport-{Document.Id}";
-    private string PreviewImageId=>$"comment-image-preview-{Document.Id}";
-    private string PreviewScaleId=>$"comment-image-scale-{Document.Id}";
+    private string PreviewViewportId=>$"comment-image-viewport-{EffectiveId}";
+    private string PreviewImageId=>$"comment-image-preview-{EffectiveId}";
+    private string PreviewScaleId=>$"comment-image-scale-{EffectiveId}";
     private async Task InitializeImagePreview()
     {
         if(isPreviewInitialized||string.IsNullOrWhiteSpace(previewUrl))return;
@@ -491,7 +528,7 @@
         foreach(var url in thumbnailUrls.Values)
             await JS.InvokeVoidAsync("hrPreview.revokeObjectUrl",url);
         thumbnailUrls.Clear();
-        if(pasteRegistered)await JS.InvokeVoidAsync("hrCommentPaste.unregister",$"comment-{Document.Id}");
+        if(pasteRegistered)await JS.InvokeVoidAsync("hrCommentPaste.unregister",$"comment-{EffectiveId}");
         pasteReference?.Dispose();
     }
 
@@ -502,4 +539,13 @@
         var text=string.Join(" · ",details);
         return text.Length==0?string.Empty:$" · {text}";
     }
+
+    private string AttachmentPreviewPath(long commentId,long attachmentId)=>
+        $"{EffectiveApiPath}/{commentId}/attachments/{attachmentId}/preview";
+
+    private sealed record GenericCommentRequest(
+        string CommentText,IReadOnlyList<LeaveCommentAttachmentUploadDto> Attachments);
+    private sealed record GenericCommentDto(
+        long Id,string CommentText,string CommentedBy,string CommentedByName,
+        DateTimeOffset CommentedAt,IReadOnlyList<LeaveCommentAttachmentDto>? Attachments);
 }

@@ -103,9 +103,17 @@ public sealed class AttendanceProcessor(
         HashSet<AttendanceKey> affected, DateOnly workDate, CancellationToken token)
     {
         await using var command = dataSource.CreateCommand("""
-            SELECT DISTINCT source_employee_id
+            SELECT source_employee_id
             FROM public.attendance_raw_scans
             WHERE captured_at::date = @work_date
+            UNION
+            SELECT wifi.employee_id
+            FROM public.attendance_wifi_connections wifi
+            JOIN public.employees employee ON employee.employee_code = wifi.employee_id
+            JOIN public.employee_company_info company ON company.employee_id = employee.id
+            WHERE regexp_replace(lower(company.mac_address), '[^0-9a-f]', '', 'g') = wifi.mac_address
+              AND wifi.start_at >= (@work_date::date::timestamp AT TIME ZONE 'Asia/Bangkok')
+              AND wifi.start_at < ((@work_date::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')
             """);
         command.Parameters.AddWithValue("work_date", workDate);
         await using var reader = await command.ExecuteReaderAsync(token);
@@ -256,6 +264,7 @@ public sealed class AttendanceProcessor(
             upsert.Parameters.AddWithValue("detail", JsonSerializer.Serialize(new
             {
                 firstScan = dayContext.FirstScan,
+                firstScanSource = dayContext.FirstScanSource,
                 lastScan = dayContext.LastScan,
                 dayContext.ScanCount,
                 approvedLeaves = dayContext.Leaves,
@@ -316,6 +325,14 @@ public sealed class AttendanceProcessor(
                   WHERE source_employee_id = @employee_id AND captured_at::date = @work_date),
                 (SELECT COUNT(*)::int FROM public.attendance_raw_scans
                   WHERE source_employee_id = @employee_id AND captured_at::date = @work_date),
+                (SELECT MIN(start_at AT TIME ZONE 'Asia/Bangkok')
+                 FROM public.attendance_wifi_connections wifi
+                 JOIN public.employees employee ON employee.employee_code = wifi.employee_id
+                 JOIN public.employee_company_info company ON company.employee_id = employee.id
+                 WHERE wifi.employee_id = @employee_id
+                   AND regexp_replace(lower(company.mac_address), '[^0-9a-f]', '', 'g') = wifi.mac_address
+                   AND wifi.start_at >= (@work_date::date::timestamp AT TIME ZONE 'Asia/Bangkok')
+                   AND wifi.start_at < ((@work_date::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')),
                 CASE
                     WHEN EXISTS (SELECT 1 FROM public.work_calendar_days
                                  WHERE calendar_date = @work_date AND day_type = 'PUBLIC_HOLIDAY') THEN FALSE
@@ -334,6 +351,7 @@ public sealed class AttendanceProcessor(
         DateTime? first;
         DateTime? last;
         int count;
+        string? firstSource;
         bool isWorkDay;
         TimeOnly workEnd;
         await using (var command = dataSource.CreateCommand(sql))
@@ -345,8 +363,16 @@ public sealed class AttendanceProcessor(
             first = reader.IsDBNull(0) ? null : reader.GetDateTime(0);
             last = reader.IsDBNull(1) ? null : reader.GetDateTime(1);
             count = reader.GetInt32(2);
-            isWorkDay = reader.GetBoolean(3);
-            workEnd = reader.GetFieldValue<TimeOnly>(4);
+            var wifiFirst = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+            firstSource = first is null ? null : "HIKVISION";
+            if (wifiFirst is not null && (first is null || wifiFirst < first))
+            {
+                first = wifiFirst;
+                count++;
+                firstSource = "WIFI";
+            }
+            isWorkDay = reader.GetBoolean(4);
+            workEnd = reader.GetFieldValue<TimeOnly>(5);
         }
 
         const string leaveSql = """
@@ -401,7 +427,7 @@ public sealed class AttendanceProcessor(
                     reader.GetFieldValue<TimeOnly>(1), reader.GetString(2), reader.GetString(3),
                     reader.GetBoolean(4)));
         }
-        return new DayContext(first, last, count, isWorkDay, workEnd, leaves, events);
+        return new DayContext(first, last, count, firstSource, isWorkDay, workEnd, leaves, events);
     }
 
     private CalculationResult Calculate(DateOnly workDate, DayContext context)
@@ -434,8 +460,8 @@ public sealed class AttendanceProcessor(
         }
 
         var first = TimeOnly.FromDateTime(context.FirstScan!.Value);
-        var last = TimeOnly.FromDateTime(context.LastScan!.Value);
-        var meetsFullOfficeScan = first < new TimeOnly(9, 1) && last >= context.WorkEnd;
+        var last = context.LastScan is null ? WorkStart : TimeOnly.FromDateTime(context.LastScan.Value);
+        var meetsFullOfficeScan = context.LastScan is not null && first < new TimeOnly(9, 1) && last >= context.WorkEnd;
         // A face scan inside an attendance event proves that the employee was at
         // the company during that event. That event can no longer cover lateness
         // or missing time; other non-overlapping events and approved leave remain valid.
@@ -562,6 +588,7 @@ public sealed class AttendanceProcessor(
 
     private sealed record DayContext(
         DateTime? FirstScan, DateTime? LastScan, int ScanCount,
+        string? FirstScanSource,
         bool IsWorkDay, TimeOnly WorkEnd, IReadOnlyList<ApprovedLeave> Leaves,
         IReadOnlyList<AttendanceEvent> Events);
     private sealed record ApprovedLeave(TimeOnly Start, TimeOnly End, decimal Hours, string DocumentNo);

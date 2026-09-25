@@ -2,6 +2,8 @@
 @inject HttpClient Http
 
 <section class="recruit-document-manager">
+    @if (CanManage)
+    {
     <div class="recruit-link-form">
         <label for="recruit-document-url">ลิงก์เอกสาร Recruit</label>
         <div>
@@ -15,6 +17,7 @@
         </div>
         <small>ระบุลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://</small>
     </div>
+    }
 
     @if (!string.IsNullOrWhiteSpace(message))
     {
@@ -44,7 +47,7 @@
         <div class="recruit-link-state empty">
             <span aria-hidden="true">↗</span>
             <strong>ยังไม่มีลิงก์เอกสาร Recruit</strong>
-            <small>เพิ่มลิงก์ด้านบนเพื่อเชื่อมไปยังเอกสารภายนอก</small>
+            <small>@(CanManage ? "เพิ่มลิงก์ด้านบนเพื่อเชื่อมไปยังเอกสารภายนอก" : "ยังไม่มีเอกสาร Recruit ที่แสดงได้")</small>
         </div>
     }
     else
@@ -63,8 +66,11 @@
                         </span>
                         <span class="open-new-tab">เปิดแท็บใหม่</span>
                     </a>
-                    <button type="button" class="recruit-link-delete" disabled="@isDeleting"
-                            @onclick="() => AskDelete(link)">ลบ</button>
+                    @if (CanManage)
+                    {
+                        <button type="button" class="recruit-link-delete" disabled="@isDeleting"
+                                @onclick="() => AskDelete(link)">ลบ</button>
+                    }
                 </article>
             }
         </div>
@@ -73,6 +79,7 @@
 
 @code {
     [Parameter, EditorRequired] public int EmployeeId { get; set; }
+    [Parameter] public bool CanManage { get; set; }
 
     private readonly List<EmployeeRecruitDocumentLinkDto> links = [];
     private int loadedEmployeeId;

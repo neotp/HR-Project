@@ -53,12 +53,16 @@
 @code {
     [Parameter] public string Value { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback<Employee?> EmployeeChanged { get; set; }
+    [Parameter] public string SelectedDisplayText { get; set; } = string.Empty;
+    [Parameter] public string ExcludeEmployeeCode { get; set; } = string.Empty;
     [Parameter] public string Placeholder { get; set; } = "-- เลือกหรือพิมพ์ค้นหาพนักงาน --";
 
     private readonly List<Employee> options = [];
     private string searchText = string.Empty;
     private string selectedDisplayText = string.Empty;
     private string synchronizedValue = string.Empty;
+    private string synchronizedDisplayText = string.Empty;
     private bool isOpen;
     private bool isLoading;
     private int searchVersion;
@@ -66,9 +70,15 @@
 
     protected override void OnParametersSet()
     {
-        if (string.Equals(Value, synchronizedValue, StringComparison.OrdinalIgnoreCase)) return;
-        synchronizedValue = Value ?? string.Empty;
-        if (synchronizedValue.Length == 0) searchText = selectedDisplayText = string.Empty;
+        var nextValue = Value ?? string.Empty;
+        var nextDisplayText = SelectedDisplayText ?? string.Empty;
+        if (string.Equals(nextValue, synchronizedValue, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(nextDisplayText, synchronizedDisplayText, StringComparison.Ordinal)) return;
+
+        synchronizedValue = nextValue;
+        synchronizedDisplayText = nextDisplayText;
+        selectedDisplayText = synchronizedValue.Length == 0 ? string.Empty : nextDisplayText;
+        searchText = selectedDisplayText;
     }
 
     private async Task Open()
@@ -103,7 +113,8 @@
                 $"api/employees/lookup?search={Uri.EscapeDataString(term.Trim())}", token) ?? [];
             if (version != searchVersion) return;
             options.Clear();
-            options.AddRange(result);
+            options.AddRange(result.Where(employee => !string.Equals(
+                employee.EmployeeCode, ExcludeEmployeeCode, StringComparison.OrdinalIgnoreCase)));
         }
         catch (OperationCanceledException) { }
         finally
@@ -118,6 +129,7 @@
         synchronizedValue = employee.EmployeeCode;
         isOpen = false;
         await ValueChanged.InvokeAsync(employee.EmployeeCode);
+        await EmployeeChanged.InvokeAsync(employee);
     }
 
     private async Task ClearSelection()
@@ -128,6 +140,7 @@
         isOpen = false;
         options.Clear();
         await ValueChanged.InvokeAsync(string.Empty);
+        await EmployeeChanged.InvokeAsync(null);
     }
 
     private async Task CloseAfterSelection()

@@ -16,7 +16,9 @@ public sealed record AttendanceDailyDto(
     DateTimeOffset CalculatedAt,
     string? OverrideReason,
     bool IsWorkDayInProgress,
-    bool IsResponseWindowOpen);
+    bool IsResponseWindowOpen,
+    int CommentCount = 0,
+    string? FirstScanSource = null);
 
 public sealed record AttendanceHistoryDto(
     long Id,
@@ -34,9 +36,15 @@ public sealed record AttendanceCommentDto(
     string CommentText,
     string CommentedBy,
     string CommentedByName,
-    DateTimeOffset CommentedAt);
+    DateTimeOffset CommentedAt)
+{
+    public IReadOnlyList<LeaveCommentAttachmentDto> Attachments { get; init; } = [];
+}
 
-public sealed record AddAttendanceCommentRequest(string CommentText);
+public sealed record AddAttendanceCommentRequest(
+    string CommentText,
+    IReadOnlyList<LeaveCommentAttachmentUploadDto>? Attachments = null);
+public sealed record AttendanceLinkDestinationDto(string Url);
 
 public sealed record OverrideAttendanceRequest(
     string Status,
@@ -108,7 +116,8 @@ public sealed record AttendanceReviewItemDto(
     int FinalMissingMinutes,
     bool RequiresReview,
     string? ReviewReason,
-    AttendanceResponseDto? LatestResponse);
+    AttendanceResponseDto? LatestResponse,
+    int CommentCount = 0);
 
 public sealed record ReviewAttendanceResponseRequest(
     string Decision,

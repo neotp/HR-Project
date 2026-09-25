@@ -155,10 +155,10 @@
                     <div class="settings-form">
                         <label>
                             <span class="field-label">ประเภท <span class="required">*</span></span>
-                            <select @bind="EditingDayType">
+                            <SearchableSelect><select @bind="EditingDayType">
                                 <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
                                 <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
-                            </select>
+                            </select></SearchableSelect>
                         </label>
                         <label>
                             <span class="field-label">วันที่ <span class="required">*</span></span>
@@ -187,19 +187,19 @@
                     <div class="batch-type-row">
                         <label>
                             <span class="field-label">ประเภท <span class="required">*</span></span>
-                            <select @bind="EditingDayType">
+                            <SearchableSelect><select @bind="EditingDayType">
                                 <option value="@PublicHolidayType">วันหยุดนักขัตฤกษ์</option>
                                 <option value="@WorkingSaturdayType">วันเสาร์ทำงาน</option>
-                            </select>
+                            </select></SearchableSelect>
                         </label>
                         <label class="popup-year-field">
                             <span class="field-label">ปีที่ต้องการกำหนด <span class="required">*</span></span>
-                            <select value="@PopupYear" @onchange="ChangePopupYear">
+                            <SearchableSelect><select value="@PopupYear" @onchange="ChangePopupYear">
                                 @foreach (var year in PopupYearOptions)
                                 {
                                     <option value="@year">@year</option>
                                 }
-                            </select>
+                            </select></SearchableSelect>
                         </label>
                         <div class="selection-counter">
                             เลือกแล้ว <strong>@SelectedDates.Count</strong> วัน

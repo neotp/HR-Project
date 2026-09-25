@@ -25,7 +25,8 @@ public sealed class PreEmployeesController(
         leave_approver_name, employment_type, work_location, status, validation_message,
         created_employee_id, imported_by, imported_by_name, imported_at, reviewed_by,
         reviewed_by_name, reviewed_at, created_by, created_by_name, created_at, updated_at,
-        converted_by, converted_by_name, converted_at, employee_data
+        converted_by, converted_by_name, converted_at, employee_data, did_not_start_work,
+        recruit_url
         """;
 
     [HttpGet]
@@ -53,7 +54,8 @@ public sealed class PreEmployeesController(
 
         const string sql = """
             SELECT id, employee_code, first_name_th, last_name_th, full_name_en,
-                   email_address, business_unit, department, position_name, status, created_at
+                   email_address, business_unit, department, position_name, status, created_at,
+                   did_not_start_work
             FROM public.pre_employees
             ORDER BY CASE status WHEN 'READY' THEN 0 WHEN 'INCOMPLETE' THEN 1
                                  WHEN 'DRAFT' THEN 2 ELSE 3 END,
@@ -67,7 +69,8 @@ public sealed class PreEmployeesController(
             result.Add(new PreEmployeeSummaryDto(
                 reader.GetInt64(0), S(reader, 1) ?? "", S(reader, 2) ?? "", S(reader, 3) ?? "",
                 S(reader, 4) ?? "", S(reader, 5) ?? "", S(reader, 6) ?? "", S(reader, 7) ?? "",
-                S(reader, 8) ?? "", reader.GetString(9), reader.GetFieldValue<DateTimeOffset>(10)));
+                S(reader, 8) ?? "", reader.GetString(9), reader.GetFieldValue<DateTimeOffset>(10),
+                reader.GetBoolean(11)));
         }
         return Ok(result);
     }
@@ -92,6 +95,8 @@ public sealed class PreEmployeesController(
         if (actor is null) return Unauthorized();
         if (!await Can(actor.Value.EmployeeId, "EDIT", cancellationToken)) return Forbid();
 
+        if (ValidateRecruitUrl(request.Url) is { } urlError) return BadRequest(urlError);
+
         var validation = Validate(request);
         const string sql = """
             INSERT INTO public.pre_employees
@@ -99,13 +104,15 @@ public sealed class PreEmployeesController(
                  last_name_th, full_name_en, nickname, email_address, email_alias, personal_mobile,
                  company_name, business_unit, department, position_name, start_date, supervisor_name,
                  leave_approver_name, employment_type, work_location, status, validation_message,
-                 created_by, created_by_name, reviewed_by, reviewed_by_name, reviewed_at, employee_data)
+                 created_by, created_by_name, reviewed_by, reviewed_by_name, reviewed_at, employee_data,
+                 recruit_url)
             VALUES
                 (@source_system, @source_reference_id, @employee_code, @title, @first_name_th,
                  @last_name_th, @full_name_en, @nickname, @email, @email_alias, @mobile,
                  @company, @bu, @department, @position, @start_date, @supervisor,
                  @approver, @employment_type, @work_location, @status, @validation_message,
-                 @actor, @actor_name, @actor, @actor_name, CURRENT_TIMESTAMP, @employee_data::jsonb)
+                 @actor, @actor_name, @actor, @actor_name, CURRENT_TIMESTAMP, @employee_data::jsonb,
+                 @recruit_url)
             RETURNING id
             """;
         try
@@ -145,6 +152,7 @@ public sealed class PreEmployeesController(
         var actor = await GetActor(cancellationToken);
         if (actor is null) return Unauthorized();
         if (!await Can(actor.Value.EmployeeId, "EDIT", cancellationToken)) return Forbid();
+        if (ValidateRecruitUrl(request.Url) is { } urlError) return BadRequest(urlError);
         var validation = Validate(request);
         const string sql = """
             UPDATE public.pre_employees SET
@@ -156,9 +164,10 @@ public sealed class PreEmployeesController(
                 position_name=@position, start_date=@start_date, supervisor_name=@supervisor,
                 leave_approver_name=@approver, employment_type=@employment_type,
                 work_location=@work_location, status=@status, validation_message=@validation_message,
-                employee_data=@employee_data::jsonb,
+                employee_data=@employee_data::jsonb, recruit_url=@recruit_url,
                 reviewed_by=@actor, reviewed_by_name=@actor_name, reviewed_at=CURRENT_TIMESTAMP
             WHERE id=@id AND status NOT IN ('CONVERTED','CANCELLED')
+              AND did_not_start_work = FALSE
             """;
         try
         {
@@ -196,7 +205,7 @@ public sealed class PreEmployeesController(
                        last_name_th, full_name_en, nickname, email_address, email_alias,
                        personal_mobile, company_name, business_unit, department, position_name,
                        start_date, supervisor_name, leave_approver_name, employment_type,
-                       work_location, status, employee_data
+                       work_location, status, employee_data, did_not_start_work, recruit_url
                 FROM public.pre_employees WHERE id=@id FOR UPDATE
                 """;
             await using (var command = new NpgsqlCommand(lockSql, connection, transaction))
@@ -213,7 +222,9 @@ public sealed class PreEmployeesController(
                 var employeeData = reader.IsDBNull(21)
                     ? null
                     : JsonSerializer.Deserialize<Employee>(reader.GetString(21), JsonOptions);
-                draft = fallback with { EmployeeData = employeeData };
+                if (reader.GetBoolean(22))
+                    return Conflict("รายการนี้ถูกระบุว่าไม่มาทำงานแล้ว");
+                draft = fallback with { EmployeeData = employeeData, Url = S(reader,23) };
             }
             if (status == "CONVERTED") return Conflict("รายการนี้ถูกสร้างเป็นพนักงานแล้ว");
             var employee = ResolveEmployee(draft);
@@ -248,7 +259,31 @@ public sealed class PreEmployeesController(
                 command.Parameters.AddWithValue("code", EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode));
                 employeeId = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
             }
+            await InitialLeaveQuotaService.CreateForNewEmployee(
+                connection,
+                transaction,
+                EmployeeCodeFormat.NormalizeNew(employee.EmployeeCode),
+                employee.StartDate,
+                actor.Value.EmployeeId,
+                actor.Value.Name,
+                cancellationToken);
             await InsertFullEmployeeData(connection, transaction, employeeId, employee, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(draft.Url))
+            {
+                const string recruitLinkSql = """
+                    INSERT INTO public.employee_recruit_document_links
+                        (employee_id, link_url, added_by, added_by_name)
+                    VALUES
+                        (@employee_id, @link_url, @added_by, @added_by_name)
+                    ON CONFLICT (employee_id, LOWER(link_url)) WHERE is_active = TRUE DO NOTHING
+                    """;
+                await using var recruitLinkCommand = new NpgsqlCommand(recruitLinkSql, connection, transaction);
+                recruitLinkCommand.Parameters.AddWithValue("employee_id", employeeId);
+                recruitLinkCommand.Parameters.AddWithValue("link_url", draft.Url.Trim());
+                recruitLinkCommand.Parameters.AddWithValue("added_by", actor.Value.EmployeeId);
+                recruitLinkCommand.Parameters.AddWithValue("added_by_name", actor.Value.Name);
+                await recruitLinkCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
             const string outboxSql = """
                 INSERT INTO public.lotus_notes_employee_outbox
                     (pre_employee_id, employee_id, employee_code, employee_name,
@@ -296,6 +331,33 @@ public sealed class PreEmployeesController(
         }
     }
 
+    [HttpPost("{id:long}/did-not-start-work")]
+    public async Task<IActionResult> MarkDidNotStartWork(long id, CancellationToken cancellationToken)
+    {
+        var actor = await GetActor(cancellationToken);
+        if (actor is null) return Unauthorized();
+        if (!await Can(actor.Value.EmployeeId, "EDIT", cancellationToken)) return Forbid();
+
+        const string sql = """
+            UPDATE public.pre_employees
+            SET did_not_start_work = TRUE,
+                did_not_start_work_by = @actor,
+                did_not_start_work_by_name = @actor_name,
+                did_not_start_work_at = CURRENT_TIMESTAMP
+            WHERE id = @id
+              AND status NOT IN ('CONVERTED', 'CANCELLED')
+              AND did_not_start_work = FALSE
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("actor", actor.Value.EmployeeId);
+        command.Parameters.AddWithValue("actor_name", actor.Value.Name);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+            return Conflict("รายการนี้ถูกดำเนินการแล้ว หรือไม่สามารถระบุว่าไม่มาทำงานได้");
+
+        return NoContent();
+    }
+
     private async Task<bool> Can(string employeeId, string action, CancellationToken token) =>
         await pageAccessService.HasAccess(employeeId, "PRE_EMPLOYEES", token) &&
         await actionPermissionService.HasPermission(employeeId, "PRE_EMPLOYEES", action, token);
@@ -319,6 +381,19 @@ public sealed class PreEmployeesController(
     private static string? Validate(SavePreEmployeeRequest request)
     {
         return ValidateEmployee(ResolveEmployee(request));
+    }
+
+    private static string? ValidateRecruitUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var url = value.Trim();
+        if (url.Length > 2048 ||
+            !Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            return "URL เอกสาร Recruit ต้องเป็นลิงก์แบบเต็มที่ขึ้นต้นด้วย http:// หรือ https://";
+        }
+        return null;
     }
 
     private static string? ValidateEmployee(Employee employee)
@@ -360,6 +435,7 @@ public sealed class PreEmployeesController(
         AddText(command,"position",employee.Position); AddDate(command,"start_date",employee.StartDate==default?null:employee.StartDate);
         AddText(command,"supervisor",employee.SupervisorName); AddText(command,"approver",employee.LeaveApproverName);
         AddText(command,"employment_type",employee.EmploymentType); AddText(command,"work_location",employee.WorkLocation);
+        AddText(command,"recruit_url",request.Url);
         command.Parameters.AddWithValue("status", status); AddText(command,"validation_message",validation);
         command.Parameters.AddWithValue("employee_data", JsonSerializer.Serialize(employee, JsonOptions));
     }
@@ -372,7 +448,7 @@ public sealed class PreEmployeesController(
         r.GetString(21), S(r,22), r.IsDBNull(23)?null:r.GetInt64(23), S(r,24), S(r,25),
         T(r,26), S(r,27), S(r,28), T(r,29), r.GetString(30), r.GetString(31),
         r.GetFieldValue<DateTimeOffset>(32), r.GetFieldValue<DateTimeOffset>(33), S(r,34), S(r,35), T(r,36),
-        ReadEmployeeData(r, 37));
+        ReadEmployeeData(r, 37), r.GetBoolean(38), S(r,39));
 
     private static Employee ReadEmployeeData(NpgsqlDataReader reader, int ordinal)
     {
@@ -410,7 +486,20 @@ public sealed class PreEmployeesController(
             """;
         await using (var q=new NpgsqlCommand(company,c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"company",e.Company);AddText(q,"bu",e.BusinessUnit);AddText(q,"division",e.Division);AddText(q,"department",e.Department);AddText(q,"section",e.Section);AddText(q,"position",e.Position);AddText(q,"job",e.JobCode);AddText(q,"supervisor",e.SupervisorName);AddText(q,"supervisor_employee_id",e.SupervisorEmployeeId);AddText(q,"approver",e.LeaveApproverName);AddText(q,"leave_approver_employee_id",e.LeaveApproverEmployeeId);AddText(q,"functional",e.FunctionalSupervisorName);AddText(q,"buddy",e.BuddyName);AddText(q,"employment",e.EmploymentType);AddText(q,"schedule",e.WorkSchedule);AddText(q,"location",e.WorkLocation);AddText(q,"status",e.EmployeeStatus);AddText(q,"extension",e.InternalExtension);AddText(q,"direct",e.DirectPhone);AddText(q,"company_mobile",e.CompanyMobile);AddText(q,"mac",e.MacAddress);AddText(q,"branch_code",e.BranchCode);AddText(q,"branch_name",e.BranchName);AddText(q,"province",EmployeesController.JoinResponsibilityProvinces(e.ResponsibilityProvinces,e.ResponsibilityProvince));AddText(q,"checklist",e.ChecklistType);AddText(q,"products",e.ProductsResponsible);AddDate(q,"start",e.StartDate==default?null:e.StartDate);AddDate(q,"appointment",e.AppointmentDate);AddDate(q,"fund",e.ProvidentFundStartDate);AddText(q,"experience",e.WorkExperienceType);AddBoolean(q,"parking",e.HasCompanyParking);AddBoolean(q,"travel",e.CanTravelUpcountry);q.Parameters.AddWithValue("exclude",e.ExcludeAttendanceCalculation);await q.ExecuteNonQueryAsync(token);}
         await EmployeesController.ReplaceResponsibilityProvinces(c, t, id, e.ResponsibilityProvinces, e.ResponsibilityProvince, token);
-        await using (var q=new NpgsqlCommand("INSERT INTO public.employee_personal_info(employee_id,national_id,birth_date,religion,blood_type,residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,id_card_address,house_registration_address,emergency_contact_name,emergency_contact_phone,emergency_contact_address) VALUES(@id,@national_id,@birth_date,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,@id_address,@house,@emergency,@phone,@emergency_address)",c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"national_id",e.NationalId);AddDate(q,"birth_date",e.BirthDate);AddText(q,"religion",e.Religion);AddText(q,"blood",e.BloodType);AddText(q,"province",e.ResidenceProvince);AddText(q,"district",e.ResidenceDistrict);AddText(q,"subdistrict",e.ResidenceSubdistrict);AddText(q,"postal_code",e.ResidencePostalCode);AddText(q,"current",e.CurrentAddress);AddText(q,"id_address",e.IdCardAddress);AddText(q,"house",e.HouseRegistrationAddress);AddText(q,"emergency",e.EmergencyContactName);AddText(q,"phone",e.EmergencyContactPhone);AddText(q,"emergency_address",e.EmergencyContactAddress);await q.ExecuteNonQueryAsync(token);}
+        const string personal = """
+            INSERT INTO public.employee_personal_info(
+                employee_id,national_id,birth_date,gender,religion,blood_type,
+                residence_province,residence_district,residence_subdistrict,residence_postal_code,current_address,
+                id_card_address,id_card_same_as_current,id_card_province,id_card_district,id_card_subdistrict,id_card_postal_code,
+                house_registration_address,house_registration_same_as_current,house_registration_province,
+                house_registration_district,house_registration_subdistrict,house_registration_postal_code,
+                emergency_contact_name,emergency_contact_phone,emergency_contact_address)
+            VALUES(@id,@national_id,@birth_date,@gender,@religion,@blood,@province,@district,@subdistrict,@postal_code,@current,
+                @id_address,@id_same,@id_province,@id_district,@id_subdistrict,@id_postal,
+                @house,@house_same,@house_province,@house_district,@house_subdistrict,@house_postal,
+                @emergency,@phone,@emergency_address)
+            """;
+        await using (var q=new NpgsqlCommand(personal,c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"national_id",e.NationalId);AddDate(q,"birth_date",e.BirthDate);AddText(q,"gender",e.Gender);AddText(q,"religion",e.Religion);AddText(q,"blood",e.BloodType);AddText(q,"province",e.ResidenceProvince);AddText(q,"district",e.ResidenceDistrict);AddText(q,"subdistrict",e.ResidenceSubdistrict);AddText(q,"postal_code",e.ResidencePostalCode);AddText(q,"current",e.CurrentAddress);AddText(q,"id_address",e.IdCardSameAsCurrent?e.CurrentAddress:e.IdCardAddress);q.Parameters.AddWithValue("id_same",e.IdCardSameAsCurrent);AddText(q,"id_province",e.IdCardSameAsCurrent?e.ResidenceProvince:e.IdCardProvince);AddText(q,"id_district",e.IdCardSameAsCurrent?e.ResidenceDistrict:e.IdCardDistrict);AddText(q,"id_subdistrict",e.IdCardSameAsCurrent?e.ResidenceSubdistrict:e.IdCardSubdistrict);AddText(q,"id_postal",e.IdCardSameAsCurrent?e.ResidencePostalCode:e.IdCardPostalCode);AddText(q,"house",e.HouseRegistrationSameAsCurrent?e.CurrentAddress:e.HouseRegistrationAddress);q.Parameters.AddWithValue("house_same",e.HouseRegistrationSameAsCurrent);AddText(q,"house_province",e.HouseRegistrationSameAsCurrent?e.ResidenceProvince:e.HouseRegistrationProvince);AddText(q,"house_district",e.HouseRegistrationSameAsCurrent?e.ResidenceDistrict:e.HouseRegistrationDistrict);AddText(q,"house_subdistrict",e.HouseRegistrationSameAsCurrent?e.ResidenceSubdistrict:e.HouseRegistrationSubdistrict);AddText(q,"house_postal",e.HouseRegistrationSameAsCurrent?e.ResidencePostalCode:e.HouseRegistrationPostalCode);AddText(q,"emergency",e.EmergencyContactName);AddText(q,"phone",e.EmergencyContactPhone);AddText(q,"emergency_address",e.EmergencyContactAddress);await q.ExecuteNonQueryAsync(token);}
         const string family = """
             INSERT INTO public.employee_family_info
                 (employee_id,marital_status,is_marriage_registered,spouse_title,spouse_name,marriage_date,
@@ -424,7 +513,7 @@ public sealed class PreEmployeesController(
                    @family_name,@relationship,@family_phone,@occupation,@map)
             """;
         await using (var q=new NpgsqlCommand(family,c,t)){q.Parameters.AddWithValue("id",id);AddText(q,"marital",e.MaritalStatus);AddBoolean(q,"registered",e.IsMarriageRegistered);AddText(q,"spouse_title",e.SpouseTitle);AddText(q,"spouse_name",e.SpouseName);AddDate(q,"marriage_date",e.MarriageDate);AddBoolean(q,"spouse_income",e.SpouseHasIncome);AddText(q,"spouse_national_id",e.SpouseNationalId);AddText(q,"passport_id",e.SpousePassportId);AddText(q,"passport_name",e.SpousePassportName);AddText(q,"passport_file",e.SpousePassportFileName);q.Parameters.AddWithValue("uneducated_children",e.UneducatedChildCount);q.Parameters.AddWithValue("studying_children",e.StudyingChildCount);q.Parameters.AddWithValue("life_insurance",e.LifeInsuranceAmount);q.Parameters.AddWithValue("parent_deduction",e.ParentSupportDeductionAmount);q.Parameters.AddWithValue("spouse_parent_deduction",e.SpouseParentSupportDeductionAmount);AddText(q,"family_name",e.FamilyMemberName);AddText(q,"relationship",e.FamilyRelationship);AddText(q,"family_phone",e.FamilyPhone);AddText(q,"occupation",e.FamilyOccupation);AddText(q,"map",e.CurrentAddressMapUrl);await q.ExecuteNonQueryAsync(token);}
-        for(var i=0;i<e.WorkHistory.Count;i++){var row=e.WorkHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_work_history(employee_id,display_order,period_text,position_name,company_name) VALUES(@id,@order,@period,@position,@company)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"period",row.Period);AddText(q,"position",row.Position);AddText(q,"company",row.Company);await q.ExecuteNonQueryAsync(token);}
+        for(var i=0;i<e.WorkHistory.Count;i++){var row=e.WorkHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_work_history(employee_id,display_order,period_text,business_unit,department_name,position_name,brand_name,comm_group_name,company_name) VALUES(@id,@order,@period,@bu,@department,@position,@brand,@comm_group,@company)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"period",row.Period);AddText(q,"bu",row.BusinessUnit);AddText(q,"department",row.Department);AddText(q,"position",row.Position);AddText(q,"brand",row.Brand);AddText(q,"comm_group",row.CommGroup);AddText(q,"company",row.Company);await q.ExecuteNonQueryAsync(token);}
         for(var i=0;i<e.EducationHistory.Count;i++){var row=e.EducationHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_education_history(employee_id,display_order,education_level,institution_name,major_name,graduation_year) VALUES(@id,@order,@level,@institution,@major,@year)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"level",row.Level);AddText(q,"institution",row.Institution);AddText(q,"major",row.Major);AddText(q,"year",row.GraduationYear);await q.ExecuteNonQueryAsync(token);}
         for(var i=0;i<e.TrainingHistory.Count;i++){var row=e.TrainingHistory[i];await using var q=new NpgsqlCommand("INSERT INTO public.employee_training_history(employee_id,display_order,course_name,training_period,location_name,expense,certificate,exam_fee) VALUES(@id,@order,@course,@period,@location,@expense,@certificate,@exam)",c,t);q.Parameters.AddWithValue("id",id);q.Parameters.AddWithValue("order",i+1);AddText(q,"course",row.CourseName);AddText(q,"period",row.TrainingPeriod);AddText(q,"location",row.Location);q.Parameters.AddWithValue("expense",row.Expense);AddText(q,"certificate",row.Certificate);q.Parameters.AddWithValue("exam",row.ExamFee);await q.ExecuteNonQueryAsync(token);}
     }
