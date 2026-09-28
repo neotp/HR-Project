@@ -39,8 +39,16 @@ public static class InitialLeaveQuotaService
                        CASE WHEN leave_type.code = 'VACATION' THEN 24
                             ELSE leave_type.default_hours END,
                        0, 0, CURRENT_TIMESTAMP
-                FROM public.leave_types leave_type
-                WHERE leave_type.is_active = TRUE
+                FROM public.employees employee
+                CROSS JOIN public.leave_types leave_type
+                LEFT JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
+                WHERE employee.employee_code = @employee_code
+                  AND leave_type.is_active = TRUE
+                  AND (leave_type.code NOT IN ('UNPAID', 'PATERNITY')
+                       OR (leave_type.code = 'UNPAID' AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                           IN ('นาง', 'นางสาว', 'นส', 'mrs', 'ms', 'miss'))
+                       OR (leave_type.code = 'PATERNITY' AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                           IN ('นาย', 'mr')))
                 ON CONFLICT (employee_id, leave_type_id, quota_year) DO NOTHING
                 RETURNING id, quota_hours, notes
             )

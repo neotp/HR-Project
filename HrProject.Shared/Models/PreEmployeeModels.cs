@@ -54,7 +54,10 @@ public sealed record PreEmployeeDto(
     DateTimeOffset? ConvertedAt,
     Employee EmployeeData,
     bool DidNotStartWork,
-    string? Url);
+    string? Url,
+    string? DidNotStartWorkReason);
+
+public sealed record MarkPreEmployeeNoShowRequest(string? Reason);
 
 public sealed record SavePreEmployeeRequest(
     string? SourceSystem,

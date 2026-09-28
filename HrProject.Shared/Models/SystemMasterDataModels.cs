@@ -67,3 +67,30 @@ public sealed record SaveAttendanceEventTypeMasterRequest(
     bool CountsAsWorkTime,
     int DisplayOrder,
     bool IsActive);
+
+public sealed record WorkScheduleDayDto(
+    int IsoDayOfWeek,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    TimeOnly BreakStartTime,
+    TimeOnly BreakEndTime);
+
+public sealed record WorkScheduleMasterDto(
+    long Id,
+    string Code,
+    string NameTh,
+    string? NameEn,
+    int DisplayOrder,
+    bool IsActive,
+    DateOnly EffectiveFrom,
+    IReadOnlyList<WorkScheduleDayDto> Days,
+    DateTimeOffset UpdatedAt);
+
+public sealed record SaveWorkScheduleMasterRequest(
+    string Code,
+    string NameTh,
+    string? NameEn,
+    int DisplayOrder,
+    bool IsActive,
+    DateOnly EffectiveFrom,
+    IReadOnlyList<WorkScheduleDayDto> Days);

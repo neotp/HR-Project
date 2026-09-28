@@ -105,7 +105,35 @@ public sealed class EmployeesController(
                    FROM public.employee_comm_groups relation
                    JOIN public.comm_groups comm ON comm.id=relation.comm_group_id AND comm.is_active=TRUE
                    WHERE relation.employee_id=e.id
-               ), '') AS comm_groups
+               ), '') AS comm_groups,
+               COALESCE((
+                   SELECT array_agg(name ORDER BY name)
+                   FROM (
+                       SELECT DISTINCT brand.brand_name::text AS name
+                       FROM public.employee_product_targets target
+                       JOIN public.brands brand ON brand.id=target.brand_id
+                       WHERE target.employee_id=e.id AND target.is_current=TRUE AND brand.is_active=TRUE
+                   ) current_brand_names
+               ), (
+                   SELECT array_agg(brand.brand_name::text ORDER BY relation.display_order, brand.display_order, brand.brand_name)
+                   FROM public.employee_brands relation
+                   JOIN public.brands brand ON brand.id=relation.brand_id AND brand.is_active=TRUE
+                   WHERE relation.employee_id=e.id
+               ), ARRAY[]::text[]) AS brand_names,
+               COALESCE((
+                   SELECT array_agg(name ORDER BY name)
+                   FROM (
+                       SELECT DISTINCT comm.comm_group_name::text AS name
+                       FROM public.employee_product_targets target
+                       JOIN public.comm_groups comm ON comm.id=target.comm_group_id
+                       WHERE target.employee_id=e.id AND target.is_current=TRUE AND comm.is_active=TRUE
+                   ) current_comm_group_names
+               ), (
+                   SELECT array_agg(comm.comm_group_name::text ORDER BY relation.display_order, comm.display_order, comm.comm_group_name)
+                   FROM public.employee_comm_groups relation
+                   JOIN public.comm_groups comm ON comm.id=relation.comm_group_id AND comm.is_active=TRUE
+                   WHERE relation.employee_id=e.id
+               ), ARRAY[]::text[]) AS comm_group_names
         FROM public.employees e
         LEFT JOIN public.employee_basic_info b ON b.employee_id=e.id
         LEFT JOIN public.employee_company_info c ON c.employee_id=e.id
@@ -155,7 +183,8 @@ public sealed class EmployeesController(
             items.Add(new EmployeeListItemDto(
                 checked((int)reader.GetInt64(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3),
                 reader.IsDBNull(4) ? default : reader.GetFieldValue<DateOnly>(4),
-                reader.GetString(5), reader.GetString(6), reader.GetString(7)));
+                reader.GetString(5), reader.GetString(6), reader.GetString(7),
+                reader.GetFieldValue<string[]>(8), reader.GetFieldValue<string[]>(9)));
 
         return Ok(new EmployeePagedResult(items, totalItems, page, pageSize));
     }
@@ -984,6 +1013,10 @@ public sealed class EmployeesController(
         if (!IsValidProfileImage(employee.ProfileImageDataUrl))
             return BadRequest("รูปโปรไฟล์ไม่ถูกต้องหรือมีขนาดใหญ่เกิน 2 MB");
 
+        if (!await WorkScheduleValueValidator.IsKnownAsync(
+                dataSource, employee.WorkSchedule, cancellationToken))
+            return BadRequest(WorkScheduleValueValidator.InvalidMessage);
+
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         try
@@ -998,6 +1031,13 @@ public sealed class EmployeesController(
         {
             await transaction.RollbackAsync(cancellationToken);
             return Conflict("รหัสพนักงานหรืออีเมลนี้มีอยู่ในระบบแล้ว");
+        }
+        catch (PostgresException exception) when (
+            exception.SqlState == "22023" &&
+            exception.MessageText.StartsWith("Unknown work schedule", StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(WorkScheduleValueValidator.InvalidMessage);
         }
 
         return CreatedAtAction(nameof(GetById), new { id = employee.Id },
@@ -1116,6 +1156,9 @@ public sealed class EmployeesController(
         var existing = await FindById(id, cancellationToken);
         if (existing is null)
             return NotFound();
+        if (!await WorkScheduleValueValidator.IsKnownAsync(
+                dataSource, submitted.WorkSchedule, cancellationToken))
+            return BadRequest(WorkScheduleValueValidator.InvalidMessage);
         var activityChanges = BuildDirectChanges("internal", existing, submitted);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -1193,6 +1236,13 @@ public sealed class EmployeesController(
         {
             await transaction.RollbackAsync(cancellationToken);
             return Conflict("Email นี้มีอยู่ในระบบแล้ว");
+        }
+        catch (PostgresException exception) when (
+            exception.SqlState == "22023" &&
+            exception.MessageText.StartsWith("Unknown work schedule", StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(WorkScheduleValueValidator.InvalidMessage);
         }
 
         return await GetById(id, cancellationToken);

@@ -1,11 +1,19 @@
 <div class="detail-field">
     <span>@Label</span>
-    <strong>@DisplayValue</strong>
+    @if (ChildContent is null)
+    {
+        <strong>@DisplayValue</strong>
+    }
+    else
+    {
+        <div class="detail-field-content">@ChildContent</div>
+    }
 </div>
 
 @code {
     [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
     [Parameter] public string? Value { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
 
     private string DisplayValue => string.IsNullOrWhiteSpace(Value) ? "-" : Value;
 }

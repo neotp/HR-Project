@@ -6,6 +6,11 @@
             <h2 id="confirm-action-title">@Title</h2>
             <p>@Message</p>
 
+            @if (ChildContent is not null)
+            {
+                <div class="confirm-action-body">@ChildContent</div>
+            }
+
             @if (IsBusy)
             {
                 <div class="confirm-action-loading" role="status" aria-live="polite">
@@ -16,7 +21,7 @@
 
             <footer>
                 <button class="confirm-cancel" type="button" disabled="@IsBusy" @onclick="OnCancel">@CancelText</button>
-                <button class="confirm-submit @Tone" type="button" disabled="@IsBusy" @onclick="OnConfirm">
+                <button class="confirm-submit @Tone" type="button" disabled="@(IsBusy || ConfirmDisabled)" @onclick="OnConfirm">
                     @(IsBusy ? BusyText : ConfirmText)
                 </button>
             </footer>
@@ -27,6 +32,8 @@
 @code {
     [Parameter] public bool IsOpen { get; set; }
     [Parameter] public bool IsBusy { get; set; }
+    [Parameter] public bool ConfirmDisabled { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string Title { get; set; } = "ยืนยันการทำรายการ";
     [Parameter] public string Message { get; set; } = "คุณต้องการดำเนินการต่อหรือไม่";
     [Parameter] public string ConfirmText { get; set; } = "ยืนยัน";

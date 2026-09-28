@@ -21,7 +21,9 @@ public sealed record EmployeeListItemDto(
     DateOnly StartDate,
     string ResponsibilityProvince,
     string Brand,
-    string CommGroup);
+    string CommGroup,
+    IReadOnlyList<string> BrandNames,
+    IReadOnlyList<string> CommGroupNames);
 
 public sealed record EmployeePagedResult(
     IReadOnlyList<EmployeeListItemDto> Items,

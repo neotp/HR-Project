@@ -9,10 +9,6 @@ public sealed class AttendanceProcessor(
     IOptions<AttendanceWorkerOptions> options,
     ILogger<AttendanceProcessor> logger)
 {
-    private static readonly TimeOnly WorkStart = new(9, 0);
-    private static readonly TimeOnly LunchStart = new(12, 0);
-    private static readonly TimeOnly LunchEnd = new(13, 0);
-    private static readonly TimeOnly WorkEnd = new(18, 0);
     private readonly AttendanceWorkerOptions settings = options.Value;
 
     public async Task RecalculateAsync(HashSet<AttendanceKey> affected, CancellationToken token)
@@ -182,9 +178,8 @@ public sealed class AttendanceProcessor(
         var dayContext = await LoadDayContext(key, token);
         if (!dayContext.IsWorkDay)
         {
-            // Removing a working Saturday or adding a public holiday must also
-            // remove a previously calculated attendance document for that day.
-            await DeleteDailyRecord(key, token);
+            // Keep the existing daily record and its responses/history for audit
+            // when a schedule or calendar change makes this a non-working day.
             return;
         }
 
@@ -267,6 +262,10 @@ public sealed class AttendanceProcessor(
                 firstScanSource = dayContext.FirstScanSource,
                 lastScan = dayContext.LastScan,
                 dayContext.ScanCount,
+                dayContext.WorkStart,
+                dayContext.WorkEnd,
+                dayContext.BreakStart,
+                dayContext.BreakEnd,
                 approvedLeaves = dayContext.Leaves,
                 attendanceEvents = dayContext.Events,
                 result.Reason
@@ -333,33 +332,31 @@ public sealed class AttendanceProcessor(
                    AND regexp_replace(lower(company.mac_address), '[^0-9a-f]', '', 'g') = wifi.mac_address
                    AND wifi.start_at >= (@work_date::date::timestamp AT TIME ZONE 'Asia/Bangkok')
                    AND wifi.start_at < ((@work_date::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')),
-                CASE
-                    WHEN EXISTS (SELECT 1 FROM public.work_calendar_days
-                                 WHERE calendar_date = @work_date AND day_type = 'PUBLIC_HOLIDAY') THEN FALSE
-                    WHEN EXISTS (SELECT 1 FROM public.work_calendar_days
-                                 WHERE calendar_date = @work_date AND day_type = 'WORKING_SATURDAY') THEN TRUE
-                    WHEN EXTRACT(ISODOW FROM @work_date::date) BETWEEN 1 AND 5 THEN TRUE
-                    ELSE FALSE
-                END,
-                CASE
-                    WHEN EXISTS (SELECT 1 FROM public.work_calendar_days
-                                 WHERE calendar_date = @work_date AND day_type = 'WORKING_SATURDAY')
-                    THEN TIME '17:00'
-                    ELSE TIME '18:00'
-                END
+                schedule.is_work_day,
+                schedule.work_start,
+                schedule.work_end,
+                schedule.break_start,
+                schedule.break_end
+            FROM public.get_employee_work_schedule(@employee_id, @work_date) AS schedule
             """;
         DateTime? first;
         DateTime? last;
         int count;
         string? firstSource;
         bool isWorkDay;
+        bool hasWorkStart;
+        bool hasWorkEnd;
+        TimeOnly workStart;
         TimeOnly workEnd;
+        TimeOnly? breakStart;
+        TimeOnly? breakEnd;
         await using (var command = dataSource.CreateCommand(sql))
         {
             command.Parameters.AddWithValue("employee_id", key.EmployeeId);
             command.Parameters.AddWithValue("work_date", key.WorkDate);
             await using var reader = await command.ExecuteReaderAsync(token);
-            await reader.ReadAsync(token);
+            if (!await reader.ReadAsync(token))
+                throw new InvalidOperationException($"No work schedule was returned for {key.EmployeeId} on {key.WorkDate}.");
             first = reader.IsDBNull(0) ? null : reader.GetDateTime(0);
             last = reader.IsDBNull(1) ? null : reader.GetDateTime(1);
             count = reader.GetInt32(2);
@@ -372,8 +369,26 @@ public sealed class AttendanceProcessor(
                 firstSource = "WIFI";
             }
             isWorkDay = reader.GetBoolean(4);
-            workEnd = reader.GetFieldValue<TimeOnly>(5);
+            hasWorkStart = !reader.IsDBNull(5);
+            hasWorkEnd = !reader.IsDBNull(6);
+            workStart = hasWorkStart ? reader.GetFieldValue<TimeOnly>(5) : default;
+            workEnd = hasWorkEnd ? reader.GetFieldValue<TimeOnly>(6) : default;
+            breakStart = reader.IsDBNull(7) ? null : reader.GetFieldValue<TimeOnly>(7);
+            breakEnd = reader.IsDBNull(8) ? null : reader.GetFieldValue<TimeOnly>(8);
         }
+
+        if (isWorkDay)
+        {
+            var invalidBreak = (breakStart is null) != (breakEnd is null) ||
+                (breakStart is { } start && breakEnd is { } end &&
+                 (start < workStart || start >= end || end > workEnd));
+            if (!hasWorkStart || !hasWorkEnd || workStart >= workEnd || invalidBreak)
+                throw new InvalidOperationException($"Invalid work schedule for {key.EmployeeId} on {key.WorkDate}.");
+        }
+
+        if (!isWorkDay)
+            return new DayContext(first, last, count, firstSource, false,
+                workStart, workEnd, breakStart, breakEnd, [], []);
 
         const string leaveSql = """
             SELECT start_time, leave_hours, document_no
@@ -392,7 +407,8 @@ public sealed class AttendanceProcessor(
             {
                 var start = reader.GetFieldValue<TimeOnly>(0);
                 var hours = reader.GetDecimal(1);
-                leaves.Add(new ApprovedLeave(start, AddWorkingHours(start, hours), hours, reader.GetString(2)));
+                leaves.Add(new ApprovedLeave(start, AddWorkingHours(start, hours, breakStart, breakEnd),
+                    hours, reader.GetString(2)));
             }
         }
 
@@ -427,14 +443,15 @@ public sealed class AttendanceProcessor(
                     reader.GetFieldValue<TimeOnly>(1), reader.GetString(2), reader.GetString(3),
                     reader.GetBoolean(4)));
         }
-        return new DayContext(first, last, count, firstSource, isWorkDay, workEnd, leaves, events);
+        return new DayContext(first, last, count, firstSource, true,
+            workStart, workEnd, breakStart, breakEnd, leaves, events);
     }
 
     private CalculationResult Calculate(DateOnly workDate, DayContext context)
     {
         var now = LocalNow();
         var isTodayBeforeEnd = workDate == DateOnly.FromDateTime(now) && TimeOnly.FromDateTime(now) < context.WorkEnd;
-        var requiresReview = context.Leaves.Any(x => x.Start > WorkStart && x.End < context.WorkEnd);
+        var requiresReview = context.Leaves.Any(x => x.Start > context.WorkStart && x.End < context.WorkEnd);
         var coverages = context.Leaves
             .Select(item => new CoveredInterval(item.Start, item.End))
             .Concat(context.Events
@@ -451,7 +468,8 @@ public sealed class AttendanceProcessor(
                         ? "ยังไม่พบข้อมูลสแกนและมีใบลาระหว่างวันที่ต้องตรวจสอบ"
                         : "ยังไม่พบข้อมูลสแกนระหว่างวันทำงาน", eventSummary));
 
-            var absentMinutes = (int)Math.Ceiling(UncoveredWorkingMinutes(WorkStart, context.WorkEnd, context.WorkEnd, coverages));
+            var absentMinutes = (int)Math.Ceiling(UncoveredWorkingMinutes(
+                context.WorkStart, context.WorkEnd, context, coverages));
             return absentMinutes > 0
                 ? new("ABSENT", 0, absentMinutes, requiresReview,
                     AppendEventSummary(BuildReason(0, absentMinutes, requiresReview), eventSummary))
@@ -460,21 +478,21 @@ public sealed class AttendanceProcessor(
         }
 
         var first = TimeOnly.FromDateTime(context.FirstScan!.Value);
-        var last = context.LastScan is null ? WorkStart : TimeOnly.FromDateTime(context.LastScan.Value);
-        var meetsFullOfficeScan = context.LastScan is not null && first < new TimeOnly(9, 1) && last >= context.WorkEnd;
+        var last = context.LastScan is null ? context.WorkStart : TimeOnly.FromDateTime(context.LastScan.Value);
+        var meetsFullOfficeScan = context.LastScan is not null &&
+            first < context.WorkStart.AddMinutes(1) && last >= context.WorkEnd;
         // A face scan inside an attendance event proves that the employee was at
         // the company during that event. That event can no longer cover lateness
         // or missing time; other non-overlapping events and approved leave remain valid.
         var effectiveCoverages = coverages;
-        var uncoveredBeforeFirst = UncoveredWorkingMinutes(WorkStart, first, context.WorkEnd, effectiveCoverages);
-        // The first complete uncovered minute is late: 09:00:59 is on time,
-        // while 09:01:00 starts at one late minute.
+        var uncoveredBeforeFirst = UncoveredWorkingMinutes(context.WorkStart, first, context, effectiveCoverages);
+        // The first complete uncovered minute after the scheduled start is late.
         var lateMinutes = uncoveredBeforeFirst >= 1
             ? Math.Max(1, (int)Math.Floor(uncoveredBeforeFirst))
             : 0;
         var missingMinutes = isTodayBeforeEnd
             ? 0
-            : (int)Math.Ceiling(UncoveredWorkingMinutes(last, context.WorkEnd, context.WorkEnd, effectiveCoverages));
+            : (int)Math.Ceiling(UncoveredWorkingMinutes(last, context.WorkEnd, context, effectiveCoverages));
 
         var status = isTodayBeforeEnd
             ? (lateMinutes > 0 ? "LATE" : "IN_PROGRESS")
@@ -491,13 +509,17 @@ public sealed class AttendanceProcessor(
     }
 
     private static double UncoveredWorkingMinutes(
-        TimeOnly rangeStart, TimeOnly rangeEnd, TimeOnly workEnd,
+        TimeOnly rangeStart, TimeOnly rangeEnd, DayContext context,
         IReadOnlyList<CoveredInterval> coverages)
     {
         if (rangeEnd <= rangeStart) return 0;
+        if (context.BreakStart is null || context.BreakEnd is null)
+            return Math.Max(0, UncoveredSegmentMinutes(
+                rangeStart, rangeEnd, context.WorkStart, context.WorkEnd, coverages));
+
         return Math.Max(0,
-            UncoveredSegmentMinutes(rangeStart, rangeEnd, WorkStart, LunchStart, coverages) +
-            UncoveredSegmentMinutes(rangeStart, rangeEnd, LunchEnd, workEnd, coverages));
+            UncoveredSegmentMinutes(rangeStart, rangeEnd, context.WorkStart, context.BreakStart.Value, coverages) +
+            UncoveredSegmentMinutes(rangeStart, rangeEnd, context.BreakEnd.Value, context.WorkEnd, coverages));
     }
 
     private static double UncoveredSegmentMinutes(
@@ -572,16 +594,20 @@ public sealed class AttendanceProcessor(
         catch { return DateTime.UtcNow.AddHours(7); }
     }
 
-    private static TimeOnly AddWorkingHours(TimeOnly start, decimal hours)
+    private static TimeOnly AddWorkingHours(
+        TimeOnly start, decimal hours, TimeOnly? breakStart, TimeOnly? breakEnd)
     {
         var remaining = (int)Math.Round(hours * 60, MidpointRounding.AwayFromZero);
-        var current = start >= LunchStart && start < LunchEnd ? LunchEnd : start;
-        if (current < LunchStart)
+        if (breakStart is null || breakEnd is null)
+            return start.AddMinutes(remaining);
+
+        var current = start >= breakStart.Value && start < breakEnd.Value ? breakEnd.Value : start;
+        if (current < breakStart.Value)
         {
-            var beforeLunch = (int)(LunchStart.ToTimeSpan() - current.ToTimeSpan()).TotalMinutes;
-            if (remaining <= beforeLunch) return current.AddMinutes(remaining);
-            remaining -= beforeLunch;
-            current = LunchEnd;
+            var beforeBreak = (int)(breakStart.Value.ToTimeSpan() - current.ToTimeSpan()).TotalMinutes;
+            if (remaining <= beforeBreak) return current.AddMinutes(remaining);
+            remaining -= beforeBreak;
+            current = breakEnd.Value;
         }
         return current.AddMinutes(remaining);
     }
@@ -589,7 +615,9 @@ public sealed class AttendanceProcessor(
     private sealed record DayContext(
         DateTime? FirstScan, DateTime? LastScan, int ScanCount,
         string? FirstScanSource,
-        bool IsWorkDay, TimeOnly WorkEnd, IReadOnlyList<ApprovedLeave> Leaves,
+        bool IsWorkDay, TimeOnly WorkStart, TimeOnly WorkEnd,
+        TimeOnly? BreakStart, TimeOnly? BreakEnd,
+        IReadOnlyList<ApprovedLeave> Leaves,
         IReadOnlyList<AttendanceEvent> Events);
     private sealed record ApprovedLeave(TimeOnly Start, TimeOnly End, decimal Hours, string DocumentNo);
     private sealed record AttendanceEvent(

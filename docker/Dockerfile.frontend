@@ -1,0 +1,30 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS restore
+WORKDIR /src
+
+COPY HrProject.Client/HrProject.Client.csproj HrProject.Client/
+COPY HrProject.Shared/HrProject.Shared.csproj HrProject.Shared/
+RUN dotnet restore HrProject.Client/HrProject.Client.csproj
+
+FROM restore AS publish
+COPY . .
+RUN dotnet publish HrProject.Client/HrProject.Client.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/publish \
+    /p:UseAppHost=false
+
+FROM nginx:1.27-alpine AS final
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=publish /app/publish/wwwroot /usr/share/nginx/html
+COPY docker/client-appsettings.template.json /usr/share/nginx/html/appsettings.template.json
+COPY docker/40-render-appsettings.sh /docker-entrypoint.d/40-render-appsettings.sh
+RUN chmod +x /docker-entrypoint.d/40-render-appsettings.sh
+
+ENV AZURE_AD_AUTHORITY=https://login.microsoftonline.com/fcaf82c9-bebd-47e6-b057-5dce01865032 \
+    AZURE_AD_CLIENT_ID=da6648e6-17b3-408b-8fc0-bf570f846ae7 \
+    API_BASE_URL=http://localhost:5025 \
+    API_SCOPE=api://da6648e6-17b3-408b-8fc0-bf570f846ae7/users.read
+
+EXPOSE 8080
+

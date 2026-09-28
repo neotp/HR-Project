@@ -91,8 +91,13 @@ internal static class EmployeeAllWorkbookImporter
 
             var newRows = new List<(string EmployeeCode, DateOnly StartDate)>();
             await using (var command = new NpgsqlCommand("""
-                SELECT source.employee_code, source.start_date
+                SELECT employee.employee_code, source.start_date
                 FROM employee_all_import source
+                JOIN public.employees employee ON CASE
+                    WHEN employee.employee_code ~ '^[0-9]+$' AND LENGTH(employee.employee_code)<6
+                        THEN LPAD(employee.employee_code,6,'0')
+                    ELSE employee.employee_code
+                END=source.employee_code
                 WHERE source.was_existing=FALSE
                 """, connection, transaction))
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))

@@ -111,6 +111,34 @@
                             </tbody>
                         </table>
                     }
+                    else if (IsWorkSchedule)
+                    {
+                        <table class="table master-table work-schedule-table">
+                            <thead><tr><th>รหัส</th><th>ประเภทตารางงาน</th><th>วันและเวลาทำงาน</th><th>มีผลตั้งแต่</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>
+                                @if (!PagedWorkSchedules.Any())
+                                {
+                                    <tr><td colspan="6" class="master-state">ไม่พบข้อมูล</td></tr>
+                                }
+                                @foreach (var item in PagedWorkSchedules)
+                                {
+                                    <tr>
+                                        <td><code>@item.Code</code></td>
+                                        <td><strong>@item.NameTh</strong></td>
+                                        <td><div class="schedule-summary-list">
+                                            @foreach (var day in item.Days.OrderBy(day => day.IsoDayOfWeek))
+                                            {
+                                                <span>@DayName(day.IsoDayOfWeek) @day.StartTime.ToString("HH:mm")–@day.EndTime.ToString("HH:mm")</span>
+                                            }
+                                        </div></td>
+                                        <td>@item.EffectiveFrom.ToString("dd/MM/yyyy")</td>
+                                        <td><span class="status-pill @(item.IsActive ? "active" : "inactive")">@(item.IsActive ? "ใช้งาน" : "ปิดใช้งาน")</span></td>
+                                        <td><button class="master-edit-button" type="button" @onclick="() => StartEditWorkSchedule(item)">แก้ไข</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
                     else
                     {
                         <table class="table master-table">
@@ -169,7 +197,7 @@
 @if (isEditorOpen)
 {
     <div class="master-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="master-editor-title">
-        <section class="master-modal">
+        <section class="master-modal @(IsWorkSchedule ? "work-schedule-modal" : null)">
             <header class="master-modal-header">
                 <div>
                     <h2 id="master-editor-title">@(editingId.HasValue ? "แก้ไข" : "เพิ่ม") @(selectedCategory?.Name)</h2>
@@ -261,6 +289,28 @@
                         เปิดใช้งาน
                     </label>
                 </div>
+                @if (IsWorkSchedule)
+                {
+                    <section class="work-schedule-editor" aria-label="กำหนดวันและเวลาทำงาน">
+                        <div class="work-schedule-heading">
+                            <div><h3>วันและเวลาทำงาน</h3><p>เลือกวันที่ต้องคิด Attendance และกำหนดเวลาเริ่ม–เลิก รวมช่วงพักของแต่ละวัน</p></div>
+                            <label>มีผลตั้งแต่ <input type="date" value="@editWorkScheduleEffectiveFrom" @onchange="e => editWorkScheduleEffectiveFrom = e.Value?.ToString() ?? string.Empty" /></label>
+                        </div>
+                        <div class="schedule-day-rows">
+                            @foreach (var day in editWorkScheduleDays)
+                            {
+                                <div class="schedule-day-row">
+                                    <label class="schedule-day-toggle"><input type="checkbox" @bind="day.Enabled" /> @DayName(day.IsoDayOfWeek)</label>
+                                    <label>เริ่ม <select class="schedule-time-input" @bind="day.StartTime" disabled="@(!day.Enabled)">@foreach (var time in TimeOptions) { <option value="@time">@time</option> }</select></label>
+                                    <label>เลิก <select class="schedule-time-input" @bind="day.EndTime" disabled="@(!day.Enabled)">@foreach (var time in TimeOptions) { <option value="@time">@time</option> }</select></label>
+                                    <label>พักเริ่ม <select class="schedule-time-input" @bind="day.BreakStartTime" disabled="@(!day.Enabled)">@foreach (var time in TimeOptions) { <option value="@time">@time</option> }</select></label>
+                                    <label>พักสิ้นสุด <select class="schedule-time-input" @bind="day.BreakEndTime" disabled="@(!day.Enabled)">@foreach (var time in TimeOptions) { <option value="@time">@time</option> }</select></label>
+                                </div>
+                            }
+                        </div>
+                        <p class="schedule-rule-note">วันเสาร์ทำงานพิเศษบังคับทุกประเภท: หากตารางนี้มีวันเสาร์ ใช้เวลาวันเสาร์ของตาราง; หากไม่มี ใช้ 09:00–17:00</p>
+                    </section>
+                }
                 @if (!string.IsNullOrWhiteSpace(saveError))
                 {
                     <div class="master-save-error" role="alert">@saveError</div>
@@ -282,6 +332,7 @@
     private List<MasterDataItemDto> allMasterItems = [];
     private List<LeaveTypeMasterDto> leaveTypes = [];
     private List<AttendanceEventTypeMasterDto> attendanceEventTypes = [];
+    private List<WorkScheduleMasterDto> workSchedules = [];
     private MasterDataCategoryDto? selectedCategory;
     private bool isLoading = true;
     private bool isEditorOpen;
@@ -305,9 +356,16 @@
     private bool editIsActive = true;
     private string editParentItemId = string.Empty;
     private string editBusinessUnitItemId = string.Empty;
+    private string editWorkScheduleEffectiveFrom = BangkokToday.ToString("yyyy-MM-dd");
+    private static DateOnly BangkokToday => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+    private static readonly IReadOnlyList<string> TimeOptions = Enumerable.Range(0, 24)
+        .Select(hour => new TimeOnly(hour, 0).ToString("HH:mm"))
+        .ToArray();
+    private List<EditableWorkScheduleDay> editWorkScheduleDays = DefaultWorkScheduleDays();
 
     private bool IsLeaveType => selectedCategory?.IsLeaveType == true;
     private bool IsAttendanceEventType => selectedCategory?.IsAttendanceEventType == true;
+    private bool IsWorkSchedule => string.Equals(selectedCategory?.Code, "WORK_SCHEDULE", StringComparison.OrdinalIgnoreCase);
     private bool IsPostalCode => string.Equals(selectedCategory?.Code, "POSTAL_CODE", StringComparison.OrdinalIgnoreCase);
     private bool IsProductMaster => selectedCategory?.Code is "PRODUCT_BUSINESS_UNIT" or "BRAND" or "COMM_GROUP";
     private bool IsPosition => string.Equals(selectedCategory?.Code, "POSITION", StringComparison.OrdinalIgnoreCase);
@@ -359,14 +417,23 @@
          item.Code.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
          item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
          (item.NameEn?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)));
+    private IEnumerable<WorkScheduleMasterDto> FilteredWorkSchedules => workSchedules.Where(item =>
+        MatchesStatus(item.IsActive) &&
+        (string.IsNullOrWhiteSpace(searchText) ||
+         item.Code.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         item.NameTh.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+         (item.NameEn?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)));
     private int FilteredCount => IsLeaveType
         ? FilteredLeaveTypes.Count()
-        : IsAttendanceEventType ? FilteredAttendanceEventTypes.Count() : FilteredItems.Count();
+        : IsAttendanceEventType ? FilteredAttendanceEventTypes.Count()
+        : IsWorkSchedule ? FilteredWorkSchedules.Count() : FilteredItems.Count();
     private int SafePage => Math.Clamp(currentPage, 1, Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)pageSize)));
     private IEnumerable<MasterDataItemDto> PagedItems => FilteredItems.Skip((SafePage - 1) * pageSize).Take(pageSize);
     private IEnumerable<LeaveTypeMasterDto> PagedLeaveTypes => FilteredLeaveTypes.Skip((SafePage - 1) * pageSize).Take(pageSize);
     private IEnumerable<AttendanceEventTypeMasterDto> PagedAttendanceEventTypes =>
         FilteredAttendanceEventTypes.Skip((SafePage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<WorkScheduleMasterDto> PagedWorkSchedules =>
+        FilteredWorkSchedules.Skip((SafePage - 1) * pageSize).Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -407,6 +474,9 @@
             else if (IsAttendanceEventType)
                 attendanceEventTypes = await Http.GetFromJsonAsync<List<AttendanceEventTypeMasterDto>>(
                     "api/system-master-data/attendance-event-types?includeInactive=true") ?? [];
+            else if (IsWorkSchedule)
+                workSchedules = await Http.GetFromJsonAsync<List<WorkScheduleMasterDto>>(
+                    "api/system-master-data/work-schedules?includeInactive=true") ?? [];
             else if (IsProductMaster)
                 items = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
                     $"api/system-master-data/product-items?category={Uri.EscapeDataString(selectedCategory.Code)}&includeInactive=true") ?? [];
@@ -437,6 +507,8 @@
         editIsActive = true;
         editParentItemId = string.Empty;
         editBusinessUnitItemId = string.Empty;
+        editWorkScheduleEffectiveFrom = BangkokToday.ToString("yyyy-MM-dd");
+        editWorkScheduleDays = DefaultWorkScheduleDays();
         saveError = null;
         isEditorOpen = true;
     }
@@ -508,6 +580,35 @@
         isEditorOpen = true;
     }
 
+    private void StartEditWorkSchedule(WorkScheduleMasterDto item)
+    {
+        editingId = item.Id;
+        editCode = item.Code;
+        editNameTh = item.NameTh;
+        editNameEn = item.NameEn ?? string.Empty;
+        editDisplayOrder = item.DisplayOrder;
+        editIsActive = item.IsActive;
+        var effectiveDate = item.EffectiveFrom > BangkokToday
+            ? item.EffectiveFrom
+            : BangkokToday;
+        editWorkScheduleEffectiveFrom = effectiveDate.ToString("yyyy-MM-dd");
+        editWorkScheduleDays = Enumerable.Range(1, 7).Select(isoDay =>
+        {
+            var rule = item.Days.FirstOrDefault(day => day.IsoDayOfWeek == isoDay);
+            return new EditableWorkScheduleDay
+            {
+                IsoDayOfWeek = isoDay,
+                Enabled = rule is not null,
+                StartTime = rule?.StartTime.ToString("HH:mm") ?? "09:00",
+                EndTime = rule?.EndTime.ToString("HH:mm") ?? "18:00",
+                BreakStartTime = rule?.BreakStartTime.ToString("HH:mm") ?? "12:00",
+                BreakEndTime = rule?.BreakEndTime.ToString("HH:mm") ?? "13:00"
+            };
+        }).ToList();
+        saveError = null;
+        isEditorOpen = true;
+    }
+
     private async Task Save()
     {
         if (selectedCategory is null || string.IsNullOrWhiteSpace(editCode) || (!IsPostalCode && string.IsNullOrWhiteSpace(editNameTh)))
@@ -545,6 +646,38 @@
                 response = editingId.HasValue
                     ? await Http.PutAsJsonAsync($"api/system-master-data/attendance-event-types/{editingId.Value}", request)
                     : await Http.PostAsJsonAsync("api/system-master-data/attendance-event-types", request);
+            }
+            else if (IsWorkSchedule)
+            {
+                if (!DateOnly.TryParseExact(editWorkScheduleEffectiveFrom, "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out var effectiveFrom))
+                {
+                    saveError = "กรุณาเลือกวันที่เริ่มมีผลของตารางงาน";
+                    return;
+                }
+                var days = new List<WorkScheduleDayDto>();
+                foreach (var day in editWorkScheduleDays.Where(day => day.Enabled))
+                {
+                    if (!TryTime(day.StartTime, out var start) || !TryTime(day.EndTime, out var end) ||
+                        !TryTime(day.BreakStartTime, out var breakStart) || !TryTime(day.BreakEndTime, out var breakEnd) ||
+                        !(start < breakStart && breakStart < breakEnd && breakEnd < end))
+                    {
+                        saveError = $"ตรวจเวลา{DayName(day.IsoDayOfWeek)}: ต้องเรียง เริ่มงาน < เริ่มพัก < สิ้นสุดพัก < เลิกงาน ภายในวันเดียวกัน";
+                        return;
+                    }
+                    days.Add(new WorkScheduleDayDto(day.IsoDayOfWeek, start, end, breakStart, breakEnd));
+                }
+                if (days.Count == 0)
+                {
+                    saveError = "กรุณาเลือกวันทำงานอย่างน้อยหนึ่งวัน";
+                    return;
+                }
+                var request = new SaveWorkScheduleMasterRequest(
+                    editCode, editNameTh, editNameEn, editDisplayOrder, editIsActive, effectiveFrom, days);
+                response = editingId.HasValue
+                    ? await Http.PutAsJsonAsync($"api/system-master-data/work-schedules/{editingId.Value}", request)
+                    : await Http.PostAsJsonAsync("api/system-master-data/work-schedules", request);
             }
             else if (IsProductMaster)
             {
@@ -612,4 +745,27 @@
     }
     private void ResetPaging() => currentPage = 1;
     private void CloseEditor() { if (!isSaving) isEditorOpen = false; }
+
+    private static List<EditableWorkScheduleDay> DefaultWorkScheduleDays() => Enumerable.Range(1, 7)
+        .Select(day => new EditableWorkScheduleDay { IsoDayOfWeek = day, Enabled = day <= 5 }).ToList();
+
+    private static bool TryTime(string value, out TimeOnly time) => TimeOnly.TryParseExact(
+        value, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+        System.Globalization.DateTimeStyles.None, out time);
+
+    private static string DayName(int isoDay) => isoDay switch
+    {
+        1 => "จันทร์", 2 => "อังคาร", 3 => "พุธ", 4 => "พฤหัสบดี",
+        5 => "ศุกร์", 6 => "เสาร์", 7 => "อาทิตย์", _ => "-"
+    };
+
+    private sealed class EditableWorkScheduleDay
+    {
+        public int IsoDayOfWeek { get; init; }
+        public bool Enabled { get; set; }
+        public string StartTime { get; set; } = "09:00";
+        public string EndTime { get; set; } = "18:00";
+        public string BreakStartTime { get; set; } = "12:00";
+        public string BreakEndTime { get; set; } = "13:00";
+    }
 }

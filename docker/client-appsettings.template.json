@@ -1,0 +1,12 @@
+{
+  "AzureAd": {
+    "Authority": "${AZURE_AD_AUTHORITY}",
+    "ClientId": "${AZURE_AD_CLIENT_ID}",
+    "ValidateAuthority": true
+  },
+  "Api": {
+    "BaseUrl": "${API_BASE_URL}",
+    "Scope": "${API_SCOPE}"
+  }
+}
+

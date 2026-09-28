@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
@@ -223,6 +224,281 @@ if (args.Length >= 1 && string.Equals(args[0], "--migrate-attendance-wifi", Stri
     await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
     await migrationCommand.ExecuteNonQueryAsync();
     Console.WriteLine("Created attendance Wi-Fi import tables successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-maternity-leave-types", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "100_split_maternity_leave_by_title.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationDataSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Maternity leave types and quotas migrated successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--verify-maternity-leave-types", StringComparison.OrdinalIgnoreCase))
+{
+    const string sql = """
+        SELECT type.code, type.name_th, type.default_hours,
+               count(quota.id),
+               count(quota.id) FILTER (WHERE quota.quota_year = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok'))
+        FROM public.leave_types type
+        LEFT JOIN public.leave_quotas quota ON quota.leave_type_id = type.id
+        WHERE type.code IN ('UNPAID', 'PATERNITY')
+        GROUP BY type.id, type.code, type.name_th, type.default_hours
+        ORDER BY type.code
+        """;
+    await using var verifyDataSource = NpgsqlDataSource.Create(connectionString);
+    await using var verifyCommand = verifyDataSource.CreateCommand(sql);
+    await using (var verifyReader = await verifyCommand.ExecuteReaderAsync())
+    {
+        while (await verifyReader.ReadAsync())
+            Console.WriteLine($"{verifyReader.GetString(0)}: {verifyReader.GetString(1)}, " +
+                $"defaultHours={verifyReader.GetDecimal(2):0.##}, " +
+                $"allQuotas={verifyReader.GetInt64(3)}, currentYearQuotas={verifyReader.GetInt64(4)}");
+    }
+    const string auditSql = """
+        SELECT
+            count(*) FILTER (WHERE type.code = 'UNPAID' AND quota.quota_hours <> 960
+                AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                    IN ('นาง', 'นางสาว', 'นส', 'mrs', 'ms', 'miss')),
+            count(*) FILTER (WHERE type.code = 'PATERNITY' AND quota.quota_hours <> 120),
+            count(*) FILTER (WHERE type.code = 'UNPAID' AND quota.used_hours > 0
+                AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                    IN ('นาย', 'mr'))
+        FROM public.leave_quotas quota
+        JOIN public.leave_types type ON type.id = quota.leave_type_id
+        LEFT JOIN public.employees employee ON employee.employee_code = quota.employee_id
+        LEFT JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
+        WHERE quota.quota_year = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')
+          AND type.code IN ('UNPAID', 'PATERNITY')
+        """;
+    await using var auditCommand = verifyDataSource.CreateCommand(auditSql);
+    await using var auditReader = await auditCommand.ExecuteReaderAsync();
+    if (await auditReader.ReadAsync())
+        Console.WriteLine($"femaleQuotaNot120Days={auditReader.GetInt64(0)}, " +
+            $"maleQuotaNot15Days={auditReader.GetInt64(1)}, " +
+            $"maleOldTypeWithUsage={auditReader.GetInt64(2)}");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--audit-leave-quota-duplicate-codes", StringComparison.OrdinalIgnoreCase))
+{
+    const string sql = """
+        WITH ids AS
+        (
+            SELECT employee_id, 'QUOTA' AS source FROM public.leave_quotas WHERE quota_year = 2026
+            UNION ALL
+            SELECT employee_id, 'MOVEMENT' FROM public.leave_quota_movements WHERE quota_year = 2026
+        ), normalized AS
+        (
+            SELECT employee_id, source,
+                   CASE WHEN btrim(employee_id) ~ '^[0-9]{1,6}$'
+                        THEN lpad(btrim(employee_id), 6, '0')
+                        ELSE btrim(employee_id) END AS display_code
+            FROM ids
+        )
+        SELECT display_code, string_agg(DISTINCT employee_id, ', ' ORDER BY employee_id),
+               count(*) FILTER (WHERE source = 'QUOTA'),
+               count(*) FILTER (WHERE source = 'MOVEMENT')
+        FROM normalized
+        GROUP BY display_code
+        HAVING count(DISTINCT employee_id) > 1
+        ORDER BY display_code
+        LIMIT 20
+        """;
+    await using var auditSource = NpgsqlDataSource.Create(connectionString);
+    await using var auditCommand = auditSource.CreateCommand(sql);
+    await using var auditReader = await auditCommand.ExecuteReaderAsync();
+    while (await auditReader.ReadAsync())
+        Console.WriteLine($"display={auditReader.GetString(0)} raw=[{auditReader.GetString(1)}] " +
+            $"quotas={auditReader.GetInt64(2)} movements={auditReader.GetInt64(3)}");
+    await auditReader.CloseAsync();
+    const string scopeSql = """
+        WITH short_ids AS
+        (
+            SELECT DISTINCT employee_id,
+                   lpad(btrim(employee_id), 6, '0') AS canonical_id
+            FROM public.leave_quotas
+            WHERE btrim(employee_id) ~ '^[0-9]{1,5}$'
+        )
+        SELECT count(*),
+               count(*) FILTER (WHERE canonical.id IS NOT NULL),
+               count(*) FILTER (WHERE legacy.id IS NOT NULL),
+               (SELECT count(*) FROM public.leave_quotas quota
+                JOIN short_ids ids ON ids.employee_id = quota.employee_id),
+               (SELECT count(*) FROM public.leave_document_quota_allocations allocation
+                JOIN short_ids ids ON ids.employee_id = allocation.employee_id),
+               (SELECT count(*) FROM public.leave_documents document
+                JOIN short_ids ids ON ids.employee_id = document.creator_employee_id),
+               (SELECT count(*) FROM public.leave_quota_movements movement
+                JOIN short_ids ids ON ids.employee_id = movement.employee_id
+                WHERE movement.movement_type NOT IN ('OPENING_QUOTA', 'QUOTA_CREATED'))
+        FROM short_ids ids
+        LEFT JOIN public.employees canonical ON canonical.employee_code = ids.canonical_id
+        LEFT JOIN public.employees legacy ON legacy.employee_code = ids.employee_id
+        """;
+    await using var scopeCommand = auditSource.CreateCommand(scopeSql);
+    await using var scopeReader = await scopeCommand.ExecuteReaderAsync();
+    if (await scopeReader.ReadAsync())
+        Console.WriteLine($"shortIds={scopeReader.GetInt64(0)} canonicalEmployees={scopeReader.GetInt64(1)} " +
+            $"legacyEmployees={scopeReader.GetInt64(2)} shortQuotas={scopeReader.GetInt64(3)} " +
+            $"shortAllocations={scopeReader.GetInt64(4)} shortDocuments={scopeReader.GetInt64(5)} " +
+            $"nonOpeningMovements={scopeReader.GetInt64(6)}");
+    await scopeReader.CloseAsync();
+    const string orphanSql = """
+        WITH orphan_ids AS
+        (
+            SELECT DISTINCT quota.employee_id
+            FROM public.leave_quotas quota
+            LEFT JOIN public.employees employee ON employee.employee_code = quota.employee_id
+            WHERE employee.id IS NULL
+              AND quota.employee_id ~ '^[0-9]{6}$'
+        )
+        SELECT count(*),
+               count(*) FILTER (WHERE EXISTS
+                   (SELECT 1 FROM public.employees real_employee
+                    WHERE real_employee.employee_code ~ '^[0-9]{1,5}$'
+                      AND lpad(real_employee.employee_code, 6, '0') = ids.employee_id)),
+               (SELECT count(*) FROM public.leave_quotas quota JOIN orphan_ids ids USING (employee_id)),
+               (SELECT count(*) FROM public.leave_document_quota_allocations allocation JOIN orphan_ids ids USING (employee_id)),
+               (SELECT count(*) FROM public.leave_documents document JOIN orphan_ids ids ON ids.employee_id = document.creator_employee_id),
+               (SELECT count(*) FROM public.leave_quota_movements movement JOIN orphan_ids ids USING (employee_id)),
+               (SELECT count(*) FROM public.leave_quota_movements movement JOIN orphan_ids ids USING (employee_id)
+                WHERE movement.movement_type NOT IN ('OPENING_QUOTA', 'QUOTA_CREATED')),
+               (SELECT count(*) FROM public.leave_quota_requests request JOIN orphan_ids ids USING (employee_id)),
+               (SELECT count(*) FROM public.leave_quota_history history
+                JOIN public.leave_quotas quota ON quota.id = history.leave_quota_id
+                JOIN orphan_ids ids ON ids.employee_id = quota.employee_id
+                WHERE history.action <> 'CREATE'),
+               (SELECT count(*) FROM public.leave_quota_yearly_rollovers rollover JOIN orphan_ids ids USING (employee_id)),
+               (SELECT count(*) FROM public.leave_quota_excess_details excess JOIN orphan_ids ids USING (employee_id))
+        FROM orphan_ids ids
+        """;
+    await using var orphanCommand = auditSource.CreateCommand(orphanSql);
+    await using var orphanReader = await orphanCommand.ExecuteReaderAsync();
+    if (await orphanReader.ReadAsync())
+        Console.WriteLine($"orphan6Ids={orphanReader.GetInt64(0)} matchingShortEmployees={orphanReader.GetInt64(1)} " +
+            $"orphanQuotas={orphanReader.GetInt64(2)} orphanAllocations={orphanReader.GetInt64(3)} " +
+            $"orphanDocuments={orphanReader.GetInt64(4)} orphanMovements={orphanReader.GetInt64(5)} " +
+            $"nonOpeningMovements={orphanReader.GetInt64(6)} quotaRequests={orphanReader.GetInt64(7)} " +
+            $"nonCreateHistory={orphanReader.GetInt64(8)} rollovers={orphanReader.GetInt64(9)} " +
+            $"excess={orphanReader.GetInt64(10)}");
+    await orphanReader.CloseAsync();
+    if (args.Contains("--include-archive", StringComparer.OrdinalIgnoreCase))
+    {
+        await using var archiveCommand = auditSource.CreateCommand("""
+            SELECT source_table, count(*)
+            FROM public.leave_quota_orphan_archive_20260925
+            GROUP BY source_table ORDER BY source_table
+            """);
+        await using var archiveReader = await archiveCommand.ExecuteReaderAsync();
+        while (await archiveReader.ReadAsync())
+            Console.WriteLine($"archive {archiveReader.GetString(0)}={archiveReader.GetInt64(1)}");
+    }
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--archive-orphan-leave-quotas", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "101_archive_orphan_leave_quotas.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Orphan leave quotas archived and removed successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-pre-employee-no-show-lotus-notes", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "102_pre_employee_no_show_lotus_notes.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Enabled Pre-Employee no-show reason and Lotus Notes outbox events successfully.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--migrate-employee-work-schedules", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "103_create_employee_work_schedules.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    Console.WriteLine("Employee work schedules migration completed.");
+    return;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--seed-default-employee-work-schedule", StringComparison.OrdinalIgnoreCase))
+{
+    var migrationPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..", "database", "Scripts", "104_seed_default_employee_work_schedule.sql"));
+    var migrationSql = await File.ReadAllTextAsync(migrationPath);
+    await using var migrationSource = NpgsqlDataSource.Create(connectionString);
+    await using var migrationCommand = migrationSource.CreateCommand(migrationSql);
+    await migrationCommand.ExecuteNonQueryAsync();
+    const string verificationSql = """
+        WITH default_master AS
+        (
+            SELECT id
+            FROM public.system_master_items
+            WHERE category_code = 'WORK_SCHEDULE'
+              AND item_code = 'MON_FRI_0900_1800'
+        )
+        SELECT
+            (SELECT COUNT(*) FROM public.employees) AS employee_count,
+            (SELECT COUNT(*)
+             FROM public.employee_work_schedule_assignments assignment
+             WHERE assignment.master_item_id = (SELECT id FROM default_master)
+               AND assignment.effective_from = DATE '1900-01-01') AS assigned_count,
+            (SELECT COUNT(*)
+             FROM public.employee_company_info company
+             WHERE company.work_schedule IS DISTINCT FROM 'จันทร์-ศุกร์ 09:00-18:00') AS company_mismatch_count,
+            (SELECT COUNT(*)
+             FROM public.work_schedule_days day
+             JOIN public.work_schedule_versions version ON version.id = day.version_id
+             WHERE version.master_item_id = (SELECT id FROM default_master)
+               AND version.effective_from = DATE '1900-01-01'
+               AND day.iso_day_of_week BETWEEN 1 AND 5
+               AND day.start_time = TIME '09:00'
+               AND day.end_time = TIME '18:00'
+               AND day.break_start_time = TIME '12:00'
+               AND day.break_end_time = TIME '13:00') AS configured_day_count,
+            (SELECT COUNT(*)
+             FROM public.system_master_items item
+             WHERE item.category_code = 'WORK_SCHEDULE' AND item.is_active) AS active_master_count
+        """;
+    await using var verificationCommand = migrationSource.CreateCommand(verificationSql);
+    await using var verificationReader = await verificationCommand.ExecuteReaderAsync();
+    await verificationReader.ReadAsync();
+    var employeeCount = verificationReader.GetInt64(0);
+    var assignedCount = verificationReader.GetInt64(1);
+    var companyMismatchCount = verificationReader.GetInt64(2);
+    var configuredDayCount = verificationReader.GetInt64(3);
+    var activeMasterCount = verificationReader.GetInt64(4);
+    if (employeeCount != assignedCount || companyMismatchCount != 0 ||
+        configuredDayCount != 5 || activeMasterCount != 1)
+        throw new InvalidOperationException(
+            $"Default work schedule verification failed: employees={employeeCount}, " +
+            $"assigned={assignedCount}, companyMismatches={companyMismatchCount}, " +
+            $"configuredDays={configuredDayCount}, activeMasters={activeMasterCount}.");
+    Console.WriteLine(
+        $"Seeded and verified Monday-Friday 09:00-18:00 for {employeeCount} employees; " +
+        "5 weekdays configured and 1 work-schedule Master active.");
     return;
 }
 
@@ -1793,11 +2069,20 @@ builder.Services.AddAuthorization(options =>
         })
         .Build();
 });
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ??
+    ["https://localhost:7169", "http://localhost:5043"];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
-    policy.WithOrigins("https://localhost:7169", "http://localhost:5043")
+    policy.WithOrigins(allowedOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials()));
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var app = builder.Build();
 
@@ -1869,6 +2154,7 @@ if (args.Length >= 2 && string.Equals(args[0], "--sync-leave-outlook-calendar", 
 }
 
 // Configure the HTTP request pipeline.
+app.UseForwardedHeaders();
 app.UseResponseCompression();
 app.UseHttpsRedirection();
 
@@ -1878,6 +2164,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapGet("/api/health", () => Results.Ok(new { Status = "Healthy" }))
+    .AllowAnonymous();
 
 app.MapGet("/api/health/database", async (NpgsqlDataSource dataSource, CancellationToken cancellationToken) =>
 {

@@ -132,13 +132,13 @@
                                         {
                                             <article class="company-calendar-slot @GetCompanyEventCssClass(companyEvent.DayType)">
                                                 <span class="company-event-heading"><span aria-hidden="true">@(companyEvent.DayType == "PUBLIC_HOLIDAY" ? "★" : "▣")</span><strong>@companyEvent.Name</strong></span>
-                                                <span class="company-event-time">@(companyEvent.DayType == "WORKING_SATURDAY" ? "09:00 → 17:00" : "ตลอดทั้งวัน")</span>
-                                                <small>@(companyEvent.DayType == "WORKING_SATURDAY" ? "วันเสาร์ทำงาน · พัก 12:00–13:00" : "วันหยุดนักขัตฤกษ์")</small>
+                                                <span class="company-event-time">@(companyEvent.DayType == "WORKING_SATURDAY" ? GetScheduleHours(companyEvent.CalendarDate, " → ") : "ตลอดทั้งวัน")</span>
+                                                <small>@(companyEvent.DayType == "WORKING_SATURDAY" ? GetScheduleBreakLabel(companyEvent.CalendarDate) : "วันหยุดนักขัตฤกษ์")</small>
                                             </article>
                                         }
                                         @foreach (var leaveDocument in dayLeaveDocuments)
                                         {
-                                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.StartTime, leaveDocument.LeaveHours);
+                                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.LeaveDate, leaveDocument.StartTime, leaveDocument.LeaveHours);
                                             <button type="button"
                                                     class="leave-document-slot @GetLeaveSlotCssClass(leaveDocument.Status)"
                                                     aria-label="เปิดเอกสาร @leaveDocument.DocumentNo"
@@ -239,7 +239,7 @@
                         <span class="selected-company-icon" aria-hidden="true">@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "★" : "▣")</span>
                         <div><small>รายการ</small><strong>@selectedCompanyEvent.Name</strong></div>
                         <div><small>ประเภท</small><strong>@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "วันหยุดนักขัตฤกษ์" : "วันเสาร์ทำงาน")</strong></div>
-                        <div><small>เวลาทำงาน</small><strong>@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "ไม่มีการตรวจ Attendance" : "09:00–17:00 · พัก 12:00–13:00")</strong></div>
+                        <div><small>เวลาทำงาน</small><strong>@(selectedCompanyEvent.DayType == "PUBLIC_HOLIDAY" ? "ไม่มีการตรวจ Attendance" : GetScheduleDetail(selectedCompanyEvent.CalendarDate))</strong></div>
                         @if (!string.IsNullOrWhiteSpace(selectedCompanyEvent.Note))
                         {
                             <div class="selected-company-note"><small>หมายเหตุ</small><strong>@selectedCompanyEvent.Note</strong></div>
@@ -256,7 +256,7 @@
                     <div class="selected-leave-list">
                         @foreach (var leaveDocument in selectedLeaveDocuments)
                         {
-                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.StartTime, leaveDocument.LeaveHours);
+                            var leaveEndTime = CalculateLeaveEndTime(leaveDocument.LeaveDate, leaveDocument.StartTime, leaveDocument.LeaveHours);
                             <article class="selected-leave-item @GetLeaveSlotCssClass(leaveDocument.Status)">
                                 <button type="button" class="selected-leave-number" @onclick="() => OpenLeaveDocument(leaveDocument.Id)">
                                     @leaveDocument.DocumentNo
@@ -369,6 +369,7 @@
     private List<CalendarDay> CalendarDays = [];
     private List<LeaveDocumentDto> LeaveDocuments = [];
     private List<WorkCalendarDayDto> WorkCalendarDays = [];
+    private Dictionary<DateOnly, AttendanceWorkScheduleDayDto> WorkScheduleDays = [];
     private List<AttendanceDailyDto> AttendanceDailyRecords = [];
     private List<AttendanceCalendarEventDto> CalendarEvents = [];
     private List<AttendanceEventTypeMasterDto> AttendanceEventTypes = [];
@@ -408,7 +409,7 @@
             var daysInMonth = DateTime.DaysInMonth(DisplayedMonth.Year, DisplayedMonth.Month);
             return Enumerable.Range(1, daysInMonth)
                 .Select(day => new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, day))
-                .Count(IsCompanyWorkDay);
+                .Count(IsEmployeeWorkDay);
         }
     }
 
@@ -492,9 +493,13 @@
         if (string.IsNullOrWhiteSpace(CurrentEmployeeId)) return;
         var start = new DateOnly(DisplayedMonth.Year, DisplayedMonth.Month, 1);
         var end = start.AddMonths(1).AddDays(-1);
+        var calendarStart = start.AddDays(-(int)start.DayOfWeek);
+        var calendarEnd = calendarStart.AddDays(41);
         var employeeId = Uri.EscapeDataString(CurrentEmployeeId);
         var attendanceTask = Http.GetFromJsonAsync<List<AttendanceDailyDto>>(
             $"api/attendance?employeeId={employeeId}&startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
+        var scheduleTask = Http.GetFromJsonAsync<List<AttendanceWorkScheduleDayDto>>(
+            $"api/attendance/work-schedule?startDate={calendarStart:yyyy-MM-dd}&endDate={calendarEnd:yyyy-MM-dd}");
         var eventsTask = Http.GetFromJsonAsync<List<AttendanceCalendarEventDto>>(
             $"api/attendance-calendar-events?startDate={start:yyyy-MM-dd}&endDate={end:yyyy-MM-dd}");
         var leaveTask = Http.GetFromJsonAsync<List<LeaveDocumentDto>>(
@@ -504,11 +509,12 @@
             workCalendarTask = Http.GetFromJsonAsync<List<WorkCalendarDayDto>>(
                 $"api/work-calendar?year={DisplayedMonth.Year}");
 
-        var tasks = new List<Task> { attendanceTask, eventsTask, leaveTask };
+        var tasks = new List<Task> { attendanceTask, scheduleTask, eventsTask, leaveTask };
         if (workCalendarTask is not null) tasks.Add(workCalendarTask);
         await Task.WhenAll(tasks);
 
         AttendanceDailyRecords = await attendanceTask ?? [];
+        WorkScheduleDays = (await scheduleTask ?? []).ToDictionary(day => day.WorkDate);
         CalendarEvents = await eventsTask ?? [];
         LeaveDocuments = (await leaveTask ?? []).Where(IsVisibleLeaveDocument).ToList();
         if (workCalendarTask is not null)
@@ -538,6 +544,7 @@
     private AttendanceRecord? CreateCalendarRecord(DateOnly date)
     {
         var companyCalendarDay = WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
+        var schedule = GetEmployeeWorkSchedule(date);
         if (companyCalendarDay?.DayType == "PUBLIC_HOLIDAY")
         {
             return new AttendanceRecord(
@@ -549,14 +556,13 @@
                 companyCalendarDay);
         }
 
-        if (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday &&
-            companyCalendarDay?.DayType != "WORKING_SATURDAY")
+        if (schedule is { IsWorkDay: false })
         {
             return new AttendanceRecord(
                 AttendanceStatus.Weekend,
                 null,
                 null,
-                "วันหยุดประจำสัปดาห์",
+                "วันหยุดตามตารางงาน",
                 null,
                 null);
         }
@@ -565,64 +571,19 @@
         if (importedRecord is not null)
             return FromDailyRecord(importedRecord, companyCalendarDay);
 
-        if (companyCalendarDay?.DayType == "WORKING_SATURDAY")
+        if (schedule is { IsWorkDay: true } &&
+            (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
+             companyCalendarDay?.DayType == "WORKING_SATURDAY"))
         {
-            if (AttendanceDailyRecords.All(item => item.WorkDate != date))
-            {
-                return new AttendanceRecord(
-                    AttendanceStatus.ScheduledWork,
-                    null,
-                    null,
-                    companyCalendarDay.Name,
-                    null,
-                    companyCalendarDay);
-            }
-
-            var saturdayMinute = 38 + (date.Day % 13);
             return new AttendanceRecord(
-                AttendanceStatus.Present,
-                $"08:{saturdayMinute:00}",
-                "17:35",
-                companyCalendarDay.Name,
+                AttendanceStatus.ScheduledWork,
+                null,
+                null,
+                companyCalendarDay?.Name ?? "วันทำงานตามตาราง",
                 null,
                 companyCalendarDay);
         }
-
-        if (AttendanceDailyRecords.All(item => item.WorkDate != date))
-        {
-            return null;
-        }
-
-        if (date.Day % 13 == 0)
-        {
-            return new AttendanceRecord(
-                AttendanceStatus.Absent,
-                null,
-                null,
-                "ไม่มีการบันทึกเวลา",
-                null,
-                null);
-        }
-
-        if (date.Day % 7 == 0)
-        {
-            return new AttendanceRecord(
-                AttendanceStatus.Late,
-                "09:18",
-                "18:05",
-                "มาสาย 18 นาที",
-                null,
-                null);
-        }
-
-        var minute = 38 + (date.Day % 13);
-        return new AttendanceRecord(
-            AttendanceStatus.Present,
-            $"08:{minute:00}",
-            "17:35",
-            "บันทึกเวลาครบถ้วน",
-            null,
-            null);
+        return null;
     }
 
     private static AttendanceRecord FromDailyRecord(
@@ -669,6 +630,38 @@
     private WorkCalendarDayDto? GetCompanyCalendarEvent(DateOnly date) =>
         WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
 
+    private AttendanceWorkScheduleDayDto? GetEmployeeWorkSchedule(DateOnly date) =>
+        WorkScheduleDays.GetValueOrDefault(date);
+
+    private string GetScheduleHours(DateOnly date, string separator)
+    {
+        var schedule = GetEmployeeWorkSchedule(date);
+        return schedule?.WorkStart is { } start && schedule.WorkEnd is { } end
+            ? $"{start:HH:mm}{separator}{end:HH:mm}"
+            : "ไม่พบเวลาทำงาน";
+    }
+
+    private string? GetScheduleBreak(DateOnly date)
+    {
+        var schedule = GetEmployeeWorkSchedule(date);
+        return schedule?.BreakStart is { } start && schedule.BreakEnd is { } end
+            ? $"{start:HH:mm}–{end:HH:mm}"
+            : null;
+    }
+
+    private string GetScheduleBreakLabel(DateOnly date)
+    {
+        var breakHours = GetScheduleBreak(date);
+        return breakHours is null ? "วันเสาร์ทำงาน" : $"วันเสาร์ทำงาน · พัก {breakHours}";
+    }
+
+    private string GetScheduleDetail(DateOnly date)
+    {
+        var hours = GetScheduleHours(date, "–");
+        var breakHours = GetScheduleBreak(date);
+        return breakHours is null ? hours : $"{hours} · พัก {breakHours}";
+    }
+
     private static string GetCompanyEventCssClass(string dayType) =>
         dayType == "PUBLIC_HOLIDAY" ? "company-event-holiday" : "company-event-working-saturday";
 
@@ -680,8 +673,9 @@
                 ? Today
                 : DisplayedMonth);
         EventType = GetDefaultEventType();
-        EventStartTime = new TimeOnly(9, 0);
-        EventEndTime = new TimeOnly(18, 0);
+        var schedule = GetEmployeeWorkSchedule(EventDate.Value);
+        EventStartTime = schedule?.WorkStart ?? new TimeOnly(9, 0);
+        EventEndTime = schedule?.WorkEnd ?? new TimeOnly(18, 0);
         EventTitle = null;
         EventDetails = null;
         EventErrorMessage = null;
@@ -947,13 +941,6 @@
             };
         }
 
-        if (record.WorkCalendarDay?.DayType == "WORKING_SATURDAY")
-        {
-            return record.Status == AttendanceStatus.Present
-                ? "attendance-status status-present"
-                : "attendance-status status-scheduledwork";
-        }
-
         return $"attendance-status status-{record.Status.ToString().ToLowerInvariant()}";
     }
 
@@ -964,7 +951,8 @@
             return $"ลา · {GetLeaveDocumentStatusText(record.LeaveDocument.Status)}";
         }
 
-        if (record.WorkCalendarDay?.DayType == "WORKING_SATURDAY")
+        if (record.WorkCalendarDay?.DayType == "WORKING_SATURDAY" &&
+            record.Status is AttendanceStatus.Present or AttendanceStatus.ScheduledWork)
         {
             return record.Status == AttendanceStatus.Present
                 ? "มาปกติ · เสาร์ทำงาน"
@@ -1011,10 +999,11 @@
         _ => 5
     };
 
-    private static TimeOnly CalculateLeaveEndTime(TimeOnly startTime, decimal leaveHours)
+    private TimeOnly CalculateLeaveEndTime(DateOnly date, TimeOnly startTime, decimal leaveHours)
     {
-        var lunchStart = new TimeOnly(12, 0);
-        var lunchEnd = new TimeOnly(13, 0);
+        var schedule = GetEmployeeWorkSchedule(date);
+        var lunchStart = schedule?.BreakStart ?? new TimeOnly(12, 0);
+        var lunchEnd = schedule?.BreakEnd ?? new TimeOnly(13, 0);
         var current = startTime >= lunchStart && startTime < lunchEnd ? lunchEnd : startTime;
         var remainingMinutes = (double)leaveHours * 60;
 
@@ -1058,16 +1047,8 @@
         _ => "leave-slot-default"
     };
 
-    private bool IsCompanyWorkDay(DateOnly date)
-    {
-        var configuredDay = WorkCalendarDays.FirstOrDefault(item => item.CalendarDate == date);
-        if (configuredDay?.DayType == "PUBLIC_HOLIDAY")
-            return false;
-        if (configuredDay?.DayType == "WORKING_SATURDAY")
-            return true;
-
-        return date.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday;
-    }
+    private bool IsEmployeeWorkDay(DateOnly date) =>
+        GetEmployeeWorkSchedule(date)?.IsWorkDay == true;
 
     private void AppendLoadError(string message)
     {

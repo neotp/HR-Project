@@ -61,6 +61,11 @@ out/
 .env
 .env.local
 .env.*.local
+docker/.ghcr_pat
+..k8s-config/kubeconfig*
+..k8s-config/*secrets.local.yaml
+..k8s-config/hrm-api-secrets.yaml
+..k8s-config/hrm-worker-secrets.yaml
 
 # npm cache directory
 .npm

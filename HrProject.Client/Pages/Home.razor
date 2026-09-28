@@ -158,8 +158,8 @@
                                 <td>@DisplayCell(employee.InternalExtension)</td>
                                 <td>@(employee.StartDate == default ? "-" : employee.StartDate.ToString("dd/MM/yyyy"))</td>
                                 <td class="multi-value-cell">@DisplayCell(employee.ResponsibilityProvince)</td>
-                                <td class="multi-value-cell">@DisplayCell(employee.Brand)</td>
-                                <td class="multi-value-cell">@DisplayCell(employee.CommGroup)</td>
+                                <td class="multi-value-cell"><ValueTagList Values="@employee.BrandNames" Text="@employee.Brand" /></td>
+                                <td class="multi-value-cell"><ValueTagList Values="@employee.CommGroupNames" Text="@employee.CommGroup" /></td>
                                 <td><span class="view-details">ดูข้อมูล ›</span></td>
                             </tr>
                         }

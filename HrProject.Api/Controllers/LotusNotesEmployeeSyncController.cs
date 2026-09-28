@@ -40,7 +40,8 @@ public sealed class LotusNotesEmployeeSyncController(
             using var payload = JsonDocument.Parse(reader.GetString(8));
             result.Add(new LotusNotesSyncItemDto(
                 reader.GetInt64(0), reader.IsDBNull(1) ? null : reader.GetInt64(1),
-                reader.IsDBNull(2) ? null : reader.GetInt64(2), reader.GetInt64(3), reader.GetString(4),
+                reader.IsDBNull(2) ? null : reader.GetInt64(2),
+                reader.IsDBNull(3) ? null : reader.GetInt64(3), reader.GetString(4),
                 reader.GetString(5), reader.GetString(6), reader.GetString(7), payload.RootElement.Clone(),
                 reader.GetString(9), reader.GetInt32(10), reader.GetFieldValue<DateTimeOffset>(11),
                 reader.GetFieldValue<DateTimeOffset>(12), Time(reader, 13), Time(reader, 14),

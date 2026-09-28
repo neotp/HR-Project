@@ -1,0 +1,27 @@
+@if (Tags.Count == 0)
+{
+    <span class="value-tags-empty">–</span>
+}
+else
+{
+    <div class="value-tags">
+        @foreach (var tag in Tags)
+        {
+            <span class="value-tags-item">@tag</span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<string>? Values { get; set; }
+    [Parameter] public string? Text { get; set; }
+
+    private IReadOnlyList<string> Tags => Values is { Count: > 0 }
+        ? Values.Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        : string.IsNullOrWhiteSpace(Text)
+            ? []
+            : Text.Split([',', '|', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+}

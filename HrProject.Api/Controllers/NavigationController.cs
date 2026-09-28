@@ -149,18 +149,12 @@ public sealed class NavigationController(
                       JOIN public.employees employee
                         ON employee.employee_code = daily.employee_id AND employee.is_active = TRUE
                       LEFT JOIN public.employee_company_info company ON company.employee_id = employee.id
+                      CROSS JOIN LATERAL public.get_employee_work_schedule(daily.employee_id, daily.work_date) schedule
                       JOIN latest_attendance_response response ON response.attendance_daily_id = daily.id
                       WHERE daily.work_date BETWEEN @year_start AND @year_end
                         AND response.status = 'SUBMITTED'
                         AND COALESCE(company.exclude_attendance_calculation, FALSE) = FALSE
-                        AND NOT EXISTS
-                        (SELECT 1 FROM public.work_calendar_days calendar
-                         WHERE calendar.calendar_date = daily.work_date
-                           AND calendar.day_type = 'PUBLIC_HOLIDAY')
-                        AND (EXTRACT(ISODOW FROM daily.work_date) BETWEEN 1 AND 5 OR EXISTS
-                        (SELECT 1 FROM public.work_calendar_days calendar
-                         WHERE calendar.calendar_date = daily.work_date
-                           AND calendar.day_type = 'WORKING_SATURDAY'))
+                        AND schedule.is_work_day
                         AND (daily.calculated_late_minutes > 0 OR
                              daily.calculated_missing_minutes > 0 OR daily.requires_review = TRUE))
                      +

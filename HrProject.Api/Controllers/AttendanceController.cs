@@ -35,42 +35,16 @@ public sealed class AttendanceController(
                    scan_count, calculated_status, final_status, late_minutes,
                    missing_minutes, requires_review, review_reason,
                    calculated_at, override_reason,
-                   (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') < schedule.work_end_at,
-                   (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') >= schedule.work_end_at
-                     AND (daily.calculated_at AT TIME ZONE 'Asia/Bangkok') >= schedule.work_end_at,
+                   (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') < (daily.work_date + schedule.work_end),
+                   (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') >= (daily.work_date + schedule.work_end)
+                     AND (daily.calculated_at AT TIME ZONE 'Asia/Bangkok') >= (daily.work_date + schedule.work_end),
                    (SELECT COUNT(*)::int FROM public.attendance_comments comment
                     WHERE comment.attendance_daily_id=daily.id AND comment.is_active=TRUE),
                    daily.calculation_detail->>'firstScanSource'
             FROM public.attendance_daily_records daily
-            CROSS JOIN LATERAL
-            (
-                SELECT daily.work_date + CASE
-                    WHEN EXISTS
-                    (
-                        SELECT 1 FROM public.work_calendar_days calendar
-                        WHERE calendar.calendar_date = daily.work_date
-                          AND calendar.day_type = 'WORKING_SATURDAY'
-                    ) THEN TIME '17:00'
-                    ELSE TIME '18:00'
-                END AS work_end_at
-            ) schedule
+            CROSS JOIN LATERAL public.get_employee_work_schedule(daily.employee_id, daily.work_date) schedule
             WHERE daily.employee_id = @employee_id AND daily.work_date BETWEEN @start_date AND @end_date
-              AND NOT EXISTS
-              (
-                  SELECT 1 FROM public.work_calendar_days calendar
-                  WHERE calendar.calendar_date = daily.work_date
-                    AND calendar.day_type = 'PUBLIC_HOLIDAY'
-              )
-              AND
-              (
-                  EXTRACT(ISODOW FROM daily.work_date) BETWEEN 1 AND 5
-                  OR EXISTS
-                  (
-                      SELECT 1 FROM public.work_calendar_days calendar
-                      WHERE calendar.calendar_date = daily.work_date
-                        AND calendar.day_type = 'WORKING_SATURDAY'
-                  )
-              )
+              AND schedule.is_work_day
             ORDER BY daily.work_date
             """;
         var result = new List<AttendanceDailyDto>();
@@ -93,6 +67,45 @@ public sealed class AttendanceController(
                 reader.GetBoolean(14), reader.GetBoolean(15), reader.GetInt32(16),
                 reader.IsDBNull(17) ? null : reader.GetString(17)));
         }
+        return Ok(result);
+    }
+
+    [HttpGet("work-schedule")]
+    public async Task<ActionResult<IReadOnlyList<AttendanceWorkScheduleDayDto>>> GetWorkSchedule(
+        [FromQuery] DateOnly startDate,
+        [FromQuery] DateOnly endDate,
+        CancellationToken cancellationToken)
+    {
+        var actor = await GetAuthenticatedEmployee(cancellationToken);
+        if (actor is null) return Unauthorized();
+        if (endDate < startDate || endDate.DayNumber - startDate.DayNumber > 366)
+            return BadRequest("ช่วงวันที่ต้องไม่เกิน 366 วัน");
+
+        const string sql = """
+            SELECT dates.work_date, schedule.is_work_day,
+                   schedule.work_start, schedule.work_end,
+                   schedule.break_start, schedule.break_end
+            FROM
+            (
+                SELECT @start_date::date + day_series.day_offset AS work_date
+                FROM generate_series(0, @end_date::date - @start_date::date) AS day_series(day_offset)
+            ) dates
+            CROSS JOIN LATERAL public.get_employee_work_schedule(@employee_id, dates.work_date) schedule
+            ORDER BY dates.work_date
+            """;
+        var result = new List<AttendanceWorkScheduleDayDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("employee_id", actor.Value.EmployeeId);
+        command.Parameters.AddWithValue("start_date", startDate);
+        command.Parameters.AddWithValue("end_date", endDate);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result.Add(new AttendanceWorkScheduleDayDto(
+                reader.GetFieldValue<DateOnly>(0), reader.GetBoolean(1),
+                reader.IsDBNull(2) ? null : reader.GetFieldValue<TimeOnly>(2),
+                reader.IsDBNull(3) ? null : reader.GetFieldValue<TimeOnly>(3),
+                reader.IsDBNull(4) ? null : reader.GetFieldValue<TimeOnly>(4),
+                reader.IsDBNull(5) ? null : reader.GetFieldValue<TimeOnly>(5)));
         return Ok(result);
     }
 
@@ -568,6 +581,7 @@ public sealed class AttendanceController(
               ON employee.employee_code = daily.employee_id AND employee.is_active = TRUE
             LEFT JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
             LEFT JOIN public.employee_company_info company ON company.employee_id = employee.id
+            CROSS JOIN LATERAL public.get_employee_work_schedule(daily.employee_id, daily.work_date) schedule
             LEFT JOIN LATERAL
             (
                 SELECT id, response_text, status, submitted_by, submitted_by_name, submitted_at
@@ -578,22 +592,7 @@ public sealed class AttendanceController(
             ) response ON TRUE
             WHERE daily.work_date BETWEEN @start_date AND @end_date
               AND COALESCE(company.exclude_attendance_calculation, FALSE) = FALSE
-              AND NOT EXISTS
-              (
-                  SELECT 1 FROM public.work_calendar_days calendar
-                  WHERE calendar.calendar_date = daily.work_date
-                    AND calendar.day_type = 'PUBLIC_HOLIDAY'
-              )
-              AND
-              (
-                  EXTRACT(ISODOW FROM daily.work_date) BETWEEN 1 AND 5
-                  OR EXISTS
-                  (
-                      SELECT 1 FROM public.work_calendar_days calendar
-                      WHERE calendar.calendar_date = daily.work_date
-                        AND calendar.day_type = 'WORKING_SATURDAY'
-                  )
-              )
+              AND schedule.is_work_day
               AND
               (
                   daily.calculated_late_minutes > 0
@@ -865,21 +864,12 @@ public sealed class AttendanceController(
     {
         const string sql = """
             SELECT daily.final_status,
-                   (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') < schedule.work_end_at,
-                   (daily.calculated_at AT TIME ZONE 'Asia/Bangkok') < schedule.work_end_at
+                   COALESCE((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok') <
+                       (daily.work_date + schedule.work_end), FALSE),
+                   COALESCE((daily.calculated_at AT TIME ZONE 'Asia/Bangkok') <
+                       (daily.work_date + schedule.work_end), FALSE)
             FROM public.attendance_daily_records daily
-            CROSS JOIN LATERAL
-            (
-                SELECT daily.work_date + CASE
-                    WHEN EXISTS
-                    (
-                        SELECT 1 FROM public.work_calendar_days calendar
-                        WHERE calendar.calendar_date = daily.work_date
-                          AND calendar.day_type = 'WORKING_SATURDAY'
-                    ) THEN TIME '17:00'
-                    ELSE TIME '18:00'
-                END AS work_end_at
-            ) schedule
+            CROSS JOIN LATERAL public.get_employee_work_schedule(daily.employee_id, daily.work_date) schedule
             WHERE daily.id = @id
             """;
         await using var command = dataSource.CreateCommand(sql);

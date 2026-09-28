@@ -62,7 +62,9 @@
         }
         @if (item.DidNotStartWork)
         {
-            <div class="pre-message no-show">รายการนี้ถูกระบุว่าไม่มาทำงาน จึงถูกนำออกจากคิว Pre-Employee และไม่สามารถสร้างเป็นพนักงานได้</div>
+            <div class="pre-message no-show">รายการนี้ถูกระบุว่าไม่มาทำงาน จึงถูกนำออกจากคิว Pre-Employee และไม่สามารถสร้างเป็นพนักงานได้
+                @if (!string.IsNullOrWhiteSpace(item.DidNotStartWorkReason)) { <div>เหตุผลปฏิเสธการเริ่มงาน: @item.DidNotStartWorkReason</div> }
+            </div>
         }
 
         <section class="content-card pre-detail-card">

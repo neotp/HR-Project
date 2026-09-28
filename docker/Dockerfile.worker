@@ -1,0 +1,25 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS restore
+WORKDIR /src
+
+COPY HrProject.AttendanceWorker/HrProject.AttendanceWorker.csproj HrProject.AttendanceWorker/
+RUN dotnet restore HrProject.AttendanceWorker/HrProject.AttendanceWorker.csproj
+
+FROM restore AS publish
+COPY . .
+RUN dotnet publish HrProject.AttendanceWorker/HrProject.AttendanceWorker.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/publish \
+    /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS final
+WORKDIR /app
+
+ENV DOTNET_ENVIRONMENT=Production \
+    DOTNET_EnableDiagnostics=0
+
+COPY --from=publish --chown=app:app /app/publish .
+
+USER app
+ENTRYPOINT ["dotnet", "HrProject.AttendanceWorker.dll"]
+

@@ -47,6 +47,11 @@
     white-space: pre-line;
 }
 
+.confirm-action-body {
+    margin: 0 0 1.25rem;
+    text-align: left;
+}
+
 .confirm-action-loading {
     display: flex;
     align-items: center;

@@ -20,6 +20,19 @@ public sealed class LeaveDocumentsController(
     WorkflowEmailNotificationService workflowNotificationService,
     ILogger<LeaveDocumentsController> logger) : ControllerBase
 {
+    [HttpGet("maternity-eligibility")]
+    public async Task<ActionResult<MaternityLeaveEligibilityDto>> GetMaternityEligibility(
+        CancellationToken cancellationToken)
+    {
+        var employeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return StatusCode(StatusCodes.Status403Forbidden);
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var allowedCode = await GetAllowedMaternityTypeCode(connection, employeeId, cancellationToken);
+        return Ok(new MaternityLeaveEligibilityDto(allowedCode));
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LeaveDocumentDto>>> GetAll(
         [FromQuery] string? creatorEmployeeId,
@@ -470,6 +483,11 @@ public sealed class LeaveDocumentsController(
         var leaveType = await FindLeaveType(connection, request.LeaveTypeId, cancellationToken);
         if (leaveType is null)
             return BadRequest("ไม่พบประเภทการลา");
+        var maternityError = await ValidateMaternityRequest(
+            connection, request.CreatorEmployeeId, leaveType.Code,
+            [(request.LeaveDate, request.LeaveHours)], cancellationToken);
+        if (maternityError is not null)
+            return BadRequest(maternityError);
         var certificateError = ValidateMedicalCertificate(
             leaveType.Code, request.HasMedicalCertificate, request.Attachments);
         if (certificateError is not null)
@@ -577,8 +595,8 @@ public sealed class LeaveDocumentsController(
 
         if (request.Items.Count == 0)
             return BadRequest("กรุณาสร้างรายการวันที่ลาอย่างน้อย 1 รายการ");
-        if (request.Items.Count > 99)
-            return BadRequest("จำนวนรายการวันที่ลาต้องไม่เกิน 99 รายการต่อเอกสารหนึ่งชุด");
+        if (request.Items.Count > 366)
+            return BadRequest("จำนวนรายการวันที่ลาต้องไม่เกิน 366 รายการต่อเอกสารหนึ่งชุด");
         if (request.Items.Any(item => item.LeaveHours <= 0 || item.LeaveHours > 24))
             return BadRequest("จำนวนชั่วโมงของแต่ละรายการต้องมากกว่า 0 และไม่เกิน 24 ชั่วโมง");
         if (request.Items.Select(item => item.LeaveDate).Distinct().Count() != request.Items.Count)
@@ -600,6 +618,14 @@ public sealed class LeaveDocumentsController(
         var leaveType = await FindLeaveType(connection, request.LeaveTypeId, cancellationToken);
         if (leaveType is null)
             return BadRequest("ไม่พบประเภทการลา");
+        if (request.Items.Count > 99 && leaveType.Code != MaternityLeavePolicy.FemaleTypeCode)
+            return BadRequest("จำนวนรายการวันที่ลาต้องไม่เกิน 99 รายการต่อเอกสารหนึ่งชุด");
+        var maternityError = await ValidateMaternityRequest(
+            connection, request.CreatorEmployeeId, leaveType.Code,
+            request.Items.Select(item => (item.LeaveDate, item.LeaveHours)).ToList(),
+            cancellationToken);
+        if (maternityError is not null)
+            return BadRequest(maternityError);
         var certificateError = ValidateMedicalCertificate(
             leaveType.Code, request.HasMedicalCertificate, request.Attachments);
         if (certificateError is not null)
@@ -788,6 +814,15 @@ public sealed class LeaveDocumentsController(
         if (BangkokNow() >= currentDate.ToDateTime(currentStartTime) &&
             !string.Equals(currentKind, "RETROACTIVE", StringComparison.OrdinalIgnoreCase))
             return Conflict("เอกสารนี้ถึงวันเวลาเริ่มลาแล้ว จึงไม่สามารถแก้ไขได้");
+
+        var requestedType = await FindLeaveType(connection, request.LeaveTypeId, cancellationToken);
+        if (requestedType is null)
+            return BadRequest("ไม่พบประเภทการลา");
+        var maternityError = await ValidateMaternityRequest(
+            connection, creatorEmployeeId, requestedType.Code,
+            [(request.LeaveDate, request.LeaveHours)], cancellationToken, transaction);
+        if (maternityError is not null)
+            return BadRequest(maternityError);
 
         var quotaError = await ValidateQuotaAvailability(
             connection, transaction, creatorEmployeeId, request.LeaveTypeId,
@@ -1157,6 +1192,12 @@ public sealed class LeaveDocumentsController(
         if (hasPendingCancelRequest)
             return Conflict("เอกสารนี้มีคำขอยกเลิกที่รอดำเนินการอยู่ จึงไม่สามารถขอแก้ไขได้");
 
+        var maternityError = await ValidateMaternityRequest(
+            connection, creatorEmployeeId, requestedTypeCode,
+            [(request.LeaveDate, request.LeaveHours)], cancellationToken, transaction);
+        if (maternityError is not null)
+            return BadRequest(maternityError);
+
         var quotaError = await ValidateQuotaAvailability(
             connection, transaction, creatorEmployeeId, request.LeaveTypeId,
             request.LeaveDate.Year, request.LeaveHours, id, cancellationToken);
@@ -1502,6 +1543,42 @@ public sealed class LeaveDocumentsController(
         var authenticatedEmployeeId = await ResolveAuthenticatedEmployeeId(cancellationToken);
         return !string.IsNullOrWhiteSpace(authenticatedEmployeeId) &&
             string.Equals(authenticatedEmployeeId, actorEmployeeId.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string?> GetAllowedMaternityTypeCode(
+        NpgsqlConnection connection, string employeeId, CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
+    {
+        const string sql = """
+            SELECT basic.title
+            FROM public.employees employee
+            JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
+            WHERE employee.employee_code = @employee_id AND employee.is_active = TRUE
+            LIMIT 1
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("employee_id", employeeId);
+        var title = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        return MaternityLeavePolicy.AllowedTypeCode(title);
+    }
+
+    private static async Task<string?> ValidateMaternityRequest(
+        NpgsqlConnection connection, string employeeId, string leaveTypeCode,
+        IReadOnlyList<(DateOnly Date, decimal Hours)> items,
+        CancellationToken cancellationToken, NpgsqlTransaction? transaction = null)
+    {
+        if (!MaternityLeavePolicy.IsMaternityType(leaveTypeCode))
+            return null;
+        var allowedCode = await GetAllowedMaternityTypeCode(
+            connection, employeeId, cancellationToken, transaction);
+        if (allowedCode is null)
+            return "ไม่สามารถระบุคำนำหน้าชื่อเพื่อเลือกประเภทลาคลอดได้ กรุณาตรวจสอบข้อมูลพนักงาน";
+        if (allowedCode != leaveTypeCode)
+            return "ประเภทลาคลอดไม่ตรงกับคำนำหน้าชื่อของพนักงาน";
+        if (leaveTypeCode == MaternityLeavePolicy.FemaleTypeCode &&
+            !MaternityLeavePolicy.AreConsecutiveFullDays(items))
+            return "ลาคลอดผู้หญิงต้องลาต่อเนื่องทุกวันปฏิทิน รวมเสาร์–อาทิตย์ วันละ 8 ชั่วโมง";
+        return null;
     }
 
     private async Task<bool> CanAccessAttachments(long documentId, CancellationToken cancellationToken)

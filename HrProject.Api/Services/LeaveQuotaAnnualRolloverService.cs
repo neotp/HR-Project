@@ -27,6 +27,7 @@ public sealed class LeaveQuotaAnnualRolloverService(NpgsqlDataSource dataSource)
                        COALESCE(future_carry_usage.reserved_hours, 0) AS future_carry_reserved_hours
                 FROM public.employees employee
                 JOIN public.employee_company_info company ON company.employee_id = employee.id
+                LEFT JOIN public.employee_basic_info basic ON basic.employee_id = employee.id
                 CROSS JOIN public.leave_types leave_type
                 CROSS JOIN annual_lock
                 LEFT JOIN public.leave_quotas previous_quota
@@ -55,6 +56,11 @@ public sealed class LeaveQuotaAnnualRolloverService(NpgsqlDataSource dataSource)
                 ) future_carry_usage ON TRUE
                 WHERE employee.is_active = TRUE
                   AND leave_type.is_active = TRUE
+                  AND (leave_type.code NOT IN ('UNPAID', 'PATERNITY')
+                       OR (leave_type.code = 'UNPAID' AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                           IN ('นาง', 'นางสาว', 'นส', 'mrs', 'ms', 'miss'))
+                       OR (leave_type.code = 'PATERNITY' AND lower(regexp_replace(coalesce(basic.title, ''), '[.[:space:]]', '', 'g'))
+                           IN ('นาย', 'mr')))
                   AND company.start_date IS NOT NULL
                   AND company.start_date <= make_date(@quota_year, 12, 31)
             ),

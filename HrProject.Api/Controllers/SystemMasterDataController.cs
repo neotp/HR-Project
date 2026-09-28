@@ -269,6 +269,222 @@ public sealed class SystemMasterDataController(
         SaveLeaveTypeMasterRequest request,
         CancellationToken cancellationToken) => SaveLeaveType(id, request, cancellationToken);
 
+    [HttpGet("work-schedules")]
+    public async Task<ActionResult<IReadOnlyList<WorkScheduleMasterDto>>> GetWorkSchedules(
+        [FromQuery] bool includeInactive = true,
+        CancellationToken cancellationToken = default) =>
+        Ok(await LoadWorkSchedules(null, includeInactive, cancellationToken));
+
+    [HttpPost("work-schedules")]
+    public Task<ActionResult<WorkScheduleMasterDto>> CreateWorkSchedule(
+        SaveWorkScheduleMasterRequest request,
+        CancellationToken cancellationToken) => SaveWorkSchedule(null, request, cancellationToken);
+
+    [HttpPut("work-schedules/{id:long}")]
+    public Task<ActionResult<WorkScheduleMasterDto>> UpdateWorkSchedule(
+        long id,
+        SaveWorkScheduleMasterRequest request,
+        CancellationToken cancellationToken) => SaveWorkSchedule(id, request, cancellationToken);
+
+    private async Task<ActionResult<WorkScheduleMasterDto>> SaveWorkSchedule(
+        long? id,
+        SaveWorkScheduleMasterRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
+
+        var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
+        var nameTh = request.NameTh?.Trim() ?? string.Empty;
+        var nameEn = NullIfEmpty(request.NameEn);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        if (code.Length is < 1 or > 100 || nameTh.Length is < 1 or > 250 ||
+            nameEn?.Length > 250 || request.DisplayOrder < 0 ||
+            request.EffectiveFrom < today || request.Days is null ||
+            request.Days.Count is < 1 or > 7 ||
+            request.Days.Select(day => day.IsoDayOfWeek).Distinct().Count() != request.Days.Count ||
+            request.Days.Any(day => day.IsoDayOfWeek is < 1 or > 7 ||
+                day.StartTime >= day.BreakStartTime ||
+                day.BreakStartTime >= day.BreakEndTime ||
+                day.BreakEndTime >= day.EndTime))
+            return BadRequest("กรุณากำหนดรหัส ชื่อ วันที่เริ่มใช้ และเวลางาน/พักให้ถูกต้อง โดยวันที่เริ่มใช้ต้องไม่ย้อนหลัง");
+
+        if (await HasWorkScheduleNameConflict(id, code, nameTh, cancellationToken))
+            return Conflict("รหัสหรือชื่อเวลาทำงานนี้ซ้ำกับตารางงานอื่นหรือชื่อเดิมที่เคยใช้");
+
+        const string insertMasterSql = """
+            INSERT INTO public.system_master_items
+                (category_code, item_code, name_th, name_en, display_order, is_active)
+            VALUES ('WORK_SCHEDULE', @code, @name_th, @name_en, @display_order, @is_active)
+            RETURNING id
+            """;
+        const string updateMasterSql = """
+            UPDATE public.system_master_items SET
+                item_code = @code, name_th = @name_th, name_en = @name_en,
+                display_order = @display_order, is_active = @is_active
+            WHERE id = @id AND category_code = 'WORK_SCHEDULE'
+            RETURNING id
+            """;
+        const string saveVersionSql = """
+            INSERT INTO public.work_schedule_versions(master_item_id, effective_from)
+            VALUES (@master_item_id, @effective_from)
+            ON CONFLICT (master_item_id, effective_from) DO UPDATE
+                SET updated_at = CURRENT_TIMESTAMP
+            RETURNING id
+            """;
+        const string insertDaySql = """
+            INSERT INTO public.work_schedule_days
+                (version_id, iso_day_of_week, start_time, end_time, break_start_time, break_end_time)
+            VALUES (@version_id, @iso_day_of_week, @start_time, @end_time,
+                    @break_start_time, @break_end_time)
+            """;
+
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            long savedId;
+            await using (var command = new NpgsqlCommand(id.HasValue ? updateMasterSql : insertMasterSql,
+                             connection, transaction))
+            {
+                if (id.HasValue) command.Parameters.AddWithValue("id", id.Value);
+                command.Parameters.AddWithValue("code", code);
+                command.Parameters.AddWithValue("name_th", nameTh);
+                command.Parameters.Add(new NpgsqlParameter<string?>("name_en", nameEn));
+                command.Parameters.AddWithValue("display_order", request.DisplayOrder);
+                command.Parameters.AddWithValue("is_active", request.IsActive);
+                var value = await command.ExecuteScalarAsync(cancellationToken);
+                if (value is null)
+                    return NotFound();
+                savedId = (long)value;
+            }
+
+            long versionId;
+            await using (var command = new NpgsqlCommand(saveVersionSql, connection, transaction))
+            {
+                command.Parameters.AddWithValue("master_item_id", savedId);
+                command.Parameters.AddWithValue("effective_from", request.EffectiveFrom);
+                versionId = (long)(await command.ExecuteScalarAsync(cancellationToken))!;
+            }
+
+            await using (var command = new NpgsqlCommand(
+                             "DELETE FROM public.work_schedule_days WHERE version_id = @version_id",
+                             connection, transaction))
+            {
+                command.Parameters.AddWithValue("version_id", versionId);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            foreach (var day in request.Days)
+            {
+                await using var command = new NpgsqlCommand(insertDaySql, connection, transaction);
+                command.Parameters.AddWithValue("version_id", versionId);
+                command.Parameters.AddWithValue("iso_day_of_week", (short)day.IsoDayOfWeek);
+                command.Parameters.AddWithValue("start_time", day.StartTime);
+                command.Parameters.AddWithValue("end_time", day.EndTime);
+                command.Parameters.AddWithValue("break_start_time", day.BreakStartTime);
+                command.Parameters.AddWithValue("break_end_time", day.BreakEndTime);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            var saved = await LoadWorkSchedules(savedId, true, cancellationToken);
+            return Ok(saved.Single());
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return Conflict("รหัสตารางงานนี้มีอยู่แล้ว");
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.CheckViolation)
+        {
+            return BadRequest("ช่วงเวลาทำงานหรือเวลาพักไม่ถูกต้อง");
+        }
+    }
+
+    private async Task<IReadOnlyList<WorkScheduleMasterDto>> LoadWorkSchedules(
+        long? id,
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT item.id, item.item_code, item.name_th, item.name_en,
+                   item.display_order, item.is_active,
+                   COALESCE(version.effective_from, DATE '1900-01-01'),
+                   GREATEST(item.updated_at, version.updated_at),
+                   day.iso_day_of_week, day.start_time, day.end_time,
+                   day.break_start_time, day.break_end_time
+            FROM public.system_master_items item
+            LEFT JOIN LATERAL
+            (
+                SELECT id, effective_from, updated_at
+                FROM public.work_schedule_versions
+                WHERE master_item_id = item.id
+                ORDER BY effective_from DESC
+                LIMIT 1
+            ) version ON TRUE
+            LEFT JOIN public.work_schedule_days day ON day.version_id = version.id
+            WHERE item.category_code = 'WORK_SCHEDULE'
+              AND (@include_inactive OR item.is_active = TRUE)
+              AND (@id IS NULL OR item.id = @id)
+            ORDER BY item.display_order, item.name_th, item.id, day.iso_day_of_week
+            """;
+        var result = new List<WorkScheduleMasterDto>();
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("include_inactive", includeInactive);
+        command.Parameters.Add(new NpgsqlParameter<long?>("id", id));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var masterId = reader.GetInt64(0);
+            if (result.Count == 0 || result[^1].Id != masterId)
+            {
+                result.Add(new WorkScheduleMasterDto(
+                    masterId, reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.GetInt32(4), reader.GetBoolean(5),
+                    reader.GetFieldValue<DateOnly>(6), new List<WorkScheduleDayDto>(),
+                    reader.GetFieldValue<DateTimeOffset>(7)));
+            }
+
+            if (!reader.IsDBNull(8))
+            {
+                ((List<WorkScheduleDayDto>)result[^1].Days).Add(new WorkScheduleDayDto(
+                    reader.GetInt16(8), reader.GetFieldValue<TimeOnly>(9),
+                    reader.GetFieldValue<TimeOnly>(10), reader.GetFieldValue<TimeOnly>(11),
+                    reader.GetFieldValue<TimeOnly>(12)));
+            }
+        }
+        return result;
+    }
+
+    private async Task<bool> HasWorkScheduleNameConflict(
+        long? id,
+        string code,
+        string nameTh,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT EXISTS
+            (
+                SELECT 1
+                FROM public.system_master_items item
+                WHERE item.category_code = 'WORK_SCHEDULE'
+                  AND item.id IS DISTINCT FROM @id
+                  AND (LOWER(item.item_code) IN (LOWER(@code), LOWER(@name_th))
+                       OR LOWER(item.name_th) IN (LOWER(@code), LOWER(@name_th)))
+                UNION ALL
+                SELECT 1
+                FROM public.work_schedule_aliases alias
+                WHERE alias.master_item_id IS DISTINCT FROM @id
+                  AND LOWER(alias.alias_value) IN (LOWER(@code), LOWER(@name_th))
+            )
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.Add(new NpgsqlParameter<long?>("id", id));
+        command.Parameters.AddWithValue("code", code);
+        command.Parameters.AddWithValue("name_th", nameTh);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+    }
+
     [HttpGet("attendance-event-types")]
     public async Task<ActionResult<IReadOnlyList<AttendanceEventTypeMasterDto>>> GetAttendanceEventTypes(
         [FromQuery] bool includeInactive = true,
@@ -309,6 +525,8 @@ public sealed class SystemMasterDataController(
         if (!await CanSave(id, request.IsActive, cancellationToken)) return Forbid();
         var category = request.CategoryCode?.Trim().ToUpperInvariant() ?? string.Empty;
         var code = request.ItemCode?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (category == "WORK_SCHEDULE")
+            return BadRequest("กรุณาจัดการเวลาทำงานผ่านหน้ากำหนดตารางงาน");
         if (!IsGenericCategory(category) || string.IsNullOrWhiteSpace(code) ||
             string.IsNullOrWhiteSpace(request.NameTh) || request.DisplayOrder < 0)
             return BadRequest("กรุณากรอกรหัส ชื่อ และลำดับให้ถูกต้อง");
@@ -335,7 +553,7 @@ public sealed class SystemMasterDataController(
                 name_th = @name_th, name_en = @name_en,
                 display_order = @display_order, is_active = @is_active,
                 parent_item_id = @parent_item_id
-            WHERE id = @id
+            WHERE id = @id AND category_code <> 'WORK_SCHEDULE'
             RETURNING id
             """;
         try

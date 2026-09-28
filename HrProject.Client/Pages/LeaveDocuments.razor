@@ -200,7 +200,7 @@
                         <SearchableSelect><select @bind="newLeaveKind"><option value="">-- เลือกชนิดการลา --</option>@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></SearchableSelect>
                     </label>
                     <label><span class="field-label">ประเภทการลา<span class="required">*</span></span>
-                        <SearchableSelect><select @bind="newLeaveType" @bind:after="HandleLeaveTypeChanged"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect>
+                        <SearchableSelect><select @bind="newLeaveType" @bind:after="HandleLeaveTypeChanged"><option value="">-- เลือกประเภทการลา --</option>@foreach (var type in SelectableLeaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect>
                     </label>
                     @if (IsSickLeave)
                     {
@@ -224,7 +224,7 @@
                         <label><span class="field-label">เวลาเริ่มต้น (24 ชั่วโมง)<span class="required">*</span></span>
                             <TimeMinutePicker @bind-Value="newLeaveStartTime" AriaLabel="เวลาเริ่มต้นการลา" />
                         </label>
-                        <label><span class="field-label">จำนวนชั่วโมง<span class="required">*</span></span><input type="number" min="0.5" max="8" step="0.5" @bind="newLeaveHours" /></label>
+                        <label><span class="field-label">จำนวนชั่วโมง<span class="required">*</span></span><input type="number" min="0.5" max="8" step="0.5" @bind="newLeaveHours" disabled="@IsFemaleMaternityLeave" /></label>
                     }
                     <label>
                         <span class="field-label">เอกสารแนบ<span class="required" hidden="@(!(IsSickLeave && newHasMedicalCertificate == true))">*</span></span>
@@ -263,12 +263,17 @@
                                             var rowNumber = index + 1;
                                             <tr>
                                                 <td>@rowNumber</td>
-                                                <td><DateTimePicker Value="@row.LeaveDate" ValueChanged="value => row.LeaveDate = value ?? row.LeaveDate" AriaLabel="วันที่ลา" /></td>
+                                                <td>
+                                                    @if (IsFemaleMaternityLeave) { <span>@row.LeaveDate.ToString("dd/MM/yyyy")</span> }
+                                                    else { <DateTimePicker Value="@row.LeaveDate" ValueChanged="value => row.LeaveDate = value ?? row.LeaveDate" AriaLabel="วันที่ลา" /> }
+                                                </td>
                                                 <td>
                                                     <TimeMinutePicker @bind-Value="row.StartTime" AriaLabel="เวลาเริ่มต้นการลา" />
                                                 </td>
-                                                <td><input type="number" min="0.5" max="8" step="0.5" @bind="row.LeaveHours" /></td>
-                                                <td><button class="remove-day" type="button" aria-label="ลบวันที่" @onclick="() => RemoveMultiDayRow(row)">×</button></td>
+                                                <td><input type="number" min="0.5" max="8" step="0.5" @bind="row.LeaveHours" disabled="@IsFemaleMaternityLeave" /></td>
+                                                <td>
+                                                    @if (!IsFemaleMaternityLeave) { <button class="remove-day" type="button" aria-label="ลบวันที่" @onclick="() => RemoveMultiDayRow(row)">×</button> }
+                                                </td>
                                             </tr>
                                         }
                                     }
@@ -277,7 +282,7 @@
                         </div>
                         @if (multiDayRows.Count > 0)
                         {
-                            <p class="batch-note">พร้อมสร้าง @multiDayRows.Count เอกสาร แยกวันละ 1 เอกสาร</p>
+                            <p class="batch-note">พร้อมสร้าง @multiDayRows.Count เอกสาร แยกวันละ 1 เอกสาร@if (IsFemaleMaternityLeave) { <span> (นับทุกวันปฏิทินรวมเสาร์–อาทิตย์ วันละ 8 ชั่วโมง)</span> }</p>
                         }
                     </section>
                 }
@@ -330,7 +335,7 @@
                 <h3>รายละเอียดการลา</h3>
                 <div class="form-grid">
                     <label>ชนิดการลา<SearchableSelect><select @bind="detailLeaveKind" disabled="@IsDocumentReadOnly">@foreach (var kind in leaveKinds) { <option value="@kind.NameTh">@kind.NameTh</option> }</select></SearchableSelect></label>
-                    <label>ประเภทการลา<SearchableSelect><select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
+                    <label>ประเภทการลา<SearchableSelect><select @bind="detailLeaveType" disabled="@IsDocumentReadOnly">@foreach (var type in EditableLeaveTypes(detailLeaveType)) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
                     <label>วันที่ลา<DateTimePicker Value="@detailLeaveDate" ValueChanged="value => detailLeaveDate = value ?? detailLeaveDate" Disabled="@IsDocumentReadOnly" AriaLabel="วันที่ลา" /></label>
                     <label>เวลาเริ่มต้น (24 ชั่วโมง)
                         <TimeMinutePicker @bind-Value="detailLeaveStartTime" Disabled="@IsDocumentReadOnly" AriaLabel="เวลาเริ่มต้นการลา" />
@@ -464,7 +469,7 @@
         </header>
         <div class="edit-request-body">
             <div class="form-grid single-column">
-                <label>ประเภทการลา<SearchableSelect><select @bind="requestLeaveType">@foreach (var type in leaveTypes) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
+                <label>ประเภทการลา<SearchableSelect><select @bind="requestLeaveType">@foreach (var type in EditableLeaveTypes(requestLeaveType)) { <option value="@type.NameTh">@type.NameTh</option> }</select></SearchableSelect></label>
                 @if (IsRequestSickLeave)
                 {
                     <fieldset class="medical-certificate-field full-width edit-medical-certificate-field">
@@ -594,6 +599,14 @@
     private string createMode = "single";
     private string newLeaveKind = string.Empty;
     private string newLeaveType = string.Empty;
+    private string? allowedMaternityTypeCode;
+    private List<LeaveTypeDto> SelectableLeaveTypes => leaveTypes
+        .Where(type => type.Code is not ("UNPAID" or "PATERNITY") ||
+            type.Code == allowedMaternityTypeCode).ToList();
+    private List<LeaveTypeDto> EditableLeaveTypes(string selectedName) => leaveTypes
+        .Where(type => SelectableLeaveTypes.Any(allowed => allowed.Id == type.Id) ||
+            type.NameTh == selectedName).ToList();
+    private bool IsFemaleMaternityLeave => FindLeaveType(newLeaveType)?.Code == "UNPAID";
     private DateTime newSingleLeaveDate = DateTime.Today;
     private TimeOnly newLeaveStartTime = new(9, 0);
     private decimal newLeaveHours = 8;
@@ -680,7 +693,7 @@
     private List<LeaveQuotaDto> myLeaveQuotas = [];
     private List<LeaveQuotaDto> DisplayedLeaveQuotas => string.IsNullOrWhiteSpace(CurrentEmployeeId)
         ? []
-        : leaveTypes
+        : SelectableLeaveTypes
             .Select(type =>
             {
                 var configuredQuota = myLeaveQuotas.FirstOrDefault(quota => quota.LeaveTypeId == type.Id);
@@ -734,6 +747,9 @@
     private async Task ReloadData()
     {
         leaveTypes = await Http.GetFromJsonAsync<List<LeaveTypeDto>>("api/leave-types") ?? [];
+        if (!string.IsNullOrWhiteSpace(CurrentEmployeeId))
+            allowedMaternityTypeCode = (await Http.GetFromJsonAsync<MaternityLeaveEligibilityDto>(
+                "api/leave-documents/maternity-eligibility"))?.AllowedTypeCode;
         leaveKinds = await Http.GetFromJsonAsync<List<MasterDataItemDto>>(
             "api/system-master-data/items?category=LEAVE_KIND&includeInactive=false") ?? [];
         if (string.IsNullOrWhiteSpace(CurrentEmployeeId))
@@ -789,7 +805,7 @@
         "ลาพักร้อน" => 10,
         "ลาป่วย" => 20,
         "ลากิจไม่รับเงินเดือน" => 30,
-        "ลาคลอด" => 40,
+        "ลาคลอด" or "ลาคลอดผู้หญิง" or "ลาคลอดผู้ชาย" => 40,
         "ลาบวช" => 50,
         _ => 100
     };
@@ -865,9 +881,9 @@
         }
 
         var totalDays = (multiEndDate.Date - multiStartDate.Date).Days + 1;
-        if (totalDays > 99)
+        if (totalDays > (IsFemaleMaternityLeave ? 366 : 99))
         {
-            saveError = "เอกสารการลาหนึ่งชุดสร้างได้ไม่เกิน 99 วัน";
+            saveError = $"เอกสารการลาหนึ่งชุดสร้างได้ไม่เกิน {(IsFemaleMaternityLeave ? 366 : 99)} วัน";
             return;
         }
 
@@ -1285,6 +1301,7 @@
     private void HandleLeaveTypeChanged()
     {
         newHasMedicalCertificate = null;
+        multiDayRows.Clear();
         saveError = null;
     }
 
@@ -1358,6 +1375,16 @@
         if (type is null || string.IsNullOrWhiteSpace(newLeaveKind) || string.IsNullOrWhiteSpace(newLeaveReason))
         {
             saveError = "กรุณาเลือกชนิดการลา ประเภทการลา และกรอกเหตุผลการลาให้ครบถ้วน";
+            return;
+        }
+        if (type.Code is "UNPAID" or "PATERNITY" && type.Code != allowedMaternityTypeCode)
+        {
+            saveError = "ประเภทลาคลอดไม่ตรงกับคำนำหน้าชื่อของพนักงาน";
+            return;
+        }
+        if (IsFemaleMaternityLeave && createMode == "single" && newLeaveHours != 8)
+        {
+            saveError = "ลาคลอดผู้หญิงต้องลาเต็มวัน วันละ 8 ชั่วโมง";
             return;
         }
         var leaveKindCode = KindCode(newLeaveKind);
@@ -1444,6 +1471,16 @@
             if (multiDayRows.Select(row => row.LeaveDate.Date).Distinct().Count() != multiDayRows.Count)
             {
                 saveError = "วันที่ลาในตารางต้องไม่ซ้ำกัน";
+                return;
+            }
+            if (IsFemaleMaternityLeave &&
+                (multiDayRows.Any(row => row.LeaveHours != 8) ||
+                 multiDayRows.OrderBy(row => row.LeaveDate)
+                     .Select((row, index) => row.LeaveDate.Date != multiStartDate.Date.AddDays(index))
+                     .Any(invalid => invalid) ||
+                 multiDayRows.Count != (multiEndDate.Date - multiStartDate.Date).Days + 1))
+            {
+                saveError = "ลาคลอดผู้หญิงต้องมีรายการครบทุกวันในช่วงที่เลือก รวมเสาร์–อาทิตย์ วันละ 8 ชั่วโมง";
                 return;
             }
 

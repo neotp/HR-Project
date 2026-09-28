@@ -100,8 +100,8 @@
                                 <DetailField Label="Province of Residence (จังหวัดที่อาศัยอยู่)" Value="@DisplayValue(employee.ResidenceProvince)" />
                                 <DetailField Label="ที่อยู่ปัจจุบัน" Value="@FormatCurrentAddress(employee)" />
                                 <DetailField Label="Province of Responsibility (จังหวัดที่ให้ดูแล)" Value="@DisplayValue(employee.ResponsibilityProvince)" />
-                                <DetailField Label="Brand" Value="@DisplayValue(employee.Brand)" />
-                                <DetailField Label="Comm.Group" Value="@DisplayValue(employee.CommGroup)" />
+                                <DetailField Label="Brand"><ValueTagList Values="@employee.Brands" Text="@employee.Brand" /></DetailField>
+                                <DetailField Label="Comm.Group"><ValueTagList Values="@employee.CommGroups" Text="@employee.CommGroup" /></DetailField>
                                 <DetailField Label="ประเภท Checklist" Value="@DisplayValue(employee.ChecklistType)" />
                             </div>
                         </section>
@@ -210,7 +210,7 @@
                                         }
                                         @foreach (var item in employee.WorkHistory)
                                         {
-                                            <tr><td>@item.Period</td><td>@item.BusinessUnit</td><td>@item.Department</td><td>@item.Position</td><td>@item.Brand</td><td>@item.CommGroup</td></tr>
+                                            <tr><td>@item.Period</td><td>@item.BusinessUnit</td><td>@item.Department</td><td>@item.Position</td><td><ValueTagList Text="@item.Brand" /></td><td><ValueTagList Text="@item.CommGroup" /></td></tr>
                                         }
                                     </tbody>
                                 </table>

@@ -6,7 +6,7 @@ public sealed record LotusNotesSyncItemDto(
     long Id,
     long? PreEmployeeId,
     long? EmployeeEditRequestId,
-    long EmployeeId,
+    long? EmployeeId,
     string EmployeeCode,
     string EmployeeName,
     string DatabaseName,

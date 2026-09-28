@@ -26,7 +26,7 @@ public sealed class PreEmployeesController(
         created_employee_id, imported_by, imported_by_name, imported_at, reviewed_by,
         reviewed_by_name, reviewed_at, created_by, created_by_name, created_at, updated_at,
         converted_by, converted_by_name, converted_at, employee_data, did_not_start_work,
-        recruit_url
+        recruit_url, did_not_start_work_reason
         """;
 
     [HttpGet]
@@ -235,6 +235,9 @@ public sealed class PreEmployeesController(
             employee.EmployeeStatus = EmployeeStatusValues.Normalize(employee.EmployeeStatus);
             var validation = ValidateEmployee(employee);
             if (validation is not null) return BadRequest(validation);
+            if (!await WorkScheduleValueValidator.IsKnownAsync(
+                    connection, transaction, employee.WorkSchedule, cancellationToken))
+                return BadRequest(WorkScheduleValueValidator.InvalidMessage);
 
             const string duplicateSql = """
                 SELECT EXISTS
@@ -329,32 +332,88 @@ public sealed class PreEmployeesController(
             await transaction.RollbackAsync(cancellationToken);
             return Conflict("รหัสพนักงานหรืออีเมลนี้มีอยู่ในระบบแล้ว");
         }
+        catch (PostgresException exception) when (
+            exception.SqlState == "22023" &&
+            exception.MessageText.StartsWith("Unknown work schedule", StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(WorkScheduleValueValidator.InvalidMessage);
+        }
     }
 
     [HttpPost("{id:long}/did-not-start-work")]
-    public async Task<IActionResult> MarkDidNotStartWork(long id, CancellationToken cancellationToken)
+    public async Task<IActionResult> MarkDidNotStartWork(
+        long id, MarkPreEmployeeNoShowRequest request, CancellationToken cancellationToken)
     {
         var actor = await GetActor(cancellationToken);
         if (actor is null) return Unauthorized();
         if (!await Can(actor.Value.EmployeeId, "EDIT", cancellationToken)) return Forbid();
+        var reason = request.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest("กรุณาระบุเหตุผลปฏิเสธการเริ่มงาน");
+        if (reason.Length > 2000)
+            return BadRequest("เหตุผลต้องไม่เกิน 2,000 ตัวอักษร");
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        Employee employee;
+        await using (var lookup = new NpgsqlCommand("""
+            SELECT employee_data::TEXT, employee_code, title, first_name_th, last_name_th
+            FROM public.pre_employees
+            WHERE id = @id AND status NOT IN ('CONVERTED', 'CANCELLED')
+              AND did_not_start_work = FALSE
+            FOR UPDATE
+            """, connection, transaction))
+        {
+            lookup.Parameters.AddWithValue("id", id);
+            await using var reader = await lookup.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return Conflict("รายการนี้ถูกดำเนินการแล้ว หรือไม่สามารถระบุว่าไม่มาทำงานได้");
+            employee = reader.IsDBNull(0)
+                ? new Employee()
+                : JsonSerializer.Deserialize<Employee>(reader.GetString(0), JsonOptions) ?? new Employee();
+            if (string.IsNullOrWhiteSpace(employee.EmployeeCode)) employee.EmployeeCode = S(reader, 1) ?? "";
+            if (string.IsNullOrWhiteSpace(employee.Title)) employee.Title = S(reader, 2) ?? "";
+            if (string.IsNullOrWhiteSpace(employee.FirstName)) employee.FirstName = S(reader, 3) ?? "";
+            if (string.IsNullOrWhiteSpace(employee.LastName)) employee.LastName = S(reader, 4) ?? "";
+        }
+
+        var confirmedAt = DateTimeOffset.UtcNow;
 
         const string sql = """
             UPDATE public.pre_employees
             SET did_not_start_work = TRUE,
+                did_not_start_work_reason = @reason,
                 did_not_start_work_by = @actor,
                 did_not_start_work_by_name = @actor_name,
-                did_not_start_work_at = CURRENT_TIMESTAMP
+                did_not_start_work_at = @confirmed_at
             WHERE id = @id
               AND status NOT IN ('CONVERTED', 'CANCELLED')
               AND did_not_start_work = FALSE
             """;
-        await using var command = dataSource.CreateCommand(sql);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("reason", reason);
         command.Parameters.AddWithValue("actor", actor.Value.EmployeeId);
         command.Parameters.AddWithValue("actor_name", actor.Value.Name);
+        command.Parameters.AddWithValue("confirmed_at", confirmedAt);
         if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
             return Conflict("รายการนี้ถูกดำเนินการแล้ว หรือไม่สามารถระบุว่าไม่มาทำงานได้");
 
+        try
+        {
+            await LotusNotesNoShowOutboxService.QueueAsync(
+                connection, transaction, id, employee, reason,
+                actor.Value.Name, confirmedAt, configuration, cancellationToken);
+        }
+        catch (ArgumentException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(exception.Message);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        lotusNotesOutboxSignal.Notify();
         return NoContent();
     }
 
@@ -448,7 +507,7 @@ public sealed class PreEmployeesController(
         r.GetString(21), S(r,22), r.IsDBNull(23)?null:r.GetInt64(23), S(r,24), S(r,25),
         T(r,26), S(r,27), S(r,28), T(r,29), r.GetString(30), r.GetString(31),
         r.GetFieldValue<DateTimeOffset>(32), r.GetFieldValue<DateTimeOffset>(33), S(r,34), S(r,35), T(r,36),
-        ReadEmployeeData(r, 37), r.GetBoolean(38), S(r,39));
+        ReadEmployeeData(r, 37), r.GetBoolean(38), S(r,39), S(r,40));
 
     private static Employee ReadEmployeeData(NpgsqlDataReader reader, int ordinal)
     {

@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hrm-attendance-worker
+  namespace: dev-is
+  labels:
+    app: hrm-attendance-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hrm-attendance-worker
+  template:
+    metadata:
+      labels:
+        app: hrm-attendance-worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-hrm-secret
+      containers:
+        - name: hrm-attendance-worker
+          image: ghcr.io/neotp/hr-project-worker:28.09.2026-v1
+          imagePullPolicy: Always
+          env:
+            # HR database used to save scans and calculate attendance
+            # Server: 172.17.17.103 | Database: hrm_db
+            - name: ConnectionStrings__HrDatabase
+              valueFrom:
+                secretKeyRef:
+                  name: hrm-worker-secrets
+                  key: ConnectionStrings__HrDatabase
+
+            # Hikvision face-scan source database
+            # Server: 172.21.130.155:1433 | Database: Hikvision
+            - name: ConnectionStrings__HikvisionDatabase
+              valueFrom:
+                secretKeyRef:
+                  name: hrm-worker-secrets
+                  key: ConnectionStrings__HikvisionDatabase
+
+            # Wi-Fi connection source database
+            # Expected server: 172.21.21.250:5432 | Database: insightdb
+            # Add ConnectionStrings:WifiAttendanceDatabase to .NET User Secrets first.
+            - name: ConnectionStrings__WifiAttendanceDatabase
+              valueFrom:
+                secretKeyRef:
+                  name: hrm-worker-secrets
+                  key: ConnectionStrings__WifiAttendanceDatabase
+
+            # Face-scan import and attendance calculation
+            - name: AttendanceWorker__Enabled
+              value: "true"
+            - name: AttendanceWorker__PollIntervalSeconds
+              value: "60"
+            - name: AttendanceWorker__InitialLookbackDays
+              value: "45"
+            - name: AttendanceWorker__BatchSize
+              value: "5000"
+            - name: AttendanceWorker__TimeZone
+              value: "SE Asia Standard Time"
+
+            # Wi-Fi attendance import
+            - name: WifiAttendance__Enabled
+              value: "true"
+            - name: WifiAttendance__InitialLookbackDays
+              value: "45"
+            - name: WifiAttendance__BatchSize
+              value: "5000"
+            - name: WifiAttendance__OverlapHours
+              value: "24"
+
+            # .NET Settings
+            - name: DOTNET_ENVIRONMENT
+              value: "Production"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "750m"
+              memory: "768Mi"

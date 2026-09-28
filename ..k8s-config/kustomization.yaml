@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - hrm-api-deploy.yaml
+  - hrm-web-deploy.yaml
+  - hrm-worker-deploy.yaml
+  - hrm-api-ingress.yaml
+  - hrm-web-ingress.yaml

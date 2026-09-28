@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hrm-web
+  namespace: dev-is
+  labels:
+    app: hrm-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hrm-web
+  template:
+    metadata:
+      labels:
+        app: hrm-web
+    spec:
+      imagePullSecrets:
+        - name: ghcr-hrm-secret
+      containers:
+        - name: hrm-web
+          image: ghcr.io/neotp/hr-project-frontend:28.09.2026-v1
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: AZURE_AD_AUTHORITY
+              value: "https://login.microsoftonline.com/fcaf82c9-bebd-47e6-b057-5dce01865032"
+            - name: AZURE_AD_CLIENT_ID
+              value: "da6648e6-17b3-408b-8fc0-bf570f846ae7"
+            - name: API_BASE_URL
+              value: "https://webapp.sisthai.com/Hrmsystem-api"
+            - name: API_SCOPE
+              value: "api://da6648e6-17b3-408b-8fc0-bf570f846ae7/users.read"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 12
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hrm-web
+  namespace: dev-is
+  labels:
+    app: hrm-web
+spec:
+  type: ClusterIP
+  selector:
+    app: hrm-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

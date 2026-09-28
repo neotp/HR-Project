@@ -20,6 +20,14 @@ public sealed record AttendanceDailyDto(
     int CommentCount = 0,
     string? FirstScanSource = null);
 
+public sealed record AttendanceWorkScheduleDayDto(
+    DateOnly WorkDate,
+    bool IsWorkDay,
+    TimeOnly? WorkStart,
+    TimeOnly? WorkEnd,
+    TimeOnly? BreakStart,
+    TimeOnly? BreakEnd);
+
 public sealed record AttendanceHistoryDto(
     long Id,
     string Action,

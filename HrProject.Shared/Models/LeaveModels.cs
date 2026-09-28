@@ -6,6 +6,8 @@ public sealed record LeaveTypeDto(
     string NameTh,
     decimal DefaultHours);
 
+public sealed record MaternityLeaveEligibilityDto(string? AllowedTypeCode);
+
 public sealed record LeaveDocumentDto(
     long Id,
     string DocumentNo,
